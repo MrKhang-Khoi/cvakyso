@@ -1,7 +1,8 @@
 {
   "signType": "USB_TOKEN",
   "serialNumber": "025E056A3F133DA9",
+  "cccd": "042084002100",
   "certOwner": "Ngô Thị Liền",
   "school": "TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN",
-  "updatedAt": "2026-09-09T13:28:17.118Z"
+  "updatedAt": "2026-09-09T13:49:43.739Z"
 }

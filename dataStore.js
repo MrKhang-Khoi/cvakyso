@@ -54,7 +54,7 @@ function initDefaultUsers() {
         status: 'ACTIVE',
         email: 'bgh-dakha@quangngai.gov.vn',
         officialEmail: 'bgh-dakha@quangngai.gov.vn',
-        cccd: '025E056A3F133DA9',
+        cccd: '042084002100',
         certSerial: '025E056A3F133DA9',
         school: 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN',
         phone: '0255.385.0001',
@@ -672,6 +672,7 @@ function getBghSigningConfig() {
     signType: 'USB_TOKEN', // 'USB_TOKEN' hoặc 'SMART_CA'
     serialNumber: '025E056A3F133DA9', // USB Token Ban Giám hiệu (Cô Ngô Thị Liền)
     certOwner: 'Ngô Thị Liền',
+    cccd: '042084002100',
     school: 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN',
     updatedAt: new Date().toISOString()
   };

@@ -1,4 +1,4 @@
-﻿import { test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
 test.describe('3. Kiểm thử Quản trị viên (Danh sách Giáo viên, Tổ chuyên môn, Đám mây)', () => {
 
@@ -34,22 +34,21 @@ test.describe('3. Kiểm thử Quản trị viên (Danh sách Giáo viên, Tổ 
       await page.waitForTimeout(1500);
     }
 
-    // Bấm tab "Giáo viên & Tổ chuyên môn"
-    const navUsers = page.locator('#navTabUsers');
-    await expect(navUsers).toBeVisible();
-    await navUsers.click();
-    await page.waitForTimeout(1000);
+    // Kiểm tra tab "Danh sách Giáo viên"
+    const tabTeachers = page.locator('#tabBtnTeachers');
+    await expect(tabTeachers).toBeVisible();
+    await tabTeachers.click();
+    await page.waitForTimeout(500);
 
     // Bảng danh sách người dùng phải hiển thị
     await page.screenshot({ path: 'tests/screenshots/03_admin_users_table.png' });
 
-    // Chuyển sang tab con Tổ chuyên môn nếu có
-    const subTabDept = page.locator('button:has-text("Tổ chuyên môn"), a:has-text("Tổ chuyên môn")').first();
-    if (await subTabDept.isVisible()) {
-      await subTabDept.click();
-      await page.waitForTimeout(800);
-      await page.screenshot({ path: 'tests/screenshots/03_admin_departments_table.png' });
-    }
+    // Chuyển sang tab con Tổ chuyên môn
+    const tabDept = page.locator('#tabBtnDepartments');
+    await expect(tabDept).toBeVisible();
+    await tabDept.click();
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: 'tests/screenshots/03_admin_departments_table.png' });
 
     expect(consoleErrors, `Lỗi console khi quản trị viên thao tác: ${consoleErrors.join('; ')}`).toHaveLength(0);
   });

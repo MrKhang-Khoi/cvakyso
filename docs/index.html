@@ -1674,7 +1674,7 @@
           <p class="text-[11px] text-slate-500 mt-1">Theo quy định Bộ GD&ĐT, Ban Giám hiệu bắt buộc phê duyệt và đóng dấu bằng thiết bị USB Token phần cứng.</p>
         </div>
 
-        <!-- Thông tin Người đại diện / Hiệu trưởng -->
+        <!-- Thông tin Người đại diện / Hiệu trưởng & CCCD -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">2. Họ tên Lãnh đạo (Hiệu trưởng)</label>
@@ -1682,17 +1682,23 @@
               class="w-full px-3.5 py-2.5 text-xs bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none font-medium">
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">3. Cơ quan / Đơn vị</label>
-            <input type="text" id="inputBghSchool" required readonly value="TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN"
-              class="w-full px-3.5 py-2.5 text-xs bg-slate-100 border border-slate-200 text-slate-600 rounded-xl font-medium">
+            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">3. Số CCCD Lãnh đạo (12 số)</label>
+            <input type="text" id="inputBghCccd" required maxlength="12" placeholder="Ví dụ: 042084002100"
+              class="w-full px-3.5 py-2.5 text-xs font-mono font-bold bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
           </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">4. Cơ quan / Đơn vị</label>
+          <input type="text" id="inputBghSchool" required readonly value="TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN"
+            class="w-full px-3.5 py-2.5 text-xs bg-slate-100 border border-slate-200 text-slate-600 rounded-xl font-medium">
         </div>
 
         <!-- Số Serial USB Token Ban Cơ yếu (Quan trọng nhất) -->
         <div>
           <div class="flex items-center justify-between mb-1.5">
             <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-              4. Số Serial USB Token Ban Cơ yếu
+              5. Số Serial USB Token Ban Cơ yếu
             </label>
             <button type="button" onclick="scanBghUsbTokenFromAgent()" class="text-[11px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 cursor-pointer">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
@@ -1738,6 +1744,6 @@
   </div>
 
   <!-- Client Application Logic -->
-  <script src="./js/app.js?v=2.7.1&t=20260909_2045"></script>
+  <script src="./js/app.js?v=2.7.2&t=20260909_2055"></script>
 </body>
 </html>

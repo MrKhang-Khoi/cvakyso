@@ -1,4 +1,4 @@
-﻿import { test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
 test.describe('2. Kiểm thử Nghiệp vụ Giáo viên (Nộp bài, Chữ ký số, Danh mục)', () => {
 
@@ -46,39 +46,32 @@ test.describe('2. Kiểm thử Nghiệp vụ Giáo viên (Nộp bài, Chữ ký 
     await page.screenshot({ path: 'tests/screenshots/02_category_tabs.png' });
   });
 
-  test('Mở và đóng Modal Nộp hồ sơ giáo án mới trơn tru', async ({ page }) => {
-    const btnNewDoc = page.locator('#btnActionCreateDoc');
-    await expect(btnNewDoc).toBeVisible();
-    await btnNewDoc.click();
-    await page.waitForTimeout(600);
+  test('Khu vực Soạn & Ký văn bản và Lựa chọn Loại hồ sơ hiển thị đầy đủ', async ({ page }) => {
+    const tabWorkspace = page.locator('#tabBtnTeacherWorkspace');
+    await expect(tabWorkspace).toBeVisible();
+    await tabWorkspace.click();
+    await page.waitForTimeout(400);
 
-    // Modal phải hiển thị
-    const modalNewDoc = page.locator('#modalNewDoc');
-    await expect(modalNewDoc).toBeVisible();
+    // Khu vực soạn thảo phải hiển thị
+    const workspaceSec = page.locator('#tabContentTeacherWorkspace');
+    await expect(workspaceSec).toBeVisible();
+    await expect(page.locator('#labelTypeLesson')).toBeVisible();
+    await expect(page.locator('#labelTypeReport')).toBeVisible();
 
     await page.screenshot({ path: 'tests/screenshots/02_new_doc_modal.png' });
-
-    // Đóng modal
-    const btnClose = page.locator('#modalNewDoc button:has-text("Đóng"), #modalNewDoc button:has-text("Hủy"), #modalNewDoc button:has-text("Hủy bỏ")').first();
-    if (await btnClose.isVisible()) {
-      await btnClose.click();
-      await page.waitForTimeout(400);
-    }
   });
 
   test('Mở Modal Quản lý Mẫu chữ ký và Con dấu', async ({ page }) => {
-    const btnSig = page.locator('button:has-text("Mẫu chữ ký"), button:has-text("Chữ ký tay")').first();
-    if (await btnSig.isVisible()) {
-      await btnSig.click();
-      await page.waitForTimeout(600);
-      await page.screenshot({ path: 'tests/screenshots/02_signature_pad_modal.png' });
-
-      const btnCloseSig = page.locator('button:has-text("Đóng"), button:has-text("Hủy")').first();
-      if (await btnCloseSig.isVisible()) {
-        await btnCloseSig.click();
-        await page.waitForTimeout(400);
+    await page.evaluate(() => {
+      if (typeof window.openModalUploadSignature === 'function') {
+        window.openModalUploadSignature();
       }
-    }
+    });
+    await page.waitForTimeout(500);
+    const modalSig = page.locator('#modalUploadSignature');
+    await expect(modalSig).toBeVisible();
+    await page.screenshot({ path: 'tests/screenshots/02_signature_pad_modal.png' });
+    await page.evaluate(() => window.closeModal('modalUploadSignature'));
   });
 
 });

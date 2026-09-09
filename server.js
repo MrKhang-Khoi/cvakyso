@@ -1677,11 +1677,12 @@ app.post('/api/bgh/signing-config', requireAuth, (req, res) => {
     if (currentUser.role !== 'ADMIN') {
       return res.status(403).json({ success: false, message: 'Chỉ Ban Giám hiệu mới có quyền cấu hình thông tin chữ ký số này!' });
     }
-    const { signType, serialNumber, certOwner, school } = req.body || {};
+    const { signType, serialNumber, certOwner, school, cccd } = req.body || {};
     const updated = dataStore.saveBghSigningConfig({
       signType: signType || 'USB_TOKEN',
       serialNumber: (serialNumber || '').trim(),
       certOwner: (certOwner || currentUser.name || '').trim(),
+      cccd: (cccd || currentUser.cccd || '042084002100').trim(),
       school: school || 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN'
     });
     res.json({

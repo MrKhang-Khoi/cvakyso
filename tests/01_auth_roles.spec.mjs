@@ -1,4 +1,4 @@
-﻿import { test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
 test.describe('1. Kiểm thử Đăng nhập, Phân quyền & Đăng xuất (RBAC)', () => {
 
@@ -23,8 +23,8 @@ test.describe('1. Kiểm thử Đăng nhập, Phân quyền & Đăng xuất (RBA
     }
 
     // Kiểm tra đã vào Dashboard
-    await expect(page.locator('#navTabDocs')).toBeVisible();
-    await expect(page.locator('text=Hà Văn Tý').first()).toBeVisible();
+    await expect(page.locator('#tabBtnTeacherWorkspace')).toBeVisible();
+    await expect(page.locator('#headerTeacherName')).toBeVisible();
 
     expect(consoleErrors, `Lỗi console khi giáo viên đăng nhập: ${consoleErrors.join('; ')}`).toHaveLength(0);
     await page.screenshot({ path: 'tests/screenshots/01_teacher_dashboard.png' });
@@ -54,8 +54,9 @@ test.describe('1. Kiểm thử Đăng nhập, Phân quyền & Đăng xuất (RBA
     await page.locator('#btnLoginSubmit').click();
     await page.waitForTimeout(1500);
 
-    // Admin phải thấy tab "Giáo viên & Tổ chuyên môn"
-    await expect(page.locator('#navTabUsers')).toBeVisible();
+    // Admin phải thấy tab "Danh sách Giáo viên" & "Tổ Chuyên môn"
+    await expect(page.locator('#tabBtnTeachers')).toBeVisible();
+    await expect(page.locator('#tabBtnDepartments')).toBeVisible();
     await page.screenshot({ path: 'tests/screenshots/01_admin_dashboard.png' });
   });
 

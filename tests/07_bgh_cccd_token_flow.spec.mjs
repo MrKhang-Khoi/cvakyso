@@ -195,9 +195,145 @@ test.describe('Kiểm thử Đối soát CCCD USB Token Ban Giám hiệu & Tự 
     // Chụp ảnh bằng chứng modal ký số tự động chọn USB Token
     await page.screenshot({ path: 'tests/screenshots/09_bgh_modal_usb_sign.png' });
 
-    await page.evaluate(() => window.closeModal('modalVgcaLogin'));
+    // 5. Kiểm tra Modal Cấu hình Chữ ký số Ban Giám hiệu (modalBghConfig)
+    await page.evaluate(() => {
+      if (typeof window.openModalBghConfig === 'function') {
+        window.openModalBghConfig();
+      }
+    });
+    await page.waitForTimeout(600);
 
-    // 5. Kiểm tra sạch hoàn toàn console error
+    const modalBghCfg = page.locator('#modalBghConfig');
+    await expect(modalBghCfg).toBeVisible();
+
+    // 5.1. Kiểm tra ô CCCD BGH có tồn tại và hiển thị đúng 042084002100
+    const bghCccdInput = page.locator('#inputBghCccd');
+    await expect(bghCccdInput).toBeVisible();
+    const cccdVal = await bghCccdInput.inputValue();
+    expect(cccdVal).toBe('042084002100');
+
+    // 5.2. Test quét khi ô CCCD rỗng -> bị chặn và cảnh báo inline
+    await bghCccdInput.fill('');
+    await page.evaluate(() => window.scanBghUsbTokenFromAgent());
+    await page.waitForTimeout(300);
+    const bghAlert = page.locator('#bghConfigAlert');
+    await expect(bghAlert).toBeVisible();
+    expect(await bghAlert.textContent()).toContain('CẦN NHẬP SỐ CCCD');
+
+    // 5.3. Test quét khi cắm nhầm Token (CCCD không khớp)
+    await page.route('**/api/check-vgca-status*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          certInfo: {
+            serialNumber: '9988776655443322',
+            signerName: 'Lãnh đạo khác',
+            cccd: '099999999999'
+          }
+        })
+      });
+    });
+
+    await bghCccdInput.fill('042084002100');
+    await page.evaluate(() => window.scanBghUsbTokenFromAgent());
+    await page.waitForTimeout(300);
+    expect(await bghAlert.textContent()).toContain('CẢNH BÁO LỆCH ĐỊNH DANH CCCD');
+    await page.unroute('**/api/check-vgca-status*');
+
+    // 5.4. Test quét khi cắm đúng Token BGH (Cô Ngô Thị Liền, 042084002100)
+    await page.route('**/api/check-vgca-status*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          certInfo: {
+            serialNumber: '025E056A3F133DA9',
+            signerName: 'Ngô Thị Liền',
+            cccd: '042084002100'
+          }
+        })
+      });
+    });
+
+    await page.evaluate(() => window.scanBghUsbTokenFromAgent());
+    await page.waitForTimeout(300);
+    const bghSerialInput = page.locator('#inputBghSerial');
+    expect(await bghSerialInput.inputValue()).toBe('025E056A3F133DA9');
+    expect(await bghAlert.textContent()).toContain('ĐÃ QUÉT & ĐỐI SOÁT KHỚP THÀNH CÔNG');
+    await page.unroute('**/api/check-vgca-status*');
+
+    // Đóng Modal BGH Config
+    await page.evaluate(() => window.closeModal('modalBghConfig'));
+    await page.waitForTimeout(300);
+
+    // 6. Kiểm tra quy trình Ký Ban Giám hiệu qua USB Token (Zero Mobile Dependency)
+    // Giả lập Agent đang chạy và phản hồi cert BGH
+    await page.route('**/api/ping-local-signer*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, appRunning: true, version: '2.0' })
+      });
+    });
+
+    await page.route('**/api/check-vgca-status*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          tokenConnected: true,
+          certInfo: {
+            serialNumber: '025E056A3F133DA9',
+            signerName: 'Ngô Thị Liền',
+            cccd: '042084002100',
+            school: 'TRƯỜNG THCS CHU VĂN AN'
+          }
+        })
+      });
+    });
+
+    // BGH kích hoạt quy trình Ký
+    await page.evaluate(() => {
+      window.executeMasterSigningPipeline({
+        signType: 'USB_TOKEN',
+        cccd: '042084002100',
+        signerName: 'Ngô Thị Liền'
+      });
+    });
+    await page.waitForTimeout(600);
+
+    // Xác minh modalSignProgress hiển thị view USB Token, ẨN HOÀN TOÀN view di động
+    const modalSignProgress = page.locator('#modalSignProgress');
+    await expect(modalSignProgress).toBeVisible();
+
+    const usbSignView = page.locator('#signProgressUsbView');
+    await expect(usbSignView).toBeVisible();
+
+    const mobileSignView = page.locator('#signProgressMobileView');
+    await expect(mobileSignView).toHaveClass(/hidden/);
+
+    // Xác minh thông tin BGH hiển thị chuẩn xác
+    const progressSigner = page.locator('#signProgressSigner');
+    expect(await progressSigner.textContent()).toContain('Ngô Thị Liền');
+
+    const progressCccd = page.locator('#signProgressCccd');
+    expect(await progressCccd.textContent()).toContain('042084002100');
+
+    const progressSerial = page.locator('#signProgressSerial');
+    expect(await progressSerial.textContent()).toContain('025E056A3F133DA9');
+
+    // Chụp ảnh bằng chứng màn hình ký USB Token BGH chuẩn công vụ
+    await page.screenshot({ path: 'tests/screenshots/10_bgh_direct_usb_sign_view.png' });
+
+    await page.evaluate(() => window.closeModal('modalSignProgress'));
+    await page.unroute('**/api/ping-local-signer*');
+    await page.unroute('**/api/check-vgca-status*');
+
+    // 7. Kiểm tra sạch hoàn toàn console error
     expect(consoleErrors).toEqual([]);
   });
 });

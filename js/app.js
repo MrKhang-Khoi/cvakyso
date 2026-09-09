@@ -255,6 +255,9 @@ function handleLogout() {
   appState.currentUser = null;
   localStorage.removeItem('edusign_token');
   localStorage.removeItem('edusign_user');
+  localStorage.removeItem('edusign_vgca_user');
+  localStorage.removeItem('edusign_vgca_credentials');
+  if (window._lastDetectedVgcaCert) window._lastDetectedVgcaCert = null;
   if (typeof handleClearFile === 'function') {
     handleClearFile();
   }
@@ -3749,13 +3752,14 @@ async function verifyVgcaStatusFromAgent(cccd, password, signType = 'VGCA') {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4500);
   const currentUser = appState.currentUser;
-  const isUsb = (signType === 'USB_TOKEN' || signType === 'usb');
+  const isCurrentUserBgh = (currentUser?.role === 'BGH' || currentUser?.role === 'ADMIN' || currentUser?.signType === 'USB_TOKEN' || currentUser?.departmentId === 'dept_bgh');
+  const isUsb = isCurrentUserBgh || (signType === 'USB_TOKEN' || signType === 'usb');
   const mode = isUsb ? 'HARDWARE' : 'PERSONAL';
-  const expectedSigner = currentUser?.fullName || currentUser?.name || '';
-  const expectedCccd = cccd || currentUser?.cccd || '';
-  const expectedSerial = isUsb ? (currentUser?.certSerial || currentUser?.certificateSerial || (window.bghSigningConfig && window.bghSigningConfig.serialNumber) || '') : '';
+  const expectedSigner = currentUser?.fullName || currentUser?.name || (isUsb ? 'Ngô Thị Liền' : '');
+  const expectedCccd = cccd || currentUser?.cccd || (isUsb ? '042084002100' : '');
+  const expectedSerial = isUsb ? (currentUser?.certSerial || currentUser?.certificateSerial || (window.bghSigningConfig && window.bghSigningConfig.serialNumber) || '025E056A3F133DA9') : '';
 
-  let queryUrl = `http://127.0.0.1:18888/api/check-vgca-status?signType=${encodeURIComponent(signType)}&mode=${encodeURIComponent(mode)}&signer=${encodeURIComponent(expectedSigner)}&cccd=${encodeURIComponent(expectedCccd)}&_t=${Date.now()}`;
+  let queryUrl = `http://127.0.0.1:18888/api/check-vgca-status?signType=${encodeURIComponent(isUsb ? 'USB_TOKEN' : signType)}&mode=${encodeURIComponent(mode)}&signer=${encodeURIComponent(expectedSigner)}&cccd=${encodeURIComponent(expectedCccd)}&_t=${Date.now()}`;
   if (expectedSerial) {
     queryUrl += `&serial=${encodeURIComponent(expectedSerial)}`;
   }
@@ -3890,7 +3894,20 @@ function handleViewerConfirmSignClick() {
     }
   }
 
-  // 1. Kiểm tra tài khoản đã lưu
+  // 1. Phân biệt tài khoản: Nếu là Ban Giám hiệu / Quản trị viên (ký USB Token phần cứng)
+  // Quy trình chuẩn công vụ (tương tự Viettel EDOC-CA Plugin): Ký trực tiếp qua USB Token phần cứng, không qua SmartCA di động
+  const isCurrentUserBgh = (appState.currentUser?.role === 'BGH' || appState.currentUser?.role === 'ADMIN' || appState.currentUser?.signType === 'USB_TOKEN' || appState.currentUser?.departmentId === 'dept_bgh');
+  if (isCurrentUserBgh) {
+    const bghCccd = appState.currentUser?.cccd || (window.bghSigningConfig && window.bghSigningConfig.cccd) || '042084002100';
+    executeMasterSigningPipeline({
+      cccd: bghCccd,
+      signType: 'USB_TOKEN',
+      signerName: appState.currentUser?.fullName || appState.currentUser?.name || 'Ngô Thị Liền'
+    });
+    return;
+  }
+
+  // 2. Đối với Giáo viên ký SmartCA cá nhân: Kiểm tra tài khoản đã lưu
   const stored = getStoredVgcaCredentials();
   if (stored && stored.cccd && validateCccd12Digits(stored.cccd) && stored.password) {
     // Có lưu -> Chạy quy trình đối soát mật khẩu thực tế
@@ -3984,8 +4001,11 @@ async function executeMasterSigningPipeline(credentials) {
   if (vgcaCountdownTimer) clearInterval(vgcaCountdownTimer);
   if (driveCleanupTimer) clearInterval(driveCleanupTimer);
 
+  const isCurrentUserBgh = (appState.currentUser?.role === 'BGH' || appState.currentUser?.role === 'ADMIN' || appState.currentUser?.signType === 'USB_TOKEN' || appState.currentUser?.departmentId === 'dept_bgh');
+  const isUsb = isCurrentUserBgh || (credentials.signType === 'USB_TOKEN' || credentials.signType === 'usb');
+
   // BƯỚC 1: KIỂM TRA EDUSIGN AGENT (127.0.0.1:18888)
-  showToast('Đang kết nối EduSign Agent (cổng 18888)...', 'info');
+  showToast(isUsb ? 'Đang kết nối EduSign Agent để kiểm tra USB Token Ban Cơ yếu...' : 'Đang kết nối EduSign Agent (cổng 18888)...', 'info');
   const ping = await pingLocalSigner(2500);
   if (!ping.available) {
     showModalAlert(
@@ -4001,15 +4021,15 @@ async function executeMasterSigningPipeline(credentials) {
     return; // DỪNG LẬP TỨC
   }
 
-  // BƯỚC 2 & 3: ĐỐI SOÁT MẬT KHẨU & TRẠNG THÁI VIRTUAL CSP
-  showToast('Đang đối soát mật khẩu & kiểm tra Virtual CSP...', 'info');
+  // BƯỚC 2 & 3: ĐỐI SOÁT & KIỂM TRA CSP / TOKEN
+  showToast(isUsb ? 'Đang kiểm tra thiết bị USB Token phần cứng...' : 'Đang đối soát mật khẩu & kiểm tra Virtual CSP...', 'info');
   let cspData;
   try {
-    cspData = await verifyVgcaStatusFromAgent(credentials.cccd, credentials.password, credentials.signType);
+    cspData = await verifyVgcaStatusFromAgent(credentials.cccd, credentials.password, isUsb ? 'USB_TOKEN' : credentials.signType);
   } catch (err) {
     showModalAlert(
-      'Lỗi kiểm tra Virtual CSP',
-      `Không thể kiểm tra dịch vụ mật mã Ban Cơ yếu: ${err.message}. Vui lòng kiểm tra lại phần mềm Virtual CSP trên máy tính.`,
+      isUsb ? 'Lỗi kiểm tra USB Token' : 'Lỗi kiểm tra Virtual CSP',
+      `Không thể kiểm tra dịch vụ mật mã Ban Cơ yếu: ${err.message}. Vui lòng kiểm tra lại phần mềm trên máy tính.`,
       'error'
     );
     return; // DỪNG LẬP TỨC
@@ -4028,15 +4048,15 @@ async function executeMasterSigningPipeline(credentials) {
   // 3.2. Kiểm tra lỗi tính nhất quán CSP
   if (cspData.hasCspError || cspData.cspHealthy === false) {
     showModalAlert(
-      'Sự cố tính nhất quán Virtual CSP',
-      `Phát hiện lỗi mật mã Virtual CSP: <strong>${cspData.cspErrorMessage || 'An internal consistency check failed.'}</strong><br><br>Hướng dẫn khắc phục:<br>• Mở lại phần mềm Virtual CSP trên máy tính.<br>• Rút và cắm lại USB Token (nếu dùng USB).<br>• Khởi động lại EduSign Agent.`,
+      'Sự cố tính nhất quán Thiết bị Ký',
+      `Phát hiện lỗi mật mã: <strong>${cspData.cspErrorMessage || 'An internal consistency check failed.'}</strong><br><br>Hướng dẫn khắc phục:<br>• Rút và cắm lại USB Token Ban Cơ yếu.<br>• Mở lại phần mềm Virtual CSP / PKI Minidriver.<br>• Khởi động lại EduSign Agent.`,
       'error'
     );
     return; // DỪNG LẬP TỨC
   }
 
-  // 3.3. Kiểm tra mật khẩu đã đổi / lệch thông tin
-  if (cspData.credentialsValid === false || cspData.authFailed === true) {
+  // 3.3. Kiểm tra mật khẩu đã đổi / lệch thông tin (chỉ kiểm tra khi dùng SmartCA cá nhân)
+  if (!isUsb && (cspData.credentialsValid === false || cspData.authFailed === true)) {
     clearStoredVgcaCredentials();
     showModalAlert(
       'Mật khẩu Chữ ký số đã thay đổi',
@@ -4055,7 +4075,7 @@ async function executeMasterSigningPipeline(credentials) {
   if (!cert) {
     showModalAlert(
       'Không tìm thấy Chứng thư số hợp lệ',
-      cspData.cspErrorMessage || 'Không tìm thấy chứng thư số phù hợp với tài khoản của Thầy/Cô. Vui lòng kiểm tra lại dịch vụ VGCA Virtual CSP.',
+      cspData.cspErrorMessage || (isUsb ? 'Không tìm thấy USB Token Ban Giám hiệu đang cắm trên máy tính. Vui lòng cắm Token và thử lại.' : 'Không tìm thấy chứng thư số phù hợp với tài khoản của Thầy/Cô. Vui lòng kiểm tra lại dịch vụ VGCA Virtual CSP.'),
       'error'
     );
     return; // DỪNG LẬP TỨC
@@ -4067,17 +4087,17 @@ async function executeMasterSigningPipeline(credentials) {
   const serialEl = document.getElementById('signProgressSerial');
   const statusLabel = document.getElementById('signProgressStatusLabel');
 
-  if (signerEl) signerEl.textContent = cert.signerName || appState.currentUser?.fullName || 'Giáo viên';
-  if (cccdEl) cccdEl.textContent = credentials.cccd;
+  if (signerEl) signerEl.textContent = cert.signerName || appState.currentUser?.fullName || (isUsb ? 'Ngô Thị Liền' : 'Giáo viên');
+  if (cccdEl) cccdEl.textContent = cert.cccd || credentials.cccd || (isUsb ? '042084002100' : '');
   if (deptEl) deptEl.textContent = cert.school || appState.currentUser?.department || 'THCS Chu Văn An';
-  if (serialEl) serialEl.textContent = cert.serialNumber || 'X.509 PAdES SHA256withRSA';
-  if (statusLabel) statusLabel.textContent = 'Đang sẵn sàng niêm phong chữ ký số...';
+  if (serialEl) serialEl.textContent = cert.serialNumber || (isUsb ? '025E056A3F133DA9' : 'X.509 PAdES SHA256withRSA');
+  if (statusLabel) statusLabel.textContent = isUsb ? 'Đang sẵn sàng phê duyệt & đóng dấu điện tử...' : 'Đang sẵn sàng niêm phong chữ ký số...';
 
-  const isUsb = (credentials.signType === 'USB_TOKEN' || credentials.signType === 'usb');
   const mobileView = document.getElementById('signProgressMobileView');
   const usbView = document.getElementById('signProgressUsbView');
 
   if (isUsb) {
+    if (vgcaCountdownTimer) clearInterval(vgcaCountdownTimer);
     if (mobileView) mobileView.classList.add('hidden');
     if (usbView) usbView.classList.remove('hidden');
   } else {
@@ -4087,7 +4107,10 @@ async function executeMasterSigningPipeline(credentials) {
   }
 
   currentActiveSignSession = {
-    credentials,
+    credentials: {
+      ...credentials,
+      signType: isUsb ? 'USB_TOKEN' : (credentials.signType || 'VGCA')
+    },
     cert,
     isUsb,
     docTitle: currentViewingFileName,
@@ -4860,6 +4883,9 @@ async function openModalBghConfig() {
       if (document.getElementById('inputBghCertOwner')) {
         document.getElementById('inputBghCertOwner').value = configData.certOwner || appState.currentUser?.fullName || appState.currentUser?.name || '';
       }
+      if (document.getElementById('inputBghCccd')) {
+        document.getElementById('inputBghCccd').value = configData.cccd || appState.currentUser?.cccd || '042084002100';
+      }
       if (document.getElementById('inputBghSerial')) {
         document.getElementById('inputBghSerial').value = configData.serialNumber || '';
       }
@@ -4875,40 +4901,109 @@ async function openModalBghConfig() {
 }
 
 async function scanBghUsbTokenFromAgent() {
+  const cccdInput = document.getElementById('inputBghCccd');
   const serialInput = document.getElementById('inputBghSerial');
   const ownerInput = document.getElementById('inputBghCertOwner');
+  const alertEl = document.getElementById('bghConfigAlert');
+
+  if (alertEl) {
+    alertEl.classList.add('hidden');
+    alertEl.innerHTML = '';
+  }
+
+  const inputCccd = (cccdInput?.value || '').trim();
+  if (!inputCccd) {
+    if (cccdInput) {
+      cccdInput.focus();
+      cccdInput.classList.add('ring-2', 'ring-rose-500');
+      setTimeout(() => cccdInput.classList.remove('ring-2', 'ring-rose-500'), 3000);
+    }
+    if (alertEl) {
+      alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-amber-50 text-amber-800 border border-amber-300 block';
+      alertEl.innerHTML = '<strong>⚠️ CẦN NHẬP SỐ CCCD:</strong> Vui lòng nhập Số CCCD (12 số) của Ban Giám hiệu trước khi quét để đối soát chống cắm nhầm thiết bị!';
+    }
+    showToast('⚠️ Vui lòng nhập Số CCCD Lãnh đạo trước khi quét USB Token!', 'warning');
+    return;
+  }
+
+  if (!validateCccd12Digits(inputCccd)) {
+    if (cccdInput) {
+      cccdInput.focus();
+      cccdInput.classList.add('ring-2', 'ring-rose-500');
+      setTimeout(() => cccdInput.classList.remove('ring-2', 'ring-rose-500'), 3000);
+    }
+    if (alertEl) {
+      alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-rose-50 text-rose-800 border border-rose-300 block';
+      alertEl.innerHTML = '<strong>⚠️ SỐ CCCD KHÔNG HỢP LỆ:</strong> Số CCCD phải đủ đúng 12 chữ số theo thẻ Căn cước công dân gắn chip!';
+    }
+    showToast('⚠️ Số CCCD không hợp lệ! Vui lòng nhập đúng 12 chữ số.', 'error');
+    return;
+  }
+
   showToast('🔍 Đang kết nối EduSign Agent để quét thiết bị USB Token...', 'info');
 
   try {
-    const res = await fetch('http://127.0.0.1:18888/api/check-vgca-status?mode=HARDWARE', {
-      signal: AbortSignal.timeout(3000)
+    const expectedSigner = ownerInput?.value?.trim() || '';
+    const queryUrl = `http://127.0.0.1:18888/api/check-vgca-status?mode=HARDWARE&cccd=${encodeURIComponent(inputCccd)}&signer=${encodeURIComponent(expectedSigner)}&_t=${Date.now()}`;
+    const res = await fetch(queryUrl, {
+      signal: AbortSignal.timeout(3500)
     });
     if (res.ok) {
       const data = await res.json();
-      if (data.tokenConnected && data.certInfo) {
-        if (serialInput) serialInput.value = data.certInfo.serialNumber || '';
-        if (ownerInput && (!ownerInput.value || ownerInput.value === 'Ngô Thị Liền' || ownerInput.value === 'admin')) {
-          ownerInput.value = data.certInfo.signerName || ownerInput.value;
+      let cert = data.certInfo;
+      if (!cert && data.availableCerts && data.availableCerts.length > 0) {
+        const found = data.availableCerts.find(c => {
+          const cCccd = (c.cccd || '').trim();
+          return cCccd && (cCccd.includes(inputCccd) || inputCccd.includes(cCccd));
+        });
+        cert = found || data.availableCerts[0];
+      }
+
+      if (cert && cert.serialNumber) {
+        const certCccd = (cert.cccd || '').trim();
+        const certSerial = (cert.serialNumber || '').trim().toUpperCase();
+        const certSigner = cert.signerName || 'Không xác định';
+
+        // Đối chiếu CCCD nếu chứng thư có chứa CCCD
+        if (certCccd && certCccd !== inputCccd && !certCccd.includes(inputCccd) && !inputCccd.includes(certCccd)) {
+          if (alertEl) {
+            alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-rose-50 text-rose-800 border border-rose-300 block';
+            alertEl.innerHTML = `<strong>⛔ CẢNH BÁO LỆCH ĐỊNH DANH CCCD:</strong><br>• CCCD nhập: <strong>${inputCccd}</strong><br>• CCCD trong USB Token: <strong>${certCccd}</strong> (${certSigner})<br>Hệ thống không tự ý điền số Serial này để tránh nhầm lẫn thiết bị của Lãnh đạo khác!`;
+          }
+          showToast(`⛔ USB Token [${certSigner}] có CCCD ${certCccd} không khớp với ${inputCccd}!`, 'error');
+          return;
         }
-        showToast(`✅ Đã nhận diện USB Token [${data.certInfo.signerName}] - Serial: ${data.certInfo.serialNumber}`, 'success');
-        return;
-      } else if (data.availableCerts && data.availableCerts.length > 0) {
-        // Nếu có certs trong danh sách
-        const c = data.availableCerts[0];
-        if (serialInput) serialInput.value = c.serialNumber || '';
-        if (ownerInput && !ownerInput.value) ownerInput.value = c.signerName || '';
-        showToast(`✅ Đã nhận diện chứng thư số [${c.signerName}] - Serial: ${c.serialNumber}`, 'success');
+
+        if (serialInput) serialInput.value = certSerial;
+        if (ownerInput && (!ownerInput.value || ownerInput.value === 'Ngô Thị Liền' || ownerInput.value === 'admin')) {
+          ownerInput.value = certSigner;
+        }
+
+        if (alertEl) {
+          alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-emerald-50 text-emerald-800 border border-emerald-300 block';
+          alertEl.innerHTML = `<strong>✅ ĐÃ QUÉT & ĐỐI SOÁT KHỚP THÀNH CÔNG:</strong><br>• Chủ sở hữu: <strong>${certSigner}</strong><br>• CCCD: <strong>${certCccd || inputCccd}</strong><br>• Số Serial: <strong>${certSerial}</strong>`;
+        }
+        showToast(`✅ Đã nhận diện USB Token [${certSigner}] - Serial: ${certSerial}`, 'success');
         return;
       }
     }
+    if (alertEl) {
+      alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-amber-50 text-amber-800 border border-amber-300 block';
+      alertEl.innerHTML = '<strong>⚠️ CHƯA NHẬN DIỆN ĐƯỢC TOKEN:</strong> Chưa tìm thấy USB Token Ban Cơ yếu đang cắm. Vui lòng kiểm tra cáp nối/USB và thử lại.';
+    }
     showToast('⚠️ Chưa tìm thấy USB Token đang cắm trên máy. Thầy/Cô vui lòng cắm USB Token Ban Cơ yếu và thử lại.', 'warning');
   } catch (err) {
+    if (alertEl) {
+      alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-rose-50 text-rose-800 border border-rose-300 block';
+      alertEl.innerHTML = '<strong>❌ LỖI KẾT NỐI AGENT:</strong> Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng khởi động EduSign_Agent.exe.';
+    }
     showToast('⚠️ Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng khởi động EduSign_Agent.exe trước khi quét.', 'warning');
   }
 }
 
 async function handleSaveBghConfig(event) {
   event.preventDefault();
+  const cccd = document.getElementById('inputBghCccd')?.value.trim() || '042084002100';
   const certOwner = document.getElementById('inputBghCertOwner')?.value.trim();
   const serialNumber = document.getElementById('inputBghSerial')?.value.trim();
   const school = document.getElementById('inputBghSchool')?.value.trim() || 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN';
@@ -4927,6 +5022,7 @@ async function handleSaveBghConfig(event) {
     if (firebaseDb) {
       await firebaseDb.ref('configs/bgh_signing_config').set({
         signType: 'USB_TOKEN',
+        cccd,
         certOwner,
         serialNumber,
         school,
@@ -4937,6 +5033,7 @@ async function handleSaveBghConfig(event) {
     // Cập nhật currentUser nếu đang là BGH
     if (appState.currentUser && (appState.currentUser.role === 'ADMIN' || appState.currentUser.role === 'BGH')) {
       appState.currentUser.certSerial = serialNumber;
+      appState.currentUser.cccd = cccd;
       try { localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser)); } catch (e) {}
       checkUserAccountIntegrity(appState.currentUser);
     }
@@ -4954,6 +5051,7 @@ async function handleSaveBghConfig(event) {
         },
         body: JSON.stringify({
           signType: 'USB_TOKEN',
+          cccd,
           certOwner,
           serialNumber,
           school
