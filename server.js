@@ -1154,8 +1154,29 @@ app.get('/api/drive/my-folder', async (req, res) => {
 });
 
 // Chi tiết hồ sơ
-app.get('/api/documents/:id', requireAuth, (req, res) => {
-  const doc = dataStore.getDocumentById(req.params.id);
+app.get('/api/documents/:id', async (req, res) => {
+  let doc = dataStore.getDocumentById(req.params.id);
+  if (!doc) {
+    // Thử truy vấn Firebase Realtime Database nếu hồ sơ được tạo trực tiếp từ Client
+    try {
+      const fbUrl = 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/documents/' + encodeURIComponent(req.params.id) + '.json';
+      const https = require('https');
+      const fbDoc = await new Promise((resolve) => {
+        https.get(fbUrl, (fRes) => {
+          if (fRes.statusCode !== 200) return resolve(null);
+          let raw = '';
+          fRes.on('data', c => raw += c);
+          fRes.on('end', () => {
+            try { resolve(JSON.parse(raw)); } catch { resolve(null); }
+          });
+        }).on('error', () => resolve(null));
+      });
+      if (fbDoc && fbDoc.id) {
+        doc = fbDoc;
+        try { dataStore.createDocument(doc, { username: doc.creatorId || 'system' }); } catch (e) {}
+      }
+    } catch (fbErr) {}
+  }
   if (!doc) return res.status(404).json({ success: false, message: 'Không tìm thấy hồ sơ' });
   res.json({ success: true, data: doc });
 });
@@ -1203,7 +1224,68 @@ app.get('/api/documents/:id/file', async (req, res) => {
     }
   }
 
-  // 3. Nếu file vật lý bị mất do restart container Render, khôi phục từ fileBase64
+  // 3. Tra cứu Firebase nếu chưa có thông tin Google Drive
+  if ((!resolvedPath || !fs.existsSync(resolvedPath)) && !doc.googleDriveUrl && !doc.driveInfo) {
+    try {
+      const fbUrl = 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/documents/' + encodeURIComponent(req.params.id) + '.json';
+      const https = require('https');
+      const fbDoc = await new Promise((resolve) => {
+        https.get(fbUrl, (fRes) => {
+          if (fRes.statusCode !== 200) return resolve(null);
+          let raw = '';
+          fRes.on('data', c => raw += c);
+          fRes.on('end', () => {
+            try { resolve(JSON.parse(raw)); } catch { resolve(null); }
+          });
+        }).on('error', () => resolve(null));
+      });
+      if (fbDoc) {
+        doc = Object.assign({}, doc, fbDoc);
+      }
+    } catch (e) {}
+  }
+
+  // 4. Nếu file vật lý chưa có trên đĩa nhưng có Google Drive URL -> Tự động tải từ Google Drive
+  if ((!resolvedPath || !fs.existsSync(resolvedPath)) && (doc.googleDriveUrl || doc.driveInfo?.viewUrl)) {
+    try {
+      const targetDriveUrl = doc.googleDriveUrl || doc.driveInfo?.viewUrl;
+      const fileIdMatch = targetDriveUrl.match(/[-\w]{25,}/);
+      if (fileIdMatch) {
+        const fileId = fileIdMatch[0];
+        const downloadUrl = 'https://drive.usercontent.google.com/download?id=' + fileId + '&export=download';
+        const https = require('https');
+        const driveBuffer = await new Promise((resolve, reject) => {
+          function fetchDrive(u) {
+            https.get(u, (dRes) => {
+              if (dRes.statusCode >= 300 && dRes.statusCode < 400 && dRes.headers.location) {
+                return fetchDrive(dRes.headers.location);
+              }
+              if (dRes.statusCode !== 200) return reject(new Error('Status ' + dRes.statusCode));
+              const chunks = [];
+              dRes.on('data', c => chunks.push(c));
+              dRes.on('end', () => resolve(Buffer.concat(chunks)));
+            }).on('error', reject);
+          }
+          fetchDrive(downloadUrl);
+        });
+
+        if (driveBuffer && driveBuffer.length > 500) {
+          const uploadDir = path.join(__dirname, 'uploads', 'documents');
+          if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+          const safeId = req.params.id.replace(/[^a-zA-Z0-9_\-]/g, '_');
+          const dlPath = path.join(uploadDir, `doc_${safeId}.pdf`);
+          fs.writeFileSync(dlPath, driveBuffer);
+          resolvedPath = dlPath;
+          try { dataStore.updateDocument(doc.id, { filePath: `uploads/documents/doc_${safeId}.pdf` }); } catch (e) {}
+          console.log(`[Google Drive Stream] Đã tự động nạp thành công ${driveBuffer.length} bytes từ Google Drive cho hồ sơ [${req.params.id}]!`);
+        }
+      }
+    } catch (gErr) {
+      console.warn('[Google Drive Stream] Không thể tải từ Drive:', gErr.message);
+    }
+  }
+
+  // 5. Nếu file vật lý bị mất do restart container Render, khôi phục từ fileBase64
   if ((!resolvedPath || !fs.existsSync(resolvedPath)) && doc.fileBase64) {
     try {
       const cleanBase64 = doc.fileBase64.replace(/^data:[^;]+;base64,/, '');

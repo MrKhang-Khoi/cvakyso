@@ -425,12 +425,12 @@ async function generateSignedPdf(doc) {
           let stampX = defaultX;
           let stampY = defaultY;
 
-          if (doc.signCoordinates && typeof doc.signCoordinates.x === 'number' && typeof doc.signCoordinates.y === 'number') {
-            stampX = doc.signCoordinates.x;
-            stampY = doc.signCoordinates.y;
-          } else if (doc.signCoordinates && typeof doc.signCoordinates.xPercent === 'number' && typeof doc.signCoordinates.yPercent === 'number') {
-            stampX = (doc.signCoordinates.xPercent / 100) * pW;
-            stampY = pH - ((doc.signCoordinates.yPercent / 100) * pH) - stampHeight;
+          if (doc.signCoordinates && typeof doc.signCoordinates.xPercent === 'number' && typeof doc.signCoordinates.yPercent === 'number') {
+            stampX = Math.max(10, Math.min(pW - stampWidth - 10, (doc.signCoordinates.xPercent / 100) * pW));
+            stampY = Math.max(10, Math.min(pH - stampHeight - 10, pH - ((doc.signCoordinates.yPercent / 100) * pH) - stampHeight));
+          } else if (doc.signCoordinates && typeof doc.signCoordinates.x === 'number' && typeof doc.signCoordinates.y === 'number') {
+            stampX = Math.max(10, Math.min(pW - stampWidth - 10, doc.signCoordinates.x));
+            stampY = Math.max(10, Math.min(pH - stampHeight - 10, doc.signCoordinates.y));
           } else {
             // Tự động tìm neo vị trí chữ ký thông minh (Smart Pedagogical Anchor)
             const teacherName = (teacherSignature && teacherSignature.signerName) || doc.author || 'Hà Văn Tý';

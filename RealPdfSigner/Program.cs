@@ -828,7 +828,7 @@ namespace RealPdfSigner
             return (ms.ToArray(), widthPt, heightPt);
         }
 
-        public static (int page, float x, float y, float w, float h) DetermineCoordinates(byte[] pdfBytes, string signerName, string role, float? reqX = null, float? reqY = null, float? reqW = null, float? reqH = null, int? reqPage = null)
+        public static (int page, float x, float y, float w, float h) DetermineCoordinates(byte[] pdfBytes, string signerName, string role, float? reqX = null, float? reqY = null, float? reqW = null, float? reqH = null, int? reqPage = null, float? reqXPercent = null, float? reqYPercent = null)
         {
             int targetPage = 1;
             float pW = 595.28f, pH = 841.89f;
@@ -849,6 +849,15 @@ namespace RealPdfSigner
                 float w = reqW.HasValue && reqW.Value > 0 ? reqW.Value : 95f;
                 float h = reqH.HasValue && reqH.Value > 0 ? reqH.Value : 60f;
 
+                // ƯU TIÊN 1: Tỷ lệ phần trăm (xPercent / yPercent) định vị CHÍNH XÁC theo chiều rộng/cao thực tế của trang (Landscape/Portrait)
+                if (reqXPercent.HasValue && reqYPercent.HasValue && reqXPercent.Value >= 0 && reqYPercent.Value >= 0)
+                {
+                    float safeX = Math.Max(10f, Math.Min(pW - w - 10f, (reqXPercent.Value / 100f) * pW));
+                    float safeY = Math.Max(10f, Math.Min(pH - h - 10f, pH - ((reqYPercent.Value / 100f) * pH) - h));
+                    return (targetPage, safeX, safeY, w, h);
+                }
+
+                // ƯU TIÊN 2: Tọa độ điểm trực tiếp (x, y)
                 if (reqX.HasValue && reqX.Value > 0 && reqY.HasValue && reqY.Value > 0)
                 {
                     float safeX = Math.Max(10f, Math.Min(pW - w - 10f, reqX.Value));
@@ -3086,11 +3095,15 @@ namespace RealPdfSigner
 
                     float? reqX = null, reqY = null, reqW = null, reqH = null;
                     int? reqPage = null;
+                    float? reqXPercent = null, reqYPercent = null;
                     bool isPreStamped = false;
 
                     if (root.TryGetProperty("isPreStamped", out var ipP)) isPreStamped = ipP.GetBoolean();
                     if (root.TryGetProperty("page", out var rPage)) reqPage = rPage.GetInt32();
                     else if (root.TryGetProperty("targetPage", out var rTPage)) reqPage = rTPage.GetInt32();
+
+                    if (root.TryGetProperty("xPercent", out var rXp)) reqXPercent = (float)rXp.GetDouble();
+                    if (root.TryGetProperty("yPercent", out var rYp)) reqYPercent = (float)rYp.GetDouble();
 
                     if (root.TryGetProperty("doc", out var docElem))
                     {
@@ -3117,17 +3130,13 @@ namespace RealPdfSigner
                             if (!reqPage.HasValue && coordElem.TryGetProperty("page", out var pProp)) reqPage = pProp.GetInt32();
                             if (!reqPage.HasValue && coordElem.TryGetProperty("targetPage", out var tpProp)) reqPage = tpProp.GetInt32();
 
-                            // Tự động quy đổi tỷ lệ phần trăm (xPercent / yPercent) sang tọa độ điểm PDF chuẩn A4 nếu x, y chưa có
-                            if ((!reqX.HasValue || reqX <= 0) && coordElem.TryGetProperty("xPercent", out var xpProp))
+                            if (coordElem.TryGetProperty("xPercent", out var xpProp))
                             {
-                                float xPct = (float)xpProp.GetDouble();
-                                reqX = (xPct / 100f) * 595.28f;
+                                reqXPercent = (float)xpProp.GetDouble();
                             }
-                            if ((!reqY.HasValue || reqY <= 0) && coordElem.TryGetProperty("yPercent", out var ypProp))
+                            if (coordElem.TryGetProperty("yPercent", out var ypProp))
                             {
-                                float yPct = (float)ypProp.GetDouble();
-                                float defH = reqH.HasValue && reqH.Value > 0 ? reqH.Value : 60f;
-                                reqY = 841.89f - ((yPct / 100f) * 841.89f) - defH;
+                                reqYPercent = (float)ypProp.GetDouble();
                             }
                         }
                     }
@@ -3380,7 +3389,7 @@ namespace RealPdfSigner
                     else if (needVisualAppearance)
                     {
                         sigImgBytes = ResolveSignatureImage(sigImgData);
-                        var coords = DetermineCoordinates(pdfBytes, signerName, "teacher", reqX, reqY, reqW, reqH, reqPage);
+                        var coords = DetermineCoordinates(pdfBytes, signerName, "teacher", reqX, reqY, reqW, reqH, reqPage, reqXPercent, reqYPercent);
                         targetPage = coords.page;
                         signRect = new Rectangle(coords.x, coords.y, coords.w, coords.h);
                         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 🎯 Xác định vị trí chữ ký số trực quan: Trang {targetPage}, X={coords.x:F1}, Y={coords.y:F1}, W={coords.w:F1}, H={coords.h:F1} (hasExistingSig={hasExisting}, ảnh={sigImgBytes?.Length ?? 0} bytes)");

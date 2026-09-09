@@ -2685,7 +2685,12 @@ async function openPendingDocumentToSign(docId) {
 
     if (!doc || !doc.fileBase64) {
       try {
-        const res = await fetch(`/api/documents/${docId}`);
+        const docEndpoint = API_BASE ? `${API_BASE}/api/documents/${docId}` : `/api/documents/${docId}`;
+        const headers = {
+          'x-user-id': appState.currentUser?.id || '',
+          ...(appState.token ? { 'Authorization': `Bearer ${appState.token}` } : {})
+        };
+        const res = await fetch(docEndpoint, { headers });
         if (res.ok) {
           const json = await res.json();
           if (json.success && json.data) doc = json.data;
@@ -2704,7 +2709,7 @@ async function openPendingDocumentToSign(docId) {
     }
 
     let pdfBlob = null;
-    if (doc && doc.fileBase64 && doc.fileBase64.length > 50) {
+    if (doc && doc.fileBase64 && typeof doc.fileBase64 === 'string' && doc.fileBase64.length > 50) {
       try {
         const cleanB64 = doc.fileBase64.replace(/^data:application\/pdf;base64,/, '');
         const byteCharacters = atob(cleanB64);
@@ -2719,7 +2724,12 @@ async function openPendingDocumentToSign(docId) {
     if (!pdfBlob) {
       // Tải trực tiếp luồng nhị phân Blob từ endpoint /api/documents/:id/file của máy chủ / Cloud Drive
       try {
-        const fileRes = await fetch(`/api/documents/${docId}/file?_t=${Date.now()}`);
+        const fileEndpoint = API_BASE ? `${API_BASE}/api/documents/${docId}/file?_t=${Date.now()}` : `/api/documents/${docId}/file?_t=${Date.now()}`;
+        const fileHeaders = {
+          'x-user-id': appState.currentUser?.id || '',
+          ...(appState.token ? { 'Authorization': `Bearer ${appState.token}` } : {})
+        };
+        const fileRes = await fetch(fileEndpoint, { headers: fileHeaders });
         if (fileRes.ok) {
           const blobData = await fileRes.blob();
           if (blobData && blobData.size > 50) {
@@ -2728,6 +2738,26 @@ async function openPendingDocumentToSign(docId) {
         }
       } catch (fErr) {
         console.warn('Lỗi nạp tệp từ máy chủ:', fErr.message);
+      }
+    }
+
+    // Dự phòng tải trực tiếp Google Drive nếu có link Google Drive
+    if (!pdfBlob && doc && (doc.googleDriveUrl || doc.driveInfo?.fileId)) {
+      try {
+        const gId = (doc.googleDriveUrl || '').match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || doc.driveInfo?.fileId;
+        if (gId) {
+          showToast('Đang tải tệp từ Google Drive...', 'info');
+          const gUrl = `https://drive.usercontent.google.com/download?id=${gId}&export=download`;
+          const gRes = await fetch(gUrl).catch(() => null);
+          if (gRes && gRes.ok) {
+            const gBlob = await gRes.blob();
+            if (gBlob && gBlob.size > 50) {
+              pdfBlob = gBlob;
+            }
+          }
+        }
+      } catch (gdErr) {
+        console.warn('Lỗi tải trực tiếp từ Google Drive:', gdErr.message);
       }
     }
 
@@ -3045,7 +3075,8 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
     };
     if (appState.token) headers['Authorization'] = `Bearer ${appState.token}`;
 
-    const res = await fetch(`/api/documents/${docId}/sign-step`, {
+    const signEndpoint = API_BASE ? `${API_BASE}/api/documents/${docId}/sign-step` : `/api/documents/${docId}/sign-step`;
+    const res = await fetch(signEndpoint, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload)
@@ -4282,6 +4313,20 @@ async function executeLocalAgentSigning() {
       },
       page: pageNum,
       targetPage: pageNum,
+      xPercent: session.xPercent,
+      yPercent: session.yPercent,
+      scale: session.scale,
+      signCoordinates: {
+        x: Math.round(xPt * 10) / 10,
+        y: Math.round(yPt * 10) / 10,
+        width: stampW,
+        height: stampH,
+        page: pageNum,
+        targetPage: pageNum,
+        xPercent: session.xPercent,
+        yPercent: session.yPercent,
+        scale: session.scale
+      },
       fileBase64: pdfBase64,
       signMode: session.isUsb ? 'HARDWARE' : 'PERSONAL',
       signType: session.isUsb ? 'USB_TOKEN' : 'VGCA',
@@ -4355,7 +4400,8 @@ async function handlePostSignSaveToGoogleDrive(signedPdfBase64, session) {
 
   let driveResult = null;
   try {
-    const res = await fetch('/api/drive/upload', {
+    const driveEndpoint = API_BASE ? `${API_BASE}/api/drive/upload` : '/api/drive/upload';
+    const res = await fetch(driveEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
