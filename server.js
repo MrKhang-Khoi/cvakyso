@@ -88,20 +88,28 @@ app.get('/favicon.ico', (req, res) => {
   return res.status(204).end();
 });
 
-// ==================== TẢI EDUSIGN AGENT 2.0 (CHUẨN WINDOWS - ZIP & EXE) ====================
-app.get(['/downloads/EduSign_Agent_v2.0_Setup.zip', '/downloads/EduSign_Agent.zip'], (req, res) => {
-  const zipPath = path.join(__dirname, 'public', 'downloads', 'EduSign_Agent_v2.0_Setup.zip');
-  const fallbackZipPath = path.join(__dirname, 'docs', 'downloads', 'EduSign_Agent_v2.0_Setup.zip');
+// ==================== TẢI EDUSIGN AGENT 2.0 & 2.2 (CHUẨN WINDOWS - ZIP & EXE) ====================
+app.get([
+  '/downloads/EduSign_Agent_v2.0_Setup.zip', 
+  '/downloads/EduSign_Agent_v2.2_Setup.zip', 
+  '/downloads/EduSign_Agent.zip',
+  '/docs/downloads/EduSign_Agent_v2.0_Setup.zip',
+  '/docs/downloads/EduSign_Agent_v2.2_Setup.zip',
+  '/docs/downloads/EduSign_Agent.zip'
+], (req, res) => {
+  const reqName = req.path.includes('v2.2') ? 'EduSign_Agent_v2.2_Setup.zip' : 'EduSign_Agent_v2.0_Setup.zip';
+  const zipPath = path.join(__dirname, 'public', 'downloads', reqName);
+  const fallbackZipPath = path.join(__dirname, 'docs', 'downloads', reqName);
   const targetFile = fs.existsSync(zipPath) ? zipPath : (fs.existsSync(fallbackZipPath) ? fallbackZipPath : null);
   if (targetFile) {
     res.setHeader('Content-Type', 'application/zip');
-    return res.download(targetFile, 'EduSign_Agent_v2.0_Setup.zip');
+    return res.download(targetFile, reqName);
   }
   // Nếu máy chủ đám mây chưa có sẵn tệp: Chuyển hướng siêu tốc 302 sang GitHub CDN chính thức
-  return res.redirect(302, 'https://github.com/MrKhang-Khoi/chukyso/raw/main/docs/downloads/EduSign_Agent_v2.0_Setup.zip');
+  return res.redirect(302, `https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/${reqName}`);
 });
 
-app.get('/downloads/EduSign_Agent.exe', (req, res) => {
+app.get(['/downloads/EduSign_Agent.exe', '/docs/downloads/EduSign_Agent.exe'], (req, res) => {
   const exePath = path.join(__dirname, 'public', 'downloads', 'EduSign_Agent.exe');
   const fallbackExePath = path.join(__dirname, 'docs', 'downloads', 'EduSign_Agent.exe');
   const targetFile = fs.existsSync(exePath) ? exePath : (fs.existsSync(fallbackExePath) ? fallbackExePath : null);
@@ -109,10 +117,10 @@ app.get('/downloads/EduSign_Agent.exe', (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.microsoft.portable-executable');
     return res.download(targetFile, 'EduSign_Agent.exe');
   }
-  return res.redirect(302, 'https://github.com/MrKhang-Khoi/chukyso/raw/main/docs/downloads/EduSign_Agent.exe');
+  return res.redirect(302, 'https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/EduSign_Agent.exe');
 });
 
-app.get('/downloads/app.ico', (req, res) => {
+app.get(['/downloads/app.ico', '/docs/downloads/app.ico'], (req, res) => {
   const icoPath = path.join(__dirname, 'public', 'downloads', 'app.ico');
   const fallbackIcoPath = path.join(__dirname, 'docs', 'downloads', 'app.ico');
   const targetFile = fs.existsSync(icoPath) ? icoPath : (fs.existsSync(fallbackIcoPath) ? fallbackIcoPath : null);
@@ -120,10 +128,10 @@ app.get('/downloads/app.ico', (req, res) => {
     res.setHeader('Content-Type', 'image/x-icon');
     return res.download(targetFile, 'app.ico');
   }
-  return res.redirect(302, 'https://github.com/MrKhang-Khoi/chukyso/raw/main/docs/downloads/app.ico');
+  return res.redirect(302, 'https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/app.ico');
 });
 
-app.get('/downloads/version.json', (req, res) => {
+app.get(['/downloads/version.json', '/docs/downloads/version.json'], (req, res) => {
   const vPath = path.join(__dirname, 'public', 'downloads', 'version.json');
   const fallbackVPath = path.join(__dirname, 'docs', 'downloads', 'version.json');
   const targetFile = fs.existsSync(vPath) ? vPath : (fs.existsSync(fallbackVPath) ? fallbackVPath : null);
@@ -131,7 +139,7 @@ app.get('/downloads/version.json', (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     return res.sendFile(targetFile);
   }
-  return res.redirect(302, 'https://github.com/MrKhang-Khoi/chukyso/raw/main/docs/downloads/version.json');
+  return res.redirect(302, 'https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/version.json');
 });
 
 // ==================== 1. QUÉT CHỨNG THƯ SỐ VGCA ====================
@@ -1970,32 +1978,38 @@ app.get('/downloads/EduSign_Agent.exe', (req, res) => {
   res.status(404).json({ success: false, message: 'Đang chuẩn bị gói cài đặt, vui lòng thử lại sau vài giây.' });
 });
 
-app.get('/downloads/Chay_EduSign_Agent.bat', (req, res) => {
+app.get(['/downloads/Chay_EduSign_Agent.bat', '/docs/downloads/Chay_EduSign_Agent.bat'], (req, res) => {
   const batPath = path.join(__dirname, 'public', 'downloads', 'Chay_EduSign_Agent.bat');
-  if (fs.existsSync(batPath)) {
+  const fallbackPath = path.join(__dirname, 'docs', 'downloads', 'Chay_EduSign_Agent.bat');
+  const target = fs.existsSync(batPath) ? batPath : (fs.existsSync(fallbackPath) ? fallbackPath : null);
+  if (target) {
     res.setHeader('Content-Disposition', 'attachment; filename="Chay_EduSign_Agent.bat"');
     res.setHeader('Content-Type', 'text/plain');
-    return res.sendFile(path.resolve(batPath));
+    return res.sendFile(path.resolve(target));
   }
   res.status(404).send('Not found');
 });
 
-app.get(['/downloads/Cai_Dat_EduSign_Agent.bat', '/downloads/setup.bat'], (req, res) => {
+app.get(['/downloads/Cai_Dat_EduSign_Agent.bat', '/downloads/setup.bat', '/docs/downloads/Cai_Dat_EduSign_Agent.bat'], (req, res) => {
   const batPath = path.join(__dirname, 'public', 'downloads', 'Cai_Dat_EduSign_Agent.bat');
-  if (fs.existsSync(batPath)) {
+  const fallbackPath = path.join(__dirname, 'docs', 'downloads', 'Cai_Dat_EduSign_Agent.bat');
+  const target = fs.existsSync(batPath) ? batPath : (fs.existsSync(fallbackPath) ? fallbackPath : null);
+  if (target) {
     res.setHeader('Content-Disposition', 'attachment; filename="Cai_Dat_EduSign_Agent.bat"');
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.sendFile(path.resolve(batPath));
+    return res.sendFile(path.resolve(target));
   }
   res.status(404).send('Not found');
 });
 
-app.get('/downloads/Cai_Dat_EduSign.ps1', (req, res) => {
+app.get(['/downloads/Cai_Dat_EduSign.ps1', '/docs/downloads/Cai_Dat_EduSign.ps1'], (req, res) => {
   const ps1Path = path.join(__dirname, 'public', 'downloads', 'Cai_Dat_EduSign.ps1');
-  if (fs.existsSync(ps1Path)) {
+  const fallbackPath = path.join(__dirname, 'docs', 'downloads', 'Cai_Dat_EduSign.ps1');
+  const target = fs.existsSync(ps1Path) ? ps1Path : (fs.existsSync(fallbackPath) ? fallbackPath : null);
+  if (target) {
     res.setHeader('Content-Disposition', 'attachment; filename="Cai_Dat_EduSign.ps1"');
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    return res.sendFile(path.resolve(ps1Path));
+    return res.sendFile(path.resolve(target));
   }
   res.status(404).send('Not found');
 });

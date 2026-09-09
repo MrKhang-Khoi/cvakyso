@@ -9,7 +9,7 @@
     "Bổ sung kênh kết nối thời gian thực WebSocket (ws://127.0.0.1:18888/ws) song song với HTTP",
     "Hỗ trợ kết nối mượt mà từ Render Cloud (HTTPS) không lo bị chặn CORS/PNA"
   ],
-  "downloadUrl": "https://github.com/MrKhang-Khoi/chukyso/raw/main/docs/downloads/EduSign_Agent.exe",
-  "zipDownloadUrl": "https://github.com/MrKhang-Khoi/chukyso/raw/main/docs/downloads/EduSign_Agent_v2.0_Setup.zip",
+  "downloadUrl": "https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/EduSign_Agent.exe",
+  "zipDownloadUrl": "https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/EduSign_Agent_v2.0_Setup.zip",
   "mandatory": false
 }

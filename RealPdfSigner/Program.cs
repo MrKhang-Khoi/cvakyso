@@ -1502,8 +1502,9 @@ namespace RealPdfSigner
             var checkUrls = new[]
             {
                 "http://127.0.0.1:3000/downloads/version.json",
-                "https://raw.githubusercontent.com/MrKhang-Khoi/chukyso/main/docs/downloads/version.json",
-                "https://mrkhang-khoi.github.io/chukyso/downloads/version.json"
+                "https://raw.githubusercontent.com/MrKhang-Khoi/cvakyso/main/docs/downloads/version.json",
+                "https://mrkhang-khoi.github.io/cvakyso/docs/downloads/version.json",
+                "https://mrkhang-khoi.github.io/cvakyso/downloads/version.json"
             };
 
             foreach (var url in checkUrls)
@@ -1512,7 +1513,7 @@ namespace RealPdfSigner
                 {
                     using var handler = new HttpClientHandler { AllowAutoRedirect = true };
                     using var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(2.5) };
-                    client.DefaultRequestHeaders.UserAgent.ParseAdd("EduSign-Agent/2.0");
+                    client.DefaultRequestHeaders.UserAgent.ParseAdd("EduSign-Agent/2.2");
                     string json = client.GetStringAsync(url).GetAwaiter().GetResult();
                     if (!string.IsNullOrWhiteSpace(json))
                     {
@@ -1548,10 +1549,10 @@ namespace RealPdfSigner
                     var (hasNew, fetched) = CheckForUpdates(true);
                     info = fetched ?? new AgentVersionInfo
                     {
-                        version = "2.0.1",
-                        title = "Bản cập nhật EduSign Agent 2.0.1",
-                        downloadUrl = "https://github.com/MrKhang-Khoi/chukyso/raw/main/docs/downloads/EduSign_Agent.exe",
-                        changelog = new List<string> { "Tích hợp công nghệ Tự động Cập nhật 1 chạm (Auto-Updater)" }
+                        version = "2.2.0",
+                        title = "Bản cập nhật EduSign Agent 2.2.0",
+                        downloadUrl = "https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/EduSign_Agent.exe",
+                        changelog = new List<string> { "Khóa định danh 3 lớp bảo mật & Lọc USB SmartCard chuẩn" }
                     };
                 }
 
@@ -2296,8 +2297,9 @@ namespace RealPdfSigner
                     var downloadUrls = new List<string>();
                     if (!string.IsNullOrWhiteSpace(_info.downloadUrl)) downloadUrls.Add(_info.downloadUrl);
                     downloadUrls.Add("http://127.0.0.1:3000/downloads/EduSign_Agent.exe");
-                    downloadUrls.Add("https://github.com/MrKhang-Khoi/chukyso/raw/main/docs/downloads/EduSign_Agent.exe");
-                    downloadUrls.Add("https://raw.githubusercontent.com/MrKhang-Khoi/chukyso/main/docs/downloads/EduSign_Agent.exe");
+                    downloadUrls.Add("https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/EduSign_Agent.exe");
+                    downloadUrls.Add("https://raw.githubusercontent.com/MrKhang-Khoi/cvakyso/main/docs/downloads/EduSign_Agent.exe");
+                    downloadUrls.Add("https://mrkhang-khoi.github.io/cvakyso/docs/downloads/EduSign_Agent.exe");
 
                     bool downloadSuccess = false;
                     string? lastErr = null;
@@ -4018,7 +4020,7 @@ namespace RealPdfSigner
             {
                 try
                 {
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://mrkhang-khoi.github.io/chukyso/") { UseShellExecute = true });
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://mrkhang-khoi.github.io/cvakyso/") { UseShellExecute = true });
                 }
                 catch { }
             }

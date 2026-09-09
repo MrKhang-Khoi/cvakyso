@@ -1192,7 +1192,13 @@ function showModalAlert(title, message, type = 'info', actionConfig = null) {
   const btnSec = document.getElementById('btnAlertSecondary');
 
   if (elTitle) elTitle.textContent = title;
-  if (elMsg) elMsg.textContent = message;
+  if (elMsg) {
+    if (typeof message === 'string' && message.includes('<')) {
+      elMsg.innerHTML = message;
+    } else {
+      elMsg.textContent = message;
+    }
+  }
 
   if (iconContainer) {
     if (type === 'error') {
@@ -3758,8 +3764,13 @@ async function handleVgcaLoginSubmit(e) {
     if (!ping.available) {
       showModalAlert(
         'EduSign Agent chưa chạy',
-        'Ứng dụng <strong>EduSign Agent</strong> (cổng 18888) chưa được khởi chạy trên máy tính! Vui lòng mở ứng dụng trước khi đăng nhập chữ ký số.',
-        'error'
+        'Ứng dụng <strong>EduSign Agent</strong> (cổng 18888) chưa được khởi chạy trên máy tính! Thầy/Cô vui lòng tải hoặc mở ứng dụng trước khi đăng nhập chữ ký số.',
+        'warning',
+        {
+          text: '📥 Tải EduSign Agent ngay',
+          cancelText: 'Đóng',
+          callback: () => openModalDownloadAgent()
+        }
       );
       return;
     }
@@ -3810,8 +3821,13 @@ async function executeMasterSigningPipeline(credentials) {
   if (!ping.available) {
     showModalAlert(
       'Không tìm thấy EduSign Agent',
-      'Không thể kết nối tới ứng dụng <strong>EduSign Agent</strong> (cổng 18888) chạy ngầm trên máy tính!<br><br>Vui lòng mở ứng dụng <strong>EduSign_Agent.exe</strong> từ Desktop hoặc khay hệ thống Windows để tiếp tục.',
-      'error'
+      'Không thể kết nối tới ứng dụng <strong>EduSign Agent</strong> (cổng 18888) chạy ngầm trên máy tính!<br><br>Thầy/Cô vui lòng tải hoặc mở ứng dụng <strong>EduSign_Agent.exe</strong> từ Desktop hoặc khay hệ thống Windows để tiếp tục.',
+      'error',
+      {
+        text: '📥 Tải EduSign Agent ngay',
+        cancelText: 'Đóng',
+        callback: () => openModalDownloadAgent()
+      }
     );
     return; // DỪNG LẬP TỨC
   }
@@ -4598,6 +4614,47 @@ function handleOpenTeacherDriveFolder() {
 // ==================== TRUNG TÂM TẢI EDUSIGN AGENT & CẤU HÌNH BGH ====================
 function openModalDownloadAgent() {
   openModal('modalDownloadAgent');
+}
+
+function downloadEduSignAgent(type = 'zip', event = null) {
+  const isExe = (type === 'exe');
+  const fileName = isExe ? 'EduSign_Agent.exe' : 'EduSign_Agent_v2.0_Setup.zip';
+  
+  // Detect current hosting environment
+  const isGithubPages = window.location.hostname.includes('github.io');
+  const isFileProto = window.location.protocol === 'file:';
+  
+  let targetUrl = '';
+  if (isGithubPages) {
+    // Official GitHub Raw CDN & Pages URL (100% reliable)
+    targetUrl = `https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/${fileName}`;
+  } else if (isFileProto) {
+    targetUrl = `./docs/downloads/${fileName}`;
+  } else {
+    // Local / Node / Custom server
+    targetUrl = `/downloads/${fileName}`;
+  }
+  
+  if (event && event.currentTarget) {
+    event.currentTarget.href = targetUrl;
+  }
+  
+  // Trigger direct download via invisible anchor to guarantee execution
+  try {
+    const a = document.createElement('a');
+    a.href = targetUrl;
+    a.setAttribute('download', fileName);
+    a.setAttribute('target', '_blank');
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      if (document.body.contains(a)) document.body.removeChild(a);
+    }, 1000);
+  } catch (e) {}
+
+  if (typeof showToast === 'function') {
+    showToast(`📥 Đang tải xuống ${fileName}... Thầy/Cô vui lòng kiểm tra thư mục Tải về (Downloads)!`, 'success');
+  }
 }
 
 async function openModalBghConfig() {

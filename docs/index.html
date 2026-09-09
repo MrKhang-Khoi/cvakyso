@@ -1505,6 +1505,8 @@
           </button>
         </div>
       </div>
+    </div>
+  </div>
   <!-- ==================== MODAL TẢI BỘ CÀI EDUSIGN AGENT (CHỐNG CHẶN) ==================== -->
   <div id="modalDownloadAgent" class="hidden fixed inset-0 z-[90] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
     <div class="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-7 shadow-2xl border border-slate-200/80 space-y-5 animate-in fade-in zoom-in duration-200">
@@ -1555,11 +1557,18 @@
                 Đã nén an toàn chống chặn tải • Tự tạo biểu tượng Desktop & chạy ngầm khay hệ thống.
               </p>
             </div>
-            <a href="/downloads/EduSign_Agent_v2.0_Setup.zip" download
+            <a id="btnDownloadAgentZip" href="docs/downloads/EduSign_Agent_v2.0_Setup.zip" download="EduSign_Agent_v2.0_Setup.zip" onclick="downloadEduSignAgent('zip', event)"
               class="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-brand-600 hover:bg-brand-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md shadow-brand-500/20 transition shrink-0 cursor-pointer">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
               <span>Tải gói ZIP (Khuyên dùng)</span>
             </a>
+          </div>
+          <!-- Link tải dự phòng trực tiếp -->
+          <div class="mt-2.5 pt-2 border-t border-brand-200/60 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+            <span class="font-bold text-brand-800 flex items-center gap-1">⚡ Link dự phòng:</span>
+            <a href="https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/EduSign_Agent_v2.0_Setup.zip" target="_blank" rel="noopener" class="text-brand-600 hover:text-brand-800 underline font-medium cursor-pointer">GitHub CDN Trực Tiếp</a>
+            <span>•</span>
+            <a href="https://raw.githubusercontent.com/MrKhang-Khoi/cvakyso/main/docs/downloads/EduSign_Agent_v2.0_Setup.zip" target="_blank" rel="noopener" class="text-brand-600 hover:text-brand-800 underline font-medium cursor-pointer">Máy chủ Raw</a>
           </div>
         </div>
 
@@ -1575,11 +1584,18 @@
                 Dành cho máy tính đã tắt SmartScreen hoặc Thầy/Cô muốn chạy file độc lập không cần giải nén.
               </p>
             </div>
-            <a href="/downloads/EduSign_Agent.exe" download
+            <a id="btnDownloadAgentExe" href="docs/downloads/EduSign_Agent.exe" download="EduSign_Agent.exe" onclick="downloadEduSignAgent('exe', event)"
               class="inline-flex items-center justify-center gap-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-semibold text-xs rounded-xl transition shrink-0 cursor-pointer">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
               <span>Tải file .EXE</span>
             </a>
+          </div>
+          <!-- Link tải dự phòng trực tiếp -->
+          <div class="mt-2 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+            <span class="font-semibold text-slate-700">⚡ Link dự phòng:</span>
+            <a href="https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/EduSign_Agent.exe" target="_blank" rel="noopener" class="text-blue-600 hover:text-blue-800 underline font-medium cursor-pointer">GitHub CDN Trực Tiếp</a>
+            <span>•</span>
+            <a href="https://raw.githubusercontent.com/MrKhang-Khoi/cvakyso/main/docs/downloads/EduSign_Agent.exe" target="_blank" rel="noopener" class="text-blue-600 hover:text-blue-800 underline font-medium cursor-pointer">Máy chủ Raw</a>
           </div>
         </div>
       </div>

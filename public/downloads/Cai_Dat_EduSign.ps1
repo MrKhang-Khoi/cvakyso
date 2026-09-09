@@ -23,6 +23,9 @@ if (Test-Path $sourceExe) {
         Write-Host "Dang tai EduSign_Agent.exe tu may chu..." -ForegroundColor Cyan
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
         $serverCandidates = @(
+            "https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/EduSign_Agent.exe",
+            "https://raw.githubusercontent.com/MrKhang-Khoi/cvakyso/main/docs/downloads/EduSign_Agent.exe",
+            "https://mrkhang-khoi.github.io/cvakyso/docs/downloads/EduSign_Agent.exe",
             "https://edusign-vgca.onrender.com/downloads/EduSign_Agent.exe",
             "http://localhost:3000/downloads/EduSign_Agent.exe",
             "http://127.0.0.1:3000/downloads/EduSign_Agent.exe"

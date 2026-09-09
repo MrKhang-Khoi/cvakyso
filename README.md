@@ -46,8 +46,8 @@ Hiện nay tại nhiều trường học, quy trình ký duyệt Kế hoạch b�
 
 ### Bước 1: Tải mã nguồn về máy
 ```bash
-git clone https://github.com/MrKhang-Khoi/chukyso.git
-cd chukyso
+git clone https://github.com/MrKhang-Khoi/cvakyso.git
+cd cvakyso
 ```
 
 ### Bước 2: Cài đặt thư viện phụ thuộc
@@ -78,7 +78,7 @@ Hệ thống sẽ chạy tại địa chỉ: **`http://localhost:3000`**
 
 Nhấn nút bên dưới để đưa toàn bộ hệ thống lên Cloud Render chạy độc lập 24/7 không cần mở máy tính:
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/MrKhang-Khoi/chukyso)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/MrKhang-Khoi/cvakyso)
 
 
 ---
@@ -126,7 +126,7 @@ Kết quả kiểm định mật mã thực tế:
 
 ## 🌐 7. Kho Lưu Trữ GitHub Chính Thức
 
-* Repository: [https://github.com/MrKhang-Khoi/chukyso](https://github.com/MrKhang-Khoi/chukyso)
+* Repository: [https://github.com/MrKhang-Khoi/cvakyso](https://github.com/MrKhang-Khoi/cvakyso)
 * Nhánh chính: `main`
 
 ---
