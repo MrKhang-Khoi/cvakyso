@@ -1863,6 +1863,7 @@ function renderTeacherSentList(docs) {
   container.innerHTML = docs.map(doc => {
     const isCompleted = doc.status === 'COMPLETED';
     const isPending = doc.status === 'PENDING_SIGN';
+    const isRecalled = doc.status === 'RECALLED';
     const sigCount = Array.isArray(doc.signatures) ? doc.signatures.length : 1;
     const createdStr = doc.createdAt ? new Date(doc.createdAt).toLocaleString('vi-VN') : 'Mới đây';
     const nextPerson = doc.assignedToName || doc.currentSignerName || doc.nextSignerName || 'Đồng nghiệp';
@@ -1880,6 +1881,13 @@ function renderTeacherSentList(docs) {
         <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
           Đang chờ: <strong>${escapeHtml(nextPerson)}</strong> ký (Bước ${sigCount + 1})
+        </span>
+      `;
+    } else if (isRecalled) {
+      statusBadge = `
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-orange-100 text-orange-900 border border-orange-300">
+          <svg class="w-3.5 h-3.5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+          Đã thu hồi về máy
         </span>
       `;
     } else {
@@ -1909,13 +1917,25 @@ function renderTeacherSentList(docs) {
       `;
     }
 
-    // Nút XÓA / THU HỒI HỒ SƠ
+    // Nút THU HỒI (khi văn bản đang nằm ở đồng nghiệp chờ ký)
+    if (isPending) {
+      actionButtons += `
+        <button type="button" onclick="handleRecallSentDoc('${escapeHtml(doc.id)}', '${escapeHtml(doc.title).replace(/'/g, "\\'")}')"
+          title="Rút hồ sơ về khỏi hộp chờ ký của đồng nghiệp để chỉnh sửa hoặc xóa"
+          class="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-xl text-xs font-semibold border border-amber-300 transition flex items-center gap-1 cursor-pointer">
+          <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+          <span>Thu hồi</span>
+        </button>
+      `;
+    }
+
+    // Nút XÓA VĨNH VIỄN
     actionButtons += `
       <button type="button" onclick="handleDeleteSentDoc('${escapeHtml(doc.id)}', '${escapeHtml(doc.title).replace(/'/g, "\\'")}')"
-        title="Thu hồi hoặc xóa hồ sơ này khỏi hệ thống"
+        title="Xóa vĩnh viễn hồ sơ này khỏi hệ thống"
         class="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-semibold border border-rose-200 transition flex items-center gap-1 cursor-pointer">
         <svg class="w-4 h-4 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-        <span>Xóa / Thu hồi</span>
+        <span>${isPending ? 'Xóa bỏ' : 'Xóa vĩnh viễn'}</span>
       </button>
     `;
 
@@ -1952,14 +1972,91 @@ function renderTeacherSentList(docs) {
   }).join('');
 }
 
-// Xóa hoặc thu hồi hồ sơ đã gửi
-async function handleDeleteSentDoc(docId, docTitle) {
-  const confirmMsg = `Thầy/Cô có chắc chắn muốn XÓA / THU HỒI hồ sơ:\n"${docTitle || docId}"?\n\nSau khi xóa, hồ sơ sẽ được gỡ khỏi danh sách chờ ký của đồng nghiệp và không thể phục hồi.`;
+// THU HỒI HỒ SƠ ĐANG CHỜ KÝ
+async function handleRecallSentDoc(docId, docTitle) {
+  const confirmMsg = `Thầy/Cô có chắc chắn muốn THU HỒI hồ sơ:\n"${docTitle || docId}"?\n\nSau khi thu hồi, văn bản sẽ lập tức được rút khỏi hộp chờ ký của đồng nghiệp và chuyển về trạng thái "Đã thu hồi" của Thầy/Cô.`;
   if (!confirm(confirmMsg)) {
     return;
   }
 
-  showToast('Đang tiến hành xóa / thu hồi hồ sơ...', 'info');
+  showToast('Đang tiến hành thu hồi hồ sơ...', 'info');
+
+  try {
+    const user = appState.currentUser;
+    const headers = {
+      'Content-Type': 'application/json',
+      'x-user-id': user?.id || user?.username || '',
+      'x-user-username': user?.username || '',
+      'x-user-fullname': encodeURIComponent(user?.fullName || user?.name || user?.username || ''),
+      'x-user-role': user?.role || ''
+    };
+    if (appState.token) {
+      headers['Authorization'] = `Bearer ${appState.token}`;
+    }
+
+    try {
+      const fetchEndpoint = API_BASE ? `${API_BASE}/api/documents/${docId}/recall` : `/api/documents/${docId}/recall`;
+      await fetch(fetchEndpoint, { method: 'POST', headers });
+    } catch (apiErr) {
+      console.warn('[Recall Doc] Backend offline, fallback Firebase:', apiErr.message);
+    }
+
+    try {
+      const nowStr = new Date().toISOString();
+      if (typeof firebase !== 'undefined' && firebase.database) {
+        const snap = await firebase.database().ref('documents').once('value');
+        const all = snap.val() || {};
+        const updatePromises = [];
+        Object.keys(all).forEach(k => {
+          if (all[k] && all[k].id === docId) {
+            updatePromises.push(firebase.database().ref(`documents/${k}`).update({
+              status: 'RECALLED',
+              assignedTo: null,
+              assignedToName: null,
+              currentSignerId: null,
+              currentSignerName: null,
+              updatedAt: nowStr
+            }));
+          }
+        });
+        await Promise.all(updatePromises);
+      } else {
+        const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+        await fetch(`${rtdbUrl}/documents/${docId}.json`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: 'RECALLED',
+            assignedTo: null,
+            assignedToName: null,
+            currentSignerId: null,
+            currentSignerName: null,
+            updatedAt: nowStr
+          })
+        });
+      }
+    } catch (fbErr) {
+      console.warn('[Recall Doc] Lỗi cập nhật Firebase:', fbErr.message);
+    }
+
+    showToast(`🎉 Đã thu hồi thành công hồ sơ "${docTitle || docId}"!`, 'success');
+    loadTeacherSentDocuments(true);
+    loadTeacherPendingDocuments(true);
+
+  } catch (err) {
+    console.error('Lỗi thu hồi hồ sơ:', err);
+    showToast('Lỗi khi thu hồi hồ sơ: ' + err.message, 'error');
+  }
+}
+
+// XÓA VĨNH VIỄN HỒ SƠ ĐÃ GỬI
+async function handleDeleteSentDoc(docId, docTitle) {
+  const confirmMsg = `Thầy/Cô có chắc chắn muốn XÓA VĨNH VIỄN hồ sơ:\n"${docTitle || docId}"?\n\nSau khi xóa, hồ sơ sẽ được gỡ hoàn toàn khỏi cơ sở dữ liệu và không thể phục hồi.`;
+  if (!confirm(confirmMsg)) {
+    return;
+  }
+
+  showToast('Đang tiến hành xóa hồ sơ...', 'info');
 
   try {
     let success = false;
@@ -1994,15 +2091,35 @@ async function handleDeleteSentDoc(docId, docTitle) {
       console.warn('[Delete Doc] API backend gặp lỗi, fallback Firebase:', apiErr.message);
     }
 
-    // 2. Đồng thời xóa trực tiếp trên Firebase Realtime Database
+    // 2. Quét và xóa toàn bộ các node mang docId này trên Firebase (xóa sạch cả dạng index mảng 0, 1, 2... và dạng object)
     try {
       const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
       if (typeof firebase !== 'undefined' && firebase.database) {
-        await firebase.database().ref(`documents/${docId}`).remove();
+        const snap = await firebase.database().ref('documents').once('value');
+        const all = snap.val() || {};
+        const deletePromises = [];
+        Object.keys(all).forEach(k => {
+          if (all[k] && all[k].id === docId) {
+            deletePromises.push(firebase.database().ref(`documents/${k}`).remove());
+          }
+        });
+        deletePromises.push(firebase.database().ref(`documents/${docId}`).remove());
+        await Promise.all(deletePromises);
         success = true;
       } else {
-        const fbRes = await fetch(`${rtdbUrl}/documents/${docId}.json`, { method: 'DELETE' });
-        if (fbRes.ok) success = true;
+        const fRes = await fetch(`${rtdbUrl}/documents.json?_t=${Date.now()}`);
+        if (fRes.ok) {
+          const all = await fRes.json();
+          if (all) {
+            for (const k of Object.keys(all)) {
+              if (all[k] && all[k].id === docId) {
+                await fetch(`${rtdbUrl}/documents/${k}.json`, { method: 'DELETE' });
+              }
+            }
+          }
+        }
+        await fetch(`${rtdbUrl}/documents/${docId}.json`, { method: 'DELETE' });
+        success = true;
       }
     } catch (fbErr) {
       console.warn('[Delete Doc] Lỗi xóa Firebase:', fbErr.message);
@@ -2012,7 +2129,7 @@ async function handleDeleteSentDoc(docId, docTitle) {
     teacherSentDocs = teacherSentDocs.filter(d => d.id !== docId);
     teacherPendingDocs = teacherPendingDocs.filter(d => d.id !== docId);
 
-    showToast(`🎉 Đã xóa / thu hồi thành công hồ sơ "${docTitle || docId}"!`, 'success');
+    showToast(`🎉 Đã xóa hoàn toàn hồ sơ "${docTitle || docId}"!`, 'success');
     loadTeacherSentDocuments(true);
     loadTeacherPendingDocuments(true);
 

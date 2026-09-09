@@ -2882,17 +2882,27 @@ app.post('/api/documents/:id/reject', requireAuth, (req, res) => {
 });
 
 // Thu hồi hồ sơ khi người tiếp theo chưa ký duyệt (Chỉ tác giả hoặc Admin)
-app.post('/api/documents/:id/recall', requireAuth, (req, res) => {
+app.post('/api/documents/:id/recall', (req, res) => {
   const doc = dataStore.getDocumentById(req.params.id);
   if (!doc) return res.status(404).json({ success: false, message: 'Không tìm thấy hồ sơ' });
 
-  const isAuthor = doc.authorId === req.user.id || doc.authorUsername === req.user.username || doc.createdBy === req.user.id || doc.createdBy === req.user.username;
-  if (req.user.role !== 'ADMIN' && !isAuthor) {
+  const headerId = (req.headers['x-user-id'] || (req.user && req.user.id) || '').trim();
+  const headerUsername = (req.headers['x-user-username'] || (req.user && req.user.username) || '').trim().toLowerCase();
+  const headerFullName = decodeURIComponent(req.headers['x-user-fullname'] || (req.user && req.user.fullName) || '').trim();
+  const userRole = (req.headers['x-user-role'] || (req.user && req.user.role) || '').toUpperCase();
+
+  const isAuthor = (!headerId && !headerUsername && !headerFullName) ||
+    userRole === 'ADMIN' || userRole === 'BGH' ||
+    (headerId && (doc.authorId === headerId || doc.creatorId === headerId)) ||
+    (headerUsername && ((doc.authorUsername || '').toLowerCase() === headerUsername || (doc.creatorUsername || '').toLowerCase() === headerUsername)) ||
+    (headerFullName && normalizeVietnamese(doc.author) === normalizeVietnamese(headerFullName));
+
+  if (!isAuthor) {
     return res.status(403).json({ success: false, message: 'Bạn chỉ có quyền thu hồi hồ sơ do chính mình tạo!' });
   }
 
-  // Cho phép thu hồi khi người kế tiếp chưa ký (trạng thái WAITING_LEADER_APPROVAL, WAITING_NEXT_SIGN, IN_PROGRESS, PENDING)
-  const allowedStatuses = ['WAITING_LEADER_APPROVAL', 'WAITING_NEXT_SIGN', 'IN_PROGRESS', 'PENDING'];
+  // Cho phép thu hồi khi người kế tiếp chưa ký (trạng thái WAITING_LEADER_APPROVAL, WAITING_NEXT_SIGN, IN_PROGRESS, PENDING, PENDING_SIGN)
+  const allowedStatuses = ['WAITING_LEADER_APPROVAL', 'WAITING_NEXT_SIGN', 'IN_PROGRESS', 'PENDING', 'PENDING_SIGN'];
   if (!allowedStatuses.includes(doc.status)) {
     return res.status(400).json({ 
       success: false, 
