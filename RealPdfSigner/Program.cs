@@ -1023,13 +1023,13 @@ namespace RealPdfSigner
         }
         // ====================================
 
-        public static X509Certificate2? FindVgcaPersonalCertificate(string? expectedSignerOrEmail = null)
+        public static X509Certificate2? FindVgcaPersonalCertificate(string? expectedSignerOrEmail = null, string? expectedCccd = null)
         {
             // === Fix B: Cert Cache 500ms ===
             long nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             lock (_certCacheLock)
             {
-                if (!string.IsNullOrEmpty(expectedSignerOrEmail) == false && _certCachePersonal != null && (nowMs - _certCachePersonalTime) < CERT_CACHE_MS)
+                if (string.IsNullOrEmpty(expectedSignerOrEmail) && string.IsNullOrEmpty(expectedCccd) && _certCachePersonal != null && (nowMs - _certCachePersonalTime) < CERT_CACHE_MS)
                     return _certCachePersonal;
             }
 
@@ -1039,6 +1039,7 @@ namespace RealPdfSigner
                 store.Open(OpenFlags.ReadOnly);
 
                 string cleanExpected = (expectedSignerOrEmail ?? "").Trim().ToLowerInvariant();
+                string cleanCccd = (expectedCccd ?? "").Trim();
 
                 X509Certificate2? bestMatch = null;
 
@@ -1069,47 +1070,62 @@ namespace RealPdfSigner
 
                     if (!isGovCa) continue;
 
-                    if (!string.IsNullOrEmpty(cleanExpected))
+                    string certCccd = ExtractCccdOrUid(subject);
+                    string emailInCert = ExtractEmail(subject).ToLowerInvariant();
+                    string cnInCert = ExtractCn(subject);
+                    string cnInCertLower = cnInCert.ToLowerInvariant();
+
+                    // NẾU CÓ TRUYỀN CCCD HOẶC TÊN/EMAIL MONG MUỐN -> BẮT BUỘC PHẢI KHỚP DANH TÍNH
+                    if (!string.IsNullOrEmpty(cleanCccd) || !string.IsNullOrEmpty(cleanExpected))
                     {
-                        // === Fix E: Match chính xác expectedSigner ===
-                        string emailInCert   = ExtractEmail(cert.Subject).ToLowerInvariant();
-                        string cnInCert      = ExtractCn(cert.Subject).ToLowerInvariant();
-                        bool matchEmail      = !string.IsNullOrEmpty(emailInCert) && emailInCert.Contains(cleanExpected);
-                        bool matchCn         = cnInCert.Contains(cleanExpected);
-                        bool matchSerial     = cert.SerialNumber.Equals(cleanExpected, StringComparison.OrdinalIgnoreCase);
-                        bool matchThumbprint = cert.Thumbprint.Equals(cleanExpected, StringComparison.OrdinalIgnoreCase);
-                        bool matchSubj       = subjectLower.Contains(cleanExpected);
+                        bool matchCccd = !string.IsNullOrEmpty(cleanCccd) && (certCccd.Contains(cleanCccd) || subject.Contains(cleanCccd));
 
-                        string cleanNorm = RemoveDiacritics(cleanExpected).Trim().ToLowerInvariant();
-                        bool matchCnNorm = !string.IsNullOrEmpty(cleanNorm) && RemoveDiacritics(cnInCert).ToLowerInvariant().Contains(cleanNorm);
-                        bool matchSubjNorm = !string.IsNullOrEmpty(cleanNorm) && RemoveDiacritics(subjectLower).ToLowerInvariant().Contains(cleanNorm);
-
-                        if (matchThumbprint || matchSerial || matchEmail || matchCn || matchSubj || matchCnNorm || matchSubjNorm)
+                        bool matchExpected = false;
+                        if (!string.IsNullOrEmpty(cleanExpected))
                         {
-                            // Cache và trả về ngay khi match chính xác
+                            bool matchEmail = !string.IsNullOrEmpty(emailInCert) && emailInCert.Contains(cleanExpected);
+                            bool matchCn = cnInCertLower.Contains(cleanExpected);
+                            bool matchSerial = cert.SerialNumber.Equals(cleanExpected, StringComparison.OrdinalIgnoreCase);
+                            bool matchThumbprint = cert.Thumbprint.Equals(cleanExpected, StringComparison.OrdinalIgnoreCase);
+                            bool matchSubj = subjectLower.Contains(cleanExpected);
+
+                            string cleanNorm = RemoveDiacritics(cleanExpected).Trim().ToLowerInvariant();
+                            string cnNorm = RemoveDiacritics(cnInCert).Trim().ToLowerInvariant();
+                            bool matchCnNorm = !string.IsNullOrEmpty(cleanNorm) && cnNorm.Contains(cleanNorm);
+                            bool matchSubjNorm = !string.IsNullOrEmpty(cleanNorm) && RemoveDiacritics(subjectLower).ToLowerInvariant().Contains(cleanNorm);
+
+                            matchExpected = matchThumbprint || matchSerial || matchEmail || matchCn || matchSubj || matchCnNorm || matchSubjNorm;
+                        }
+
+                        // Nếu có CCCD thì CCCD phải khớp, hoặc tên phải khớp
+                        if (matchCccd || matchExpected)
+                        {
                             lock (_certCacheLock) { _certCachePersonal = cert; _certCachePersonalTime = nowMs; }
                             return cert;
                         }
                     }
                     else
                     {
-                        // Không có expectedSigner → chọn cert có NotAfter XA NHẤT
-                        // (cert USB vừa cắm thường là cert mới nhất, hạn xa nhất)
-                        // Không đoán mò theo email hay tên — chuẩn EDOC-CA
+                        // Không có expectedSigner lẫn CCCD -> chọn cert có NotAfter XA NHẤT
                         if (bestMatch == null || cert.NotAfter > bestMatch.NotAfter)
                             bestMatch = cert;
                     }
                 }
 
-                // 2. Trả về cert tốt nhất tìm được (khi không có expectedSigner)
+                // Nếu có yêu cầu danh tính mà không tìm thấy khớp -> TUYỆT ĐỐI KHÔNG TRẢ VỀ CHỨNG THƯ CỦA NGƯỜI KHÁC!
+                if (!string.IsNullOrEmpty(cleanCccd) || !string.IsNullOrEmpty(cleanExpected))
+                {
+                    return null;
+                }
+
+                // Trả về cert tốt nhất khi không có bất kỳ yêu cầu danh tính nào
                 if (bestMatch != null)
                 {
                     lock (_certCacheLock) { _certCachePersonal = bestMatch; _certCachePersonalTime = nowMs; }
                     return bestMatch;
                 }
 
-                // 3. Fallback theo thumbprint từ file config (nếu admin cấu hình)
-                // KHÔNG hardcode thumbprint của bất kỳ ai — để tránh ký nhầm cert
+                // Fallback theo thumbprint từ file config nếu có
                 string configPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "agent_config.json");
                 string fallbackThumbprint = "";
                 if (File.Exists(configPath))
@@ -1147,12 +1163,11 @@ namespace RealPdfSigner
 
                 string cleanExpected = (expectedSerial ?? "").Replace(" ", "").Replace(":", "").Trim();
 
-                // 1. Tìm theo số Serial chỉ định (ghim con dấu trường của BGH)
+                // 1. Tìm theo số Serial chỉ định (ghim con dấu trường của BGH: 7AF2DF52182653D3)
                 if (!string.IsNullOrWhiteSpace(cleanExpected))
                 {
                     foreach (var cert in store.Certificates)
                     {
-                        if (!cert.HasPrivateKey) continue;
                         string cleanCertSerial = cert.SerialNumber.Replace(" ", "").Replace(":", "").Trim();
                         if (cleanCertSerial.Equals(cleanExpected, StringComparison.OrdinalIgnoreCase))
                         {
@@ -1162,12 +1177,20 @@ namespace RealPdfSigner
                     return null;
                 }
 
-                // 2. Tìm chứng thư của cơ quan / nhà trường (chứa MST hoặc tên trường)
+                // 2. Tìm chứng thư của cơ quan / nhà trường hoặc thiết bị phần cứng Bit4id / Safenet / MST
                 foreach (var cert in store.Certificates)
                 {
-                    if (!cert.HasPrivateKey) continue;
                     string subject = cert.Subject ?? "";
-                    if (subject.Contains("MST:") || subject.Contains("CHU VAN AN") || subject.Contains("Chu Văn An") || subject.StartsWith("CN=TRƯỜNG", StringComparison.OrdinalIgnoreCase))
+                    string friendlyName = (cert.FriendlyName ?? "").ToLowerInvariant();
+                    string issuer = (cert.Issuer ?? "").ToLowerInvariant();
+
+                    bool isHw = friendlyName.Contains("bit4id") || friendlyName.Contains("tokenme") ||
+                                friendlyName.Contains("safenet") || friendlyName.Contains("epass") ||
+                                subject.Contains("MST:") || subject.Contains("CHU VAN AN") ||
+                                subject.Contains("Chu Văn An") || subject.StartsWith("CN=TRƯỜNG", StringComparison.OrdinalIgnoreCase) ||
+                                issuer.Contains("bit4id") || issuer.Contains("tokenme");
+
+                    if (isHw)
                     {
                         return cert;
                     }
@@ -1177,28 +1200,28 @@ namespace RealPdfSigner
             return null;
         }
 
-        public static X509Certificate2? FindVgcaCertificate(string? expectedSerial = null, string signMode = "AUTO")
+        public static X509Certificate2? FindVgcaCertificate(string? expectedSerial = null, string signMode = "AUTO", string? expectedSigner = null, string? expectedCccd = null)
         {
             if (signMode.Equals("PERSONAL", StringComparison.OrdinalIgnoreCase) || signMode.Equals("VGCA", StringComparison.OrdinalIgnoreCase) || signMode.Equals("TEACHER", StringComparison.OrdinalIgnoreCase))
             {
                 // GIÁO VIÊN KÝ CÁ NHÂN: TUYỆT ĐỐI KHÔNG FALLBACK SANG USB TOKEN PHẦN CỨNG!
-                return FindVgcaPersonalCertificate(expectedSerial);
+                return FindVgcaPersonalCertificate(expectedSigner ?? expectedSerial, expectedCccd);
             }
 
             if (signMode.Equals("HARDWARE", StringComparison.OrdinalIgnoreCase) || signMode.Equals("USB_TOKEN", StringComparison.OrdinalIgnoreCase) || signMode.Equals("BGH", StringComparison.OrdinalIgnoreCase))
             {
-                // Tìm cert tổ chức (MST:) trước, nếu không có → tìm cert cá nhân GV trên USB Token
-                return FindHardwareTokenCertificate(expectedSerial) ?? FindVgcaPersonalCertificate(expectedSerial);
+                // BAN GIÁM HIỆU / KÝ PHẦN CỨNG: TUYỆT ĐỐI KHÔNG FALLBACK SANG VIRTUAL CSP!
+                return FindHardwareTokenCertificate(expectedSerial);
             }
 
-            // Mặc định: Nếu có chỉ định Serial cụ thể thì tìm theo Serial
+            // Nếu chỉ định số Serial
             if (!string.IsNullOrWhiteSpace(expectedSerial))
             {
-                return FindHardwareTokenCertificate(expectedSerial) ?? FindVgcaPersonalCertificate(expectedSerial);
+                return FindHardwareTokenCertificate(expectedSerial) ?? FindVgcaPersonalCertificate(expectedSigner ?? expectedSerial, expectedCccd);
             }
 
-            // Nếu không truyền gì: ưu tiên tìm chứng thư cá nhân VGCA trước, sau đó mới tìm USB Token
-            return FindVgcaPersonalCertificate() ?? FindHardwareTokenCertificate();
+            // AUTO mode
+            return FindVgcaPersonalCertificate(expectedSigner, expectedCccd) ?? FindHardwareTokenCertificate();
         }
 
         public static void SignWithBouncyCastle(string inputPdf, string outputPdf, X509Certificate2? realCert, string reason, string location, int targetPage = 0, float rectX = -1f, float rectY = -1f, float rectW = 90f, float rectH = 60f, byte[]? visualSignImageBytes = null)
@@ -1435,7 +1458,7 @@ namespace RealPdfSigner
             return SignBytesWithBouncyCastle(inputPdfBytes, cert, reason, location, visualSignImageBytes, signRect, targetPage);
         }
 
-        public const string CurrentVersion = "2.1.0";
+        public const string CurrentVersion = "2.2.0";
         private static bool _lastUpdateCheckResult = false;
         private static string _lastLatestVersion = CurrentVersion;
         private static AgentVersionInfo? _lastVersionInfo = null;
@@ -2599,7 +2622,13 @@ namespace RealPdfSigner
                     if (root.TryGetProperty("signer", out var snProp)) expectedSigner = snProp.GetString();
                     else if (root.TryGetProperty("signerName", out var snProp2)) expectedSigner = snProp2.GetString();
 
-                    var cert = FindVgcaCertificate(expectedSigner, signMode);
+                    string? expectedCccd = null;
+                    if (root.TryGetProperty("cccd", out var cccdProp)) expectedCccd = cccdProp.GetString();
+
+                    string? expectedSerial = null;
+                    if (root.TryGetProperty("serial", out var serProp)) expectedSerial = serProp.GetString();
+
+                    var cert = FindVgcaCertificate(expectedSerial, signMode, expectedSigner, expectedCccd);
                     return JsonSerializer.Serialize(new
                     {
                         status = 1,
@@ -2676,7 +2705,9 @@ namespace RealPdfSigner
                     string? checkSerial = req.QueryString["serial"];
                     string signMode = req.QueryString["mode"] ?? req.QueryString["signType"] ?? "AUTO";
                     string? role = req.QueryString["role"];
-                    string? expectedSigner = req.QueryString["signer"] ?? req.QueryString["email"] ?? req.QueryString["cccd"];
+                    string? expectedSigner = req.QueryString["signer"] ?? req.QueryString["name"];
+                    string? expectedEmail = req.QueryString["email"];
+                    string? expectedCccd = req.QueryString["cccd"] ?? req.QueryString["uid"];
 
                     bool isTeacherOrVgca = signMode.Equals("PERSONAL", StringComparison.OrdinalIgnoreCase)
                                          || signMode.Equals("VGCA", StringComparison.OrdinalIgnoreCase)
@@ -2689,8 +2720,8 @@ namespace RealPdfSigner
                     }
 
                     var cert = isTeacherOrVgca
-                        ? FindVgcaPersonalCertificate(expectedSigner ?? checkSerial)
-                        : FindVgcaCertificate(checkSerial ?? expectedSigner, signMode);
+                        ? FindVgcaPersonalCertificate(expectedSigner ?? expectedEmail, expectedCccd)
+                        : FindVgcaCertificate(checkSerial, signMode, expectedSigner, expectedCccd);
 
                     string detectedCccd = cert != null ? ExtractCccdOrUid(cert.Subject) : "";
                     string certSigner = cert != null ? ExtractCn(cert.Subject) : "";
@@ -2702,14 +2733,11 @@ namespace RealPdfSigner
                         store.Open(OpenFlags.ReadOnly);
                         foreach (var c in store.Certificates)
                         {
-                            // EDOC-CA pattern: Không check HasPrivateKey (sẽ trigger PIN dialog!)
-                            // Chỉ đọc metadata cert — PIN chỉ hỏi khi thực sự ký
                             string subj = c.Subject ?? "";
                             string iss  = c.Issuer  ?? "";
                             string subjL = subj.ToLowerInvariant();
                             string issL  = iss.ToLowerInvariant();
 
-                            // Chỉ hiển thị cert VGCA/Ban Cơ yếu (bỏ qua localhost, MS-Organization-Access)
                             bool isGovCa = issL.Contains("ban c") || issL.Contains("vgca") ||
                                            issL.Contains("nha nuoc") || issL.Contains("nhà nước") ||
                                            issL.Contains("ca phuc vu") || subjL.Contains(".gov.vn");
@@ -2721,10 +2749,10 @@ namespace RealPdfSigner
                                 thumbprint   = c.Thumbprint,
                                 signerName   = ExtractCn(c.Subject),
                                 email        = ExtractEmail(c.Subject),
+                                cccd         = ExtractCccdOrUid(c.Subject),
                                 subject      = c.Subject,
                                 issuer       = c.Issuer,
                                 notAfter     = c.NotAfter.ToString("yyyy-MM-dd HH:mm:ss"),
-                                // hasPrivateKey KHÔNG check ở đây - sẽ trigger PIN!
                             });
                         }
                     }
@@ -2737,19 +2765,16 @@ namespace RealPdfSigner
                     if (isTeacherOrVgca)
                     {
                         // DÀNH CHO GIÁO VIÊN (Ký số VGCA Virtual CSP / SmartCA):
-                        // Bước 1: Kiểm tra Virtual CSP process có đang chạy không
                         bool vcspRunning = System.Diagnostics.Process.GetProcessesByName("vgca_vcsp_v2_mgr").Length > 0;
 
                         if (!vcspRunning)
                         {
-                            // Virtual CSP không chạy → chưa đăng nhập VGCA
                             cspHealthy = false;
                             hasCspError = true;
                             cspErrorMessage = "Chưa đăng nhập tài khoản ký số VGCA. Vui lòng mở ứng dụng VGCA Virtual CSP và đăng nhập tài khoản của Thầy/Cô.";
                         }
                         else if (cert != null)
                         {
-                            // Virtual CSP đang chạy + có cert → kiểm tra hạn
                             if (cert.NotAfter < DateTime.Now)
                             {
                                 cspHealthy = false;
@@ -2765,14 +2790,19 @@ namespace RealPdfSigner
                         }
                         else if (availableCerts.Count > 0)
                         {
-                            // Virtual CSP đang chạy và ĐÃ CÓ chứng thư số Ban Cơ yếu trong store (chỉ do expectedSigner lọc chưa khớp)
-                            cspHealthy = true;
-                            hasCspError = false;
-                            cspErrorMessage = "";
+                            // Virtual CSP đang chạy và có chứng thư, nhưng KHÔNG KHỚP với giáo viên đang yêu cầu
+                            string activeStoreSigner = "Chưa rõ";
+                            try {
+                                var firstCert = availableCerts[0] as dynamic;
+                                activeStoreSigner = firstCert?.signerName ?? "Khác";
+                            } catch { }
+
+                            cspHealthy = false;
+                            hasCspError = true;
+                            cspErrorMessage = $"Tài khoản VGCA đang đăng nhập trên máy tính ({activeStoreSigner}) không khớp với tài khoản giáo viên đăng nhập trên Web ({expectedSigner ?? "Giáo viên"}). Vui lòng đăng xuất VGCA Virtual CSP và đăng nhập đúng tài khoản của Thầy/Cô.";
                         }
                         else
                         {
-                            // Virtual CSP đang chạy nhưng chưa đăng nhập (chưa có cert trong store)
                             cspHealthy = false;
                             hasCspError = true;
                             cspErrorMessage = "VGCA Virtual CSP đang chạy nhưng chưa đăng nhập tài khoản. Vui lòng mở ứng dụng VGCA và đăng nhập tài khoản của Thầy/Cô.";
@@ -2781,10 +2811,7 @@ namespace RealPdfSigner
                     else
                     {
                         // DÀNH CHO BGH / ADMIN (USB Token phần cứng):
-                        // EDOC-CA pattern: KHÔNG gọi GetRSAPrivateKey() hay HasPrivateKey ở đây
-                        // PIN chỉ được hỏi khi thực sự ký (SignHash) — không phải khi check status
-                        // tokenConnected = có cert Ban Cơ yếu trong store (đọc metadata, không cần PIN)
-                        if (availableCerts.Count > 0)
+                        if (cert != null)
                         {
                             cspHealthy = true;
                             hasCspError = false;
@@ -2793,8 +2820,10 @@ namespace RealPdfSigner
                         else
                         {
                             cspHealthy = false;
-                            hasCspError = false;
-                            cspErrorMessage = "Chưa tìm thấy chứng thư số Ban Cơ yếu trên máy tính. Vui lòng cắm USB Token và đăng nhập (nhập PIN).";
+                            hasCspError = true;
+                            cspErrorMessage = !string.IsNullOrWhiteSpace(checkSerial)
+                                ? $"Không tìm thấy USB Token khớp với số Serial [{checkSerial}] của Ban Giám hiệu! Vui lòng cắm đúng USB Token."
+                                : "Chưa cắm USB Token Ban Giám hiệu hoặc chưa nhập PIN mở khóa trong Bit4id PKI Manager.";
                         }
                     }
 
@@ -2814,13 +2843,26 @@ namespace RealPdfSigner
                     }
                     catch { }
 
-                    // Nếu đang bảo trì → override toàn bộ trạng thái
                     if (isMaintenance)
                     {
                         cspHealthy = false;
                         hasCspError = true;
                         cspErrorMessage = maintenanceMsg;
                     }
+
+                    object? certInfo = (!isMaintenance && cert != null) ? new
+                    {
+                        serialNumber = cert.SerialNumber,
+                        thumbprint   = cert.Thumbprint,
+                        signerName   = ExtractCn(cert.Subject),
+                        email        = ExtractEmail(cert.Subject),
+                        cccd         = ExtractCccdOrUid(cert.Subject),
+                        school       = ExtractOu(cert.Subject),
+                        subject      = cert.Subject,
+                        issuer       = cert.Issuer,
+                        notAfter     = cert.NotAfter.ToString("yyyy-MM-dd HH:mm:ss"),
+                        hasPrivateKey = cert.HasPrivateKey
+                    } : null;
 
                     var statusData = new
                     {
@@ -2833,23 +2875,18 @@ namespace RealPdfSigner
                         platform = "win32",
                         appRunning = true,
                         appName = "EduSign Desktop Agent (Ban Cơ yếu Chính phủ)",
-                        tokenConnected = !isMaintenance && availableCerts.Count > 0 && cspHealthy,
+                        tokenConnected = !isMaintenance && cert != null && cspHealthy,
                         cspHealthy = cspHealthy,
                         hasCspError = hasCspError,
                         cspErrorMessage = cspErrorMessage,
                         isMaintenance = isMaintenance,
                         maintenanceMessage = maintenanceMsg,
-                        // EDOC-CA pattern: certInfo lấy từ cert có NotAfter xa nhất trong availableCerts
-                        // Không access private key — PIN chỉ hỏi khi ký thật
-                        certInfo = (!isMaintenance && availableCerts.Count > 0) ? availableCerts
-                            .OrderByDescending(c => ((dynamic)c).notAfter)
-                            .Select(c => (dynamic)c)
-                            .FirstOrDefault() : null,
+                        certInfo = certInfo,
                         availableCerts = availableCerts,
                         details = isMaintenance
                             ? $"⚠️ BẢO TRÌ: {maintenanceMsg}"
-                            : (availableCerts.Count > 0 && cspHealthy)
-                                ? $"EduSign Agent đang hoạt động và đã nhận diện {availableCerts.Count} chứng thư số Ban Cơ yếu."
+                            : (cert != null && cspHealthy)
+                                ? $"EduSign Agent đang hoạt động và đã nhận diện chứng thư số Ban Cơ yếu của {ExtractCn(cert.Subject)}."
                                 : (hasCspError
                                     ? cspErrorMessage
                                     : "EduSign Agent đang hoạt động nhưng chưa cắm USB Token hoặc chưa đăng nhập (nhập PIN).")
@@ -3096,6 +3133,10 @@ namespace RealPdfSigner
                     if (root.TryGetProperty("signerName", out var snCheck) && !string.IsNullOrWhiteSpace(snCheck.GetString()) && snCheck.GetString() != "Giáo viên") expectedSigner = snCheck.GetString();
                     else if (root.TryGetProperty("author", out var authCheck) && !string.IsNullOrWhiteSpace(authCheck.GetString())) expectedSigner = authCheck.GetString();
 
+                    string? expectedCccd = null;
+                    if (root.TryGetProperty("cccd", out var cProp) && !string.IsNullOrWhiteSpace(cProp.GetString())) expectedCccd = cProp.GetString();
+                    else if (root.TryGetProperty("doc", out var docElemCccd) && docElemCccd.TryGetProperty("cccd", out var dCProp) && !string.IsNullOrWhiteSpace(dCProp.GetString())) expectedCccd = dCProp.GetString();
+
                     // EDOC-CA pattern: Tìm cert bằng thumbprint trước — chính xác nhất, không bị lỗi unicode
                     string? expectedThumbprint = null;
                     if (root.TryGetProperty("thumbprint", out var thumbProp) && !string.IsNullOrWhiteSpace(thumbProp.GetString()))
@@ -3118,9 +3159,9 @@ namespace RealPdfSigner
                         catch { }
                     }
 
-                    // 2. Fallback tìm theo serial / tên nếu không có thumbprint
+                    // 2. Fallback tìm theo serial / tên / CCCD nếu không có thumbprint
                     if (localVgcaCert == null)
-                        localVgcaCert = FindVgcaCertificate(expectedSerial ?? expectedSigner, signMode);
+                        localVgcaCert = FindVgcaCertificate(expectedSerial, signMode, expectedSigner, expectedCccd);
 
                     if (localVgcaCert == null)
                     {
@@ -3138,15 +3179,68 @@ namespace RealPdfSigner
                     }
 
                     string localVgcaSigner = ExtractCn(localVgcaCert.Subject);
-                    // CHỐNG GHI ĐÈ: Nếu là giáo viên ký cá nhân (signMode == PERSONAL), KHÔNG ĐƯỢC PHÉP ghi đè bằng tên trường
-                    if (signMode == "PERSONAL" && (localVgcaSigner.Contains("TRƯỜNG", StringComparison.OrdinalIgnoreCase) || localVgcaSigner.Contains("TRUONG", StringComparison.OrdinalIgnoreCase)))
+
+                    // CHỐNG GHI ĐÈ & BẢO VỆ DANH TÍNH GIÁO VIÊN:
+                    if (signMode == "PERSONAL")
                     {
-                        res.StatusCode = 400;
-                        string errJson = JsonSerializer.Serialize(new { success = false, message = "Phát hiện chứng thư số con dấu cơ quan nhà trường thay vì chứng thư cá nhân của Thầy/Cô! Vui lòng sử dụng tài khoản ký số cá nhân VGCA." });
-                        byte[] errData = System.Text.Encoding.UTF8.GetBytes(errJson);
-                        res.OutputStream.Write(errData, 0, errData.Length);
-                        res.Close();
-                        return;
+                        // 1. Tuyệt đối không ký bằng con dấu cơ quan
+                        if (localVgcaSigner.Contains("TRƯỜNG", StringComparison.OrdinalIgnoreCase) || localVgcaSigner.Contains("TRUONG", StringComparison.OrdinalIgnoreCase) || (localVgcaCert.Subject ?? "").Contains("MST:"))
+                        {
+                            res.StatusCode = 400;
+                            string errJson = JsonSerializer.Serialize(new { success = false, message = "Phát hiện chứng thư số con dấu cơ quan nhà trường thay vì chứng thư cá nhân của Thầy/Cô! Vui lòng sử dụng tài khoản ký số cá nhân VGCA." });
+                            byte[] errData = System.Text.Encoding.UTF8.GetBytes(errJson);
+                            res.OutputStream.Write(errData, 0, errData.Length);
+                            res.Close();
+                            return;
+                        }
+
+                        // 2. Kiểm tra chặt chẽ danh tính giữa tài khoản Web và chứng thư số thực trên máy
+                        if (!string.IsNullOrEmpty(expectedSigner) || !string.IsNullOrEmpty(expectedCccd))
+                        {
+                            string certCccd = ExtractCccdOrUid(localVgcaCert.Subject);
+                            bool matchCccd = !string.IsNullOrEmpty(expectedCccd) && (certCccd.Contains(expectedCccd) || (localVgcaCert.Subject ?? "").Contains(expectedCccd));
+
+                            bool matchName = false;
+                            if (!string.IsNullOrEmpty(expectedSigner))
+                            {
+                                string normExp = RemoveDiacritics(expectedSigner).Trim().ToLowerInvariant();
+                                string normAct = RemoveDiacritics(localVgcaSigner).Trim().ToLowerInvariant();
+                                matchName = !string.IsNullOrEmpty(normExp) && (normAct.Contains(normExp) || normExp.Contains(normAct));
+                            }
+
+                            if (!matchCccd && !matchName)
+                            {
+                                res.StatusCode = 403;
+                                string errJson = JsonSerializer.Serialize(new
+                                {
+                                    success = false,
+                                    message = $"Từ chối ký số: Tài khoản ký số trên máy ({localVgcaSigner}) không khớp với tài khoản giáo viên trên hệ thống ({expectedSigner ?? expectedCccd}). Vui lòng đăng nhập đúng tài khoản trên VGCA Virtual CSP."
+                                });
+                                byte[] errData = System.Text.Encoding.UTF8.GetBytes(errJson);
+                                res.OutputStream.Write(errData, 0, errData.Length);
+                                res.Close();
+                                return;
+                            }
+                        }
+                    }
+                    else if (signMode == "HARDWARE" && !string.IsNullOrEmpty(expectedSerial))
+                    {
+                        // Kiểm tra Serial USB Token của Ban Giám hiệu
+                        string cleanActualSerial = localVgcaCert.SerialNumber.Replace(" ", "").Replace(":", "").Trim();
+                        string cleanExpSerial = expectedSerial.Replace(" ", "").Replace(":", "").Trim();
+                        if (!cleanActualSerial.Equals(cleanExpSerial, StringComparison.OrdinalIgnoreCase))
+                        {
+                            res.StatusCode = 400;
+                            string errJson = JsonSerializer.Serialize(new
+                            {
+                                success = false,
+                                message = $"Số Serial của USB Token đang cắm [{cleanActualSerial}] không khớp với số Serial Ban Giám hiệu [{cleanExpSerial}]! Vui lòng cắm đúng USB Token."
+                            });
+                            byte[] errData = System.Text.Encoding.UTF8.GetBytes(errJson);
+                            res.OutputStream.Write(errData, 0, errData.Length);
+                            res.Close();
+                            return;
+                        }
                     }
 
                     if (!string.IsNullOrEmpty(localVgcaSigner) && localVgcaSigner != "Giáo viên")
@@ -3569,8 +3663,9 @@ namespace RealPdfSigner
             public string dbcc_name;
         }
 
-        // USB Host Controller GUID — nhận tất cả USB device events
-        private static readonly Guid GUID_DEVINTERFACE_USB_DEVICE = new Guid("A5DCBF10-6530-11D2-901F-00C04FB951ED");
+        // SmartCard Reader / CCID Cryptographic Token GUID — CHỈ nhận thiết bị USB Token bảo mật (Bit4id, Feitian, Safenet, v.v.)
+        // KHÔNG BAO GIỜ nhận chuột, bàn phím, ổ cứng USB thông thường!
+        private static readonly Guid GUID_DEVINTERFACE_SMARTCARD_READER = new Guid("50DD5230-BA8A-11D1-BF5D-0000F805F530");
 
         private IntPtr _deviceNotifyHandle = IntPtr.Zero;
         // ===================================================
@@ -3653,18 +3748,18 @@ namespace RealPdfSigner
                 Shell_NotifyIcon(NIM_ADD, ref _nid);
                 ShowBalloon("EduSign Desktop Agent", "Dịch vụ ký số Ban Cơ yếu đang chạy ngầm an toàn tại khay hệ thống.", NIIF_INFO);
 
-                // Đăng ký nhận thông báo USB hot-plug từ Windows
+                // Đăng ký nhận thông báo USB SmartCard / Token hot-plug từ Windows
                 try
                 {
                     var devFilter = new DEV_BROADCAST_DEVICEINTERFACE
                     {
                         dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE,
-                        dbcc_classguid  = GUID_DEVINTERFACE_USB_DEVICE,
+                        dbcc_classguid  = GUID_DEVINTERFACE_SMARTCARD_READER,
                         dbcc_name       = ""
                     };
                     devFilter.dbcc_size = Marshal.SizeOf(devFilter);
                     _deviceNotifyHandle = RegisterDeviceNotification(_hWnd, ref devFilter, DEVICE_NOTIFY_WINDOW_HANDLE);
-                    try { File.AppendAllText(debugLog, $"[{DateTime.Now}] RegisterDeviceNotification: handle={_deviceNotifyHandle}\n"); } catch { }
+                    try { File.AppendAllText(debugLog, $"[{DateTime.Now}] RegisterDeviceNotification (SmartCard Reader): handle={_deviceNotifyHandle}\n"); } catch { }
                 }
                 catch (Exception dnEx)
                 {
@@ -3719,7 +3814,7 @@ namespace RealPdfSigner
                     return IntPtr.Zero;
                 }
 
-                // ===== USB HOT-PLUG DETECTION =====
+                // ===== SMARTCARD / USB TOKEN HOT-PLUG DETECTION =====
                 if (msg == WM_DEVICECHANGE)
                 {
                     int eventType = (int)wParam;
@@ -3729,12 +3824,11 @@ namespace RealPdfSigner
                         Program.InvalidateCertCache();
 
                         // Xử lý bất đồng bộ để không block message loop
-                        // KHÔNG gọi ShowBalloon từ ThreadPool — Shell_NotifyIcon chỉ an toàn từ UI thread
                         bool isArrival = (eventType == DBT_DEVICEARRIVAL);
-                        IntPtr hwndCapture = _hWnd; // Capture _hWnd trước khi sang thread khác
+                        IntPtr hwndCapture = _hWnd;
                         ThreadPool.QueueUserWorkItem(_ =>
                         {
-                            Thread.Sleep(800); // Chờ driver USB ổn định
+                            Thread.Sleep(800); // Chờ driver thiết bị ổn định
                             try
                             {
                                 string balloonTitle, balloonText;
@@ -3743,9 +3837,10 @@ namespace RealPdfSigner
 
                                 if (isArrival)
                                 {
+                                    // CHỈ TÌM KIẾM THIẾT BỊ PHẦN CỨNG (HARDWARE TOKEN) - TUYỆT ĐỐI KHÔNG FALLBACK VIRTUAL CSP!
                                     X509Certificate2? cert = null;
-                                    try { cert = Program.FindVgcaCertificate(); } catch { }
-                                    if (cert != null && cert.HasPrivateKey)
+                                    try { cert = Program.FindHardwareTokenCertificate(); } catch { }
+                                    if (cert != null)
                                     {
                                         string cn = Program.ExtractCn(cert.Subject);
                                         balloonTitle = "🔑 USB Token đã kết nối";
@@ -3756,21 +3851,21 @@ namespace RealPdfSigner
                                     }
                                     else
                                     {
-                                        balloonTitle = "🔌 Thiết bị USB đã cắm";
-                                        balloonText  = "Đã phát hiện thiết bị USB. Đang chờ nhận diện chứng thư...";
+                                        balloonTitle = "🔑 Đã nhận diện thiết bị USB Token";
+                                        balloonText  = "Vui lòng mở ứng dụng Bit4id PKI Manager và đăng nhập mã PIN để mở khóa chứng thư số.";
                                         balloonIcon  = (int)NIIF_INFO;
-                                        evtType = "connected";
+                                        evtType = "token_detected_pin_required";
                                     }
                                 }
                                 else
                                 {
                                     balloonTitle = "🔌 USB Token đã rút";
-                                    balloonText  = "USB Token đã được rút. Cổng ký số ngừng hoạt động.";
+                                    balloonText  = "USB Token đã được rút khỏi máy tính. Cổng ký số phần cứng tạm ngừng.";
                                     balloonIcon  = (int)NIIF_WARNING;
                                     evtType = "disconnected";
                                 }
 
-                                // Broadcast WebSocket (an toàn từ bất kỳ thread nào)
+                                // Broadcast WebSocket
                                 if (evtType != null)
                                     Program.BroadcastUsbEvent(evtType, evtSigner, evtSerial, evtThumb);
 

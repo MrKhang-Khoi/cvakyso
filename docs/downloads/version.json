@@ -1,12 +1,13 @@
 {
-  "version": "2.1.0",
-  "releaseDate": "2026-09-08",
-  "title": "Bản cập nhật EduSign Agent 2.1.0",
+  "version": "2.2.0",
+  "releaseDate": "2026-09-09",
+  "title": "Bản cập nhật EduSign Agent 2.2.0 (Khóa định danh 3 lớp & Lọc USB SmartCard)",
   "changelog": [
+    "Cơ chế khóa định danh 3 lớp bảo mật: Bắt buộc khớp Họ tên và CCCD giữa Web và VGCA Virtual CSP máy tính",
+    "Phân định độc lập Giáo viên (Virtual CSP) và Ban Giám hiệu (Hardware USB Token), loại bỏ hoàn toàn fallback sai chứng thư số",
+    "Tối ưu lọc thiết bị tầng driver (GUID SmartCard Reader): Phân biệt chính xác USB Token mật mã với chuột, bàn phím và ổ cứng",
     "Bổ sung kênh kết nối thời gian thực WebSocket (ws://127.0.0.1:18888/ws) song song với HTTP",
-    "Hỗ trợ kết nối mượt mà từ Render Cloud (HTTPS) không lo bị chặn CORS/PNA",
-    "Bổ sung tính năng quét động danh sách Chứng thư số (get_all_certs) chuẩn công nghệ Viettel",
-    "Tối ưu tốc độ ký số tức thì và nhận diện USB Token Ban Cơ yếu Chính phủ"
+    "Hỗ trợ kết nối mượt mà từ Render Cloud (HTTPS) không lo bị chặn CORS/PNA"
   ],
   "downloadUrl": "https://github.com/MrKhang-Khoi/chukyso/raw/main/docs/downloads/EduSign_Agent.exe",
   "zipDownloadUrl": "https://github.com/MrKhang-Khoi/chukyso/raw/main/docs/downloads/EduSign_Agent_v2.0_Setup.zip",

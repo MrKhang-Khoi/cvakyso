@@ -3315,14 +3315,43 @@ function toggleVgcaPasswordVisibility() {
   inp.type = (inp.type === 'password') ? 'text' : 'password';
 }
 
+function removeVietnameseTones(str) {
+  if (!str) return '';
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .trim();
+}
+
 function openVgcaLoginModal() {
   const inpCccd = document.getElementById('inputVgcaCccd');
   const inpPass = document.getElementById('inputVgcaPassword');
+  const badgeLocked = document.getElementById('badgeVgcaCccdLocked');
+  const validationMsg = document.getElementById('vgcaCccdValidationMsg');
   const stored = getStoredVgcaCredentials();
+  const currentUser = appState.currentUser;
 
   if (inpCccd) {
-    inpCccd.value = (stored && stored.cccd) || (appState.currentUser && appState.currentUser.cccd) || '';
+    const userCccd = currentUser && currentUser.cccd ? currentUser.cccd.trim() : '';
+    const val = userCccd || (stored && stored.cccd) || '';
+    inpCccd.value = val;
     handleVgcaCccdKeyInput(inpCccd);
+
+    if (userCccd) {
+      // Khóa CCCD cố định theo tài khoản đăng nhập để chống ký nhầm người khác
+      inpCccd.readOnly = true;
+      inpCccd.classList.add('bg-slate-100', 'text-slate-700', 'cursor-not-allowed');
+      if (badgeLocked) badgeLocked.classList.remove('hidden');
+      if (validationMsg) {
+        validationMsg.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span class="text-emerald-700 font-medium">Định danh cố định theo tài khoản: <strong>${currentUser.fullName || currentUser.name || 'Giáo viên'}</strong></span>`;
+      }
+    } else {
+      inpCccd.readOnly = false;
+      inpCccd.classList.remove('bg-slate-100', 'text-slate-700', 'cursor-not-allowed');
+      if (badgeLocked) badgeLocked.classList.add('hidden');
+    }
   }
   if (inpPass) {
     inpPass.value = (stored && stored.password) || '';
@@ -3342,14 +3371,18 @@ async function autoDetectCertFromAgent() {
     const ping = await pingLocalSigner(1500);
     if (!ping.available) return;
 
-    const res = await fetch(`http://127.0.0.1:18888/api/check-vgca-status?_t=${Date.now()}`, {
+    const currentUser = appState.currentUser;
+    const cccd = currentUser?.cccd || '';
+    const signer = currentUser?.fullName || currentUser?.name || '';
+    const res = await fetch(`http://127.0.0.1:18888/api/check-vgca-status?signer=${encodeURIComponent(signer)}&cccd=${encodeURIComponent(cccd)}&_t=${Date.now()}`, {
       cache: 'no-store',
       signal: AbortSignal.timeout(2000)
     });
     if (!res.ok) return;
     const data = await res.json();
-    const cert = data.certInfo || (Array.isArray(data.availableCerts) && data.availableCerts[0]);
+    const cert = data.certInfo;
     if (cert) {
+      box.className = 'p-3 bg-emerald-50/80 border border-emerald-200 rounded-2xl text-xs space-y-1';
       box.classList.remove('hidden');
       content.innerHTML = `
         <div>• Chủ thể: <strong class="text-emerald-800 font-bold">${cert.signerName || 'Giáo viên'}</strong></div>
@@ -3357,11 +3390,12 @@ async function autoDetectCertFromAgent() {
         <div>• Số Serial: <span class="font-mono text-[10px] text-slate-800">${cert.serialNumber || 'Chuyên dùng công vụ'}</span></div>
         ${cert.cccd ? `<div>• CCCD: <span class="font-mono font-bold">${cert.cccd}</span></div>` : ''}
       `;
-      const inpCccd = document.getElementById('inputVgcaCccd');
-      if (inpCccd && !inpCccd.value && cert.cccd && validateCccd12Digits(cert.cccd)) {
-        inpCccd.value = cert.cccd;
-        handleVgcaCccdKeyInput(inpCccd);
-      }
+    } else if (data.hasCspError) {
+      box.className = 'p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs space-y-1';
+      box.classList.remove('hidden');
+      content.innerHTML = `
+        <div class="text-amber-800 font-medium">⚠️ ${data.cspErrorMessage || 'Chứng thư số trên máy không khớp với tài khoản giáo viên.'}</div>
+      `;
     }
   } catch (e) {}
 }
@@ -3392,11 +3426,15 @@ async function verifyVgcaStatusFromAgent(cccd, password, signType = 'VGCA') {
   const timer = setTimeout(() => controller.abort(), 4500);
   const currentUser = appState.currentUser;
   const isUsb = (signType === 'USB_TOKEN' || signType === 'usb');
-  const mode = isUsb ? 'HARDWARE' : 'AUTO';
+  const mode = isUsb ? 'HARDWARE' : 'PERSONAL';
+  const expectedSigner = currentUser?.fullName || currentUser?.name || '';
+  const expectedCccd = cccd || currentUser?.cccd || '';
+  const expectedSerial = isUsb ? (currentUser?.certificateSerial || '7AF2DF52182653D3') : '';
 
-  // Chú ý: Không truyền signer dạng cứng nếu tên trong CSDL bị mất dấu tiếng Việt so với cert thật trong Store Windows.
-  // EduSign Agent v2.1 với mode=AUTO sẽ tự động dò tìm chứng thư số Ban Cơ yếu tốt nhất hoặc danh sách availableCerts.
-  const queryUrl = `http://127.0.0.1:18888/api/check-vgca-status?signType=${encodeURIComponent(signType)}&mode=${encodeURIComponent(mode)}&_t=${Date.now()}`;
+  let queryUrl = `http://127.0.0.1:18888/api/check-vgca-status?signType=${encodeURIComponent(signType)}&mode=${encodeURIComponent(mode)}&signer=${encodeURIComponent(expectedSigner)}&cccd=${encodeURIComponent(expectedCccd)}&_t=${Date.now()}`;
+  if (expectedSerial) {
+    queryUrl += `&serial=${encodeURIComponent(expectedSerial)}`;
+  }
   
   try {
     const res = await fetch(queryUrl, {
@@ -3411,21 +3449,32 @@ async function verifyVgcaStatusFromAgent(cccd, password, signType = 'VGCA') {
     }
     const data = await res.json();
 
-    // Tự động nhận diện chứng thư: Nếu Agent đã có availableCerts hoặc certInfo hợp lệ trong Windows Store,
-    // thì CSP chắc chắn đang hoạt động tốt và đã đăng nhập thành công.
-    const hasDetectedCert = (Array.isArray(data.availableCerts) && data.availableCerts.length > 0) || (data.certInfo && data.certInfo.serialNumber);
-    if (hasDetectedCert) {
-      data.cspHealthy = true;
-      data.hasCspError = false;
-      data.tokenConnected = true;
-      data.cspErrorMessage = '';
-      if (!data.certInfo && data.availableCerts && data.availableCerts[0]) {
-        data.certInfo = data.availableCerts[0];
-      }
-      // Đồng bộ thông tin người ký thực tế từ chứng thư số vào session
-      if (data.certInfo?.signerName && currentUser) {
-        currentUser.certificateSignerName = data.certInfo.signerName;
-        currentUser.certificateSerial = data.certInfo.serialNumber;
+    // Đối chiếu danh tính tuyệt đối
+    if (data.certInfo) {
+      const cert = data.certInfo;
+      if (!isUsb) {
+        // Giáo viên ký cá nhân: Kiểm tra tên hoặc CCCD
+        const normExp = removeVietnameseTones(expectedSigner).toLowerCase();
+        const normAct = removeVietnameseTones(cert.signerName || '').toLowerCase();
+        const nameMatch = normExp && normAct && (normAct.includes(normExp) || normExp.includes(normAct));
+        const cccdMatch = expectedCccd && (cert.cccd === expectedCccd || (cert.subject && cert.subject.includes(expectedCccd)));
+
+        if (!nameMatch && !cccdMatch) {
+          data.cspHealthy = false;
+          data.hasCspError = true;
+          data.cspErrorMessage = `Chứng thư số trên máy (${cert.signerName}) không khớp với tài khoản giáo viên đăng nhập (${expectedSigner}). Vui lòng đăng nhập đúng tài khoản trên VGCA Virtual CSP.`;
+          data.certInfo = null;
+        }
+      } else {
+        // BGH: Kiểm tra Serial
+        const cleanActual = (cert.serialNumber || '').replace(/[\s:]/g, '').toUpperCase();
+        const cleanExp = expectedSerial.replace(/[\s:]/g, '').toUpperCase();
+        if (cleanExp && cleanActual && cleanExp !== cleanActual) {
+          data.cspHealthy = false;
+          data.hasCspError = true;
+          data.cspErrorMessage = `USB Token đang cắm (Serial: ${cleanActual}) không khớp với USB Token Ban Giám hiệu (Serial: ${cleanExp}).`;
+          data.certInfo = null;
+        }
       }
     }
 
@@ -3668,14 +3717,15 @@ async function executeMasterSigningPipeline(credentials) {
   }
 
   // BƯỚC 4: HIỂN THỊ THÔNG TIN CHỨNG THƯ SỐ THỰC
-  const cert = cspData.certInfo || (Array.isArray(cspData.availableCerts) && cspData.availableCerts[0]) || {
-    signerName: appState.currentUser?.fullName || appState.currentUser?.name || 'Hà Văn Tý',
-    cccd: credentials.cccd,
-    school: 'Trường THCS Chu Văn An',
-    serialNumber: '7C4C44A8671300AE7F19D3B',
-    issuer: 'Ban Cơ yếu Chính phủ',
-    validTo: '2031-12-31'
-  };
+  const cert = cspData.certInfo;
+  if (!cert) {
+    showModalAlert(
+      'Không tìm thấy Chứng thư số hợp lệ',
+      cspData.cspErrorMessage || 'Không tìm thấy chứng thư số phù hợp với tài khoản của Thầy/Cô. Vui lòng kiểm tra lại dịch vụ VGCA Virtual CSP.',
+      'error'
+    );
+    return; // DỪNG LẬP TỨC
+  }
 
   const signerEl = document.getElementById('signProgressSigner');
   const cccdEl = document.getElementById('signProgressCccd');
@@ -3801,8 +3851,8 @@ async function executeLocalAgentSigning() {
       fileBase64: pdfBase64,
       signMode: session.isUsb ? 'HARDWARE' : 'PERSONAL',
       signType: session.isUsb ? 'USB_TOKEN' : 'VGCA',
-      signerName: session.cert.signerName,
-      cccd: session.credentials.cccd,
+      signerName: appState.currentUser?.fullName || session.cert.signerName,
+      cccd: appState.currentUser?.cccd || session.credentials.cccd,
       expectedSerial: session.cert.serialNumber,
       thumbprint: session.cert.thumbprint
     };
@@ -4396,7 +4446,137 @@ function handleOpenTeacherDriveFolder() {
   window.open(currentTeacherDriveUrl, '_blank');
 }
 
+// ==================== TRUNG TÂM TẢI EDUSIGN AGENT & CẤU HÌNH BGH ====================
+function openModalDownloadAgent() {
+  openModal('modalDownloadAgent');
+}
+
+async function openModalBghConfig() {
+  const alertEl = document.getElementById('bghConfigAlert');
+  if (alertEl) {
+    alertEl.classList.add('hidden');
+    alertEl.textContent = '';
+  }
+
+  try {
+    const res = await fetch('/api/bgh/signing-config', {
+      headers: {
+        'Authorization': `Bearer ${appState.token}`,
+        'x-auth-token': appState.token || '',
+        'x-user-id': appState.currentUser?.id || '',
+        'x-user-role': appState.currentUser?.role || ''
+      }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.config) {
+        if (document.getElementById('inputBghCertOwner')) {
+          document.getElementById('inputBghCertOwner').value = data.config.certOwner || appState.currentUser?.name || '';
+        }
+        if (document.getElementById('inputBghSerial')) {
+          document.getElementById('inputBghSerial').value = data.config.serialNumber || '';
+        }
+        if (document.getElementById('inputBghSchool')) {
+          document.getElementById('inputBghSchool').value = data.config.school || 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN';
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Lỗi lấy cấu hình BGH:', e);
+  }
+
+  openModal('modalBghConfig');
+}
+
+async function scanBghUsbTokenFromAgent() {
+  const serialInput = document.getElementById('inputBghSerial');
+  const ownerInput = document.getElementById('inputBghCertOwner');
+  showToast('🔍 Đang kết nối EduSign Agent để quét thiết bị USB Token...', 'info');
+
+  try {
+    const res = await fetch('http://127.0.0.1:18888/api/check-vgca-status?mode=HARDWARE', {
+      signal: AbortSignal.timeout(3000)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.tokenConnected && data.certInfo) {
+        if (serialInput) serialInput.value = data.certInfo.serialNumber || '';
+        if (ownerInput && (!ownerInput.value || ownerInput.value === 'Ngô Thị Liền' || ownerInput.value === 'admin')) {
+          ownerInput.value = data.certInfo.signerName || ownerInput.value;
+        }
+        showToast(`✅ Đã nhận diện USB Token [${data.certInfo.signerName}] - Serial: ${data.certInfo.serialNumber}`, 'success');
+        return;
+      } else if (data.availableCerts && data.availableCerts.length > 0) {
+        // Nếu có certs trong danh sách
+        const c = data.availableCerts[0];
+        if (serialInput) serialInput.value = c.serialNumber || '';
+        if (ownerInput && !ownerInput.value) ownerInput.value = c.signerName || '';
+        showToast(`✅ Đã nhận diện chứng thư số [${c.signerName}] - Serial: ${c.serialNumber}`, 'success');
+        return;
+      }
+    }
+    showToast('⚠️ Chưa tìm thấy USB Token đang cắm trên máy. Thầy/Cô vui lòng cắm USB Token Ban Cơ yếu và thử lại.', 'warning');
+  } catch (err) {
+    showToast('⚠️ Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng khởi động EduSign_Agent.exe trước khi quét.', 'warning');
+  }
+}
+
+async function handleSaveBghConfig(event) {
+  event.preventDefault();
+  const certOwner = document.getElementById('inputBghCertOwner')?.value.trim();
+  const serialNumber = document.getElementById('inputBghSerial')?.value.trim();
+  const school = document.getElementById('inputBghSchool')?.value.trim() || 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN';
+  const alertEl = document.getElementById('bghConfigAlert');
+  const btn = document.getElementById('btnSaveBghConfig');
+
+  if (!serialNumber) {
+    showToast('Vui lòng nhập hoặc quét số Serial của USB Token Ban Giám hiệu!', 'warning');
+    return;
+  }
+
+  try {
+    if (btn) btn.disabled = true;
+    const res = await fetch('/api/bgh/signing-config', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${appState.token}`,
+        'x-auth-token': appState.token || '',
+        'x-user-id': appState.currentUser?.id || '',
+        'x-user-role': appState.currentUser?.role || ''
+      },
+      body: JSON.stringify({
+        signType: 'USB_TOKEN',
+        certOwner,
+        serialNumber,
+        school
+      })
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      if (alertEl) {
+        alertEl.textContent = '✅ Đã lưu và kích hoạt cấu hình Chữ ký số USB Token Ban Giám hiệu thành công!';
+        alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 block';
+      }
+      showToast('✅ Đã lưu cấu hình Chữ ký số Ban Giám hiệu thành công!', 'success');
+      setTimeout(() => closeModal('modalBghConfig'), 1500);
+    } else {
+      throw new Error(data.message || 'Lỗi lưu cấu hình.');
+    }
+  } catch (err) {
+    if (alertEl) {
+      alertEl.textContent = `❌ ${err.message}`;
+      alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-red-50 text-red-700 border border-red-200 block';
+    }
+    showToast(err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 // ==================== APP INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
   checkSession();
 });
+

@@ -225,6 +225,11 @@ function getCurrentUser(req) {
     const user = verifyToken(customToken);
     if (user) return user;
   }
+  const userId = req.headers['x-user-id'];
+  if (userId) {
+    const user = dataStore.getUserById(userId);
+    if (user) return user;
+  }
   return null;
 }
 
