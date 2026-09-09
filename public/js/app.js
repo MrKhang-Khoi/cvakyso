@@ -50,12 +50,30 @@ function initFirebaseRealtime() {
       renderTeachersTable();
       updateDepartmentSelectOptions();
 
-      // Kiểm tra nếu tài khoản đang đăng nhập bị khóa -> văng ra
+      // Kiểm tra và cập nhật thời gian thực cho tài khoản đang đăng nhập
       if (appState.currentUser) {
         const me = list.find(u => u.id === appState.currentUser.id || u.username === appState.currentUser.username);
-        if (me && me.isLocked) {
-          showToast('Tài khoản của bạn vừa bị Quản trị viên khóa!', 'error');
-          handleLogout();
+        if (me) {
+          if (me.isLocked) {
+            showToast('Tài khoản của bạn vừa bị Quản trị viên khóa!', 'error');
+            handleLogout();
+            return;
+          }
+
+          // Tự động đồng bộ thông tin mới nhất từ Admin (Email, CCCD, Họ tên, Tổ...) mà KHÔNG cần đăng xuất lại
+          let hasUpdated = false;
+          const fields = ['email', 'officialEmail', 'cccd', 'fullName', 'name', 'department', 'departmentId', 'departmentName', 'role', 'roleTitle', 'signType'];
+          fields.forEach(field => {
+            if (me[field] !== undefined && me[field] !== appState.currentUser[field]) {
+              appState.currentUser[field] = me[field];
+              hasUpdated = true;
+            }
+          });
+
+          if (hasUpdated) {
+            localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser));
+            console.log('[Realtime Live Sync] Đã tự động cập nhật hồ sơ cá nhân mới nhất từ Admin:', appState.currentUser.email || appState.currentUser.username);
+          }
         }
       }
     });
@@ -157,6 +175,9 @@ async function handleLogin(e) {
             id: matched.id || 'admin',
             username: matched.username,
             fullName: matched.fullName || matched.name || matched.username,
+            email: matched.email || matched.officialEmail || '',
+            officialEmail: matched.officialEmail || matched.email || '',
+            cccd: matched.cccd || '',
             role: (matched.role || 'TEACHER').toUpperCase(),
             roleTitle: matched.roleTitle || (matched.role === 'ADMIN' ? 'Quản trị viên' : 'Giáo viên'),
             departmentId: matched.departmentId || '',
@@ -656,6 +677,12 @@ async function handleSaveUser(e) {
         };
         await syncUsersToFirebase(users);
         showToast('Cập nhật thông tin giáo viên thành công!', 'success');
+
+        // Tự động phân quyền thư mục Google Drive ngay nếu có email
+        if (email && email.includes('@')) {
+          const driveEp = API_BASE ? `${API_BASE}/api/drive/my-folder` : '/api/drive/my-folder';
+          fetch(`${driveEp}?${new URLSearchParams({ teacherName: fullName, email })}`).catch(() => {});
+        }
       }
     } else {
       // Thêm mới
@@ -1944,6 +1971,7 @@ async function handleDeleteSentDoc(docId, docTitle) {
         'Content-Type': 'application/json',
         'x-user-id': user?.id || user?.username || '',
         'x-user-username': user?.username || '',
+        'x-user-fullname': encodeURIComponent(user?.fullName || user?.name || user?.username || ''),
         'x-user-role': user?.role || ''
       };
       if (appState.token) {
@@ -1958,6 +1986,9 @@ async function handleDeleteSentDoc(docId, docTitle) {
       if (res.ok) {
         const json = await res.json().catch(() => ({}));
         if (json.success) success = true;
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        console.warn(`[Delete Doc] Backend phản hồi HTTP ${res.status}:`, errJson.message || 'Lỗi phân quyền');
       }
     } catch (apiErr) {
       console.warn('[Delete Doc] API backend gặp lỗi, fallback Firebase:', apiErr.message);
@@ -4025,6 +4056,15 @@ async function openModalMyDriveFolder() {
     document.getElementById('driveEmailDisplay').textContent = email || '(Chưa cấu hình email công vụ)';
   }
 
+  const warningEl = document.getElementById('driveEmailWarning');
+  if (warningEl) {
+    if (!email) {
+      warningEl.classList.remove('hidden');
+    } else {
+      warningEl.classList.add('hidden');
+    }
+  }
+
   currentTeacherDriveUrl = `https://drive.google.com/drive/search?q=${encodeURIComponent(teacherName)}`;
 
   openModal('modalMyDriveFolder');
@@ -4049,6 +4089,11 @@ async function openModalMyDriveFolder() {
 }
 
 function handleOpenTeacherDriveFolder() {
+  const user = appState.currentUser;
+  const email = (user?.email || '').trim();
+  if (!email) {
+    showToast('⚠️ Thầy/Cô chưa có Email công vụ nên chưa được cấp quyền chỉnh sửa trên Google Drive.', 'warning');
+  }
   window.open(currentTeacherDriveUrl, '_blank');
 }
 

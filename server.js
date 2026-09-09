@@ -683,10 +683,25 @@ app.get('/api/documents/sent', (req, res) => {
   });
 });
 
+// Chuẩn hóa chuỗi tiếng Việt không dấu để so khớp tên an toàn
+function normalizeVietnamese(s) {
+  return (s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Xóa hoặc thu hồi hồ sơ do người dùng tạo (GV A xóa hồ sơ của mình)
 app.delete('/api/documents/:id', (req, res) => {
   try {
-    const headerId = req.headers['x-user-id'] || req.headers['x-user-username'] || (req.user && (req.user.id || req.user.username));
+    const headerId = (req.headers['x-user-id'] || (req.user && req.user.id) || '').trim();
+    const headerUsername = (req.headers['x-user-username'] || (req.user && req.user.username) || '').trim().toLowerCase();
+    const headerFullName = decodeURIComponent(req.headers['x-user-fullname'] || (req.user && req.user.fullName) || '').trim();
     const userRole = (req.headers['x-user-role'] || (req.user && req.user.role) || '').toUpperCase();
     const { id } = req.params;
 
@@ -696,13 +711,26 @@ app.delete('/api/documents/:id', (req, res) => {
       return res.json({ success: true, message: 'Đã xóa hồ sơ khỏi hệ thống.' });
     }
 
-    // Kiểm tra quyền xóa: người tạo hoặc quản trị viên
-    const isOwner = !headerId || (
-      doc.creatorId === headerId ||
-      doc.creatorUsername === headerId ||
-      doc.authorId === headerId ||
-      doc.authorUsername === headerId ||
-      userRole === 'ADMIN'
+    // Kiểm tra quyền xóa: người tạo, tác giả hoặc quản trị viên / BGH
+    const normHeaderName = normalizeVietnamese(headerFullName);
+    const normAuthor = normalizeVietnamese(doc.author || doc.authorName || '');
+    const normCreator = normalizeVietnamese(doc.creatorName || '');
+
+    // Kiểm tra xem người dùng có phải là người ký hoặc người tạo hồ sơ không
+    const isSignedByUser = Array.isArray(doc.signatures) && doc.signatures.some(sig => {
+      if (headerId && sig.signerId === headerId) return true;
+      if (headerUsername && (sig.signerUsername || '').toLowerCase() === headerUsername) return true;
+      if (normHeaderName && normalizeVietnamese(sig.signerName) === normHeaderName) return true;
+      return false;
+    });
+
+    const isOwner = (!headerId && !headerUsername && !normHeaderName) || (
+      userRole === 'ADMIN' ||
+      userRole === 'BGH' ||
+      (headerId && (doc.creatorId === headerId || doc.authorId === headerId)) ||
+      (headerUsername && ((doc.creatorUsername || '').toLowerCase() === headerUsername || (doc.authorUsername || '').toLowerCase() === headerUsername)) ||
+      (normHeaderName && (normHeaderName === normAuthor || normHeaderName === normCreator)) ||
+      isSignedByUser
     );
 
     if (!isOwner) {
@@ -988,7 +1016,25 @@ app.get('/api/drive/my-folder', async (req, res) => {
     } : null);
 
     const teacherName = (req.query.teacherName || user?.fullName || user?.name || 'Giáo viên').trim();
-    const email = (req.query.email || user?.email || '').trim();
+    let email = (req.query.email || user?.email || '').trim();
+
+    // Tự động tìm kiếm email nếu client chưa kịp truyền
+    if (!email) {
+      try {
+        const usersFile = path.join(__dirname, 'data', 'users.json');
+        if (fs.existsSync(usersFile)) {
+          const uList = JSON.parse(fs.readFileSync(usersFile, 'utf8'));
+          const found = uList.find(u => 
+            normalizeVietnamese(u.name || u.fullName) === normalizeVietnamese(teacherName) ||
+            normalizeVietnamese(u.username) === normalizeVietnamese(teacherName)
+          );
+          if (found && (found.email || found.officialEmail)) {
+            email = (found.email || found.officialEmail).trim();
+          }
+        }
+      } catch (uErr) {}
+    }
+
     const folderRes = await googleDriveService.getTeacherFolder(teacherName, 'Năm học 2026 - 2027', email);
 
     res.json({
