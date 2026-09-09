@@ -3177,12 +3177,29 @@ let isSigPlacementActive = true;
 let currentStampPlacement = 'bottom-right';
 let currentStampCoords = { xPercent: 74.5, yPercent: 52.0, isManualDrag: false };
 let currentStampScale = 1.0;
-let currentStampPage = 1;
+let currentStampPage = 'last';
+let currentDocTotalPages = 1;
 let isDraggingStamp = false;
 let stampDragStartX = 0, stampDragStartY = 0;
 let stampElemStartX = 0, stampElemStartY = 0;
 let currentPdfBlobUrl = null;
 let currentViewingFileName = '';
+
+async function detectPdfTotalPages(fileObject) {
+  try {
+    const blob = (fileObject instanceof Blob) ? fileObject : new Blob([fileObject], { type: 'application/pdf' });
+    const ab = await blob.slice(0, Math.min(blob.size, 3000000)).arrayBuffer();
+    const txt = new TextDecoder('latin1').decode(new Uint8Array(ab));
+    const pageMatches = [...txt.matchAll(/\/Type\s*\/Page\b/g)];
+    if (pageMatches.length > 0) return pageMatches.length;
+    const countMatches = [...txt.matchAll(/\/Count\s+(\d+)/g)];
+    if (countMatches.length > 0) {
+      const counts = countMatches.map(m => parseInt(m[1], 10)).filter(n => !isNaN(n) && n > 0);
+      if (counts.length > 0) return Math.max(...counts);
+    }
+  } catch (e) {}
+  return 1;
+}
 
 function onSigTargetPageChange(val) {
   const pageInput = document.getElementById('sigTargetPageInput');
@@ -3200,7 +3217,7 @@ function onSigTargetPageChange(val) {
 
   // Tự động cuộn khung PDF đến trang mong muốn
   if (pdfFrame && currentPdfBlobUrl) {
-    const pNum = (currentStampPage === 'last') ? 9999 : currentStampPage;
+    const pNum = (currentStampPage === 'last') ? (currentDocTotalPages > 0 ? currentDocTotalPages : 9999) : currentStampPage;
     pdfFrame.src = currentPdfBlobUrl + `#page=${pNum}&view=FitH&toolbar=1&navpanes=0`;
   }
   updateStampCoordsDisplay();
@@ -3263,11 +3280,14 @@ function openDocumentViewer(fileName, fileObject, enableSigning = true) {
 
   if (spinner) spinner.classList.remove('hidden');
 
+  // Mặc định luôn là Trang cuối (nơi chứa phần ký duyệt của Giáo viên / Tổ trưởng / Ban Giám hiệu)
+  currentStampPage = 'last';
+
   if (fileObject) {
     const blob = (fileObject instanceof Blob) ? fileObject : new Blob([fileObject], { type: 'application/pdf' });
     currentPdfBlobUrl = URL.createObjectURL(blob);
-    // Luôn mở ở chế độ FitH (Vừa chiều ngang màn hình) để văn bản to, rõ nét, dễ đọc dễ ký
-    pdfFrame.src = currentPdfBlobUrl + '#page=1&view=FitH&toolbar=1&navpanes=0';
+    // Tự động mở đúng trang cuối cho người ký duyệt
+    pdfFrame.src = currentPdfBlobUrl + '#page=9999&view=FitH&toolbar=1&navpanes=0';
   }
 
   pdfFrame.onload = () => {
@@ -3305,14 +3325,48 @@ function openDocumentViewer(fileName, fileObject, enableSigning = true) {
   }
 
   openModal('modalDocViewer');
-  // Khởi tạo ở trạng thái ẩn chữ ký ban đầu để giáo viên nhìn rõ văn bản, không hiện stamp ngay
-  currentStampPage = 1;
-  const pageSel = document.getElementById('sigTargetPageSelect');
+
+  const userRole = (currentUser?.role || '').toUpperCase();
+  const isBgh = userRole === 'BGH' || userRole === 'PRINCIPAL' || (currentUser?.fullName || '').includes('Liền');
+  const isLeader = userRole === 'LEADER' || userRole === 'TO_TRUONG' || (currentUser?.fullName || '').includes('Hằng');
+
+  // Khởi tạo vị trí ký chuẩn theo vai trò:
+  // - BGH (Phó Hiệu trưởng / Hiệu trưởng): Cột trái (DUYỆT BAN GIÁM HIỆU)
+  // - Tổ trưởng: Cột giữa (DUYỆT TỔ CHUYÊN MÔN)
+  // - Giáo viên: Cột phải (GIÁO VIÊN)
+  if (isBgh) {
+    snapSignatureTo('principal');
+  } else if (isLeader) {
+    snapSignatureTo('leader');
+  } else {
+    snapSignatureTo('teacher');
+  }
+
+  // Tự động phân tích số trang của PDF và cập nhật dropdown
+  detectPdfTotalPages(fileObject).then(totalPages => {
+    currentDocTotalPages = totalPages;
+    const pageSel = document.getElementById('sigTargetPageSelect');
+    if (pageSel) {
+      if (totalPages > 1) {
+        pageSel.innerHTML = `
+          <option value="last">Trang cuối (${totalPages}/${totalPages} - Nơi ký duyệt)</option>
+          <option value="1">Trang 1 / ${totalPages} (Trang đầu)</option>
+          ${Array.from({length: totalPages - 2}, (_, i) => `<option value="${i + 2}">Trang ${i + 2} / ${totalPages}</option>`).join('')}
+          <option value="custom">Trang cụ thể...</option>
+        `;
+      } else {
+        pageSel.innerHTML = `
+          <option value="last">Trang 1 (Trang duy nhất)</option>
+          <option value="1">Trang 1</option>
+        `;
+      }
+      pageSel.value = 'last';
+    }
+  });
+
   const pageInp = document.getElementById('sigTargetPageInput');
-  if (pageSel) pageSel.value = '1';
   if (pageInp) { pageInp.value = '1'; pageInp.classList.add('hidden'); }
-  toggleSignaturePlacementMode(false);
-  snapSignatureTo('teacher');
+  toggleSignaturePlacementMode(enableSigning);
   setSignatureScale(1.0);
   initDraggableSignature();
 }
@@ -4284,7 +4338,7 @@ async function executeLocalAgentSigning() {
       throw new Error('Không tìm thấy nội dung tệp PDF để niêm phong chữ ký');
     }
 
-    const targetPage = session.page || currentStampPage || 1;
+    const targetPage = session.page || currentStampPage || 'last';
     // Tọa độ điểm chuẩn khổ A4 (595.28 x 841.89 pt)
     const pW = 595.28;
     const pH = 841.89;
@@ -4292,13 +4346,20 @@ async function executeLocalAgentSigning() {
     const stampH = Math.round(80 * (session.scale || 1.0) * 0.75);
     const xPt = Math.max(10, Math.min(pW - stampW - 10, ((session.xPercent || 74.5) / 100) * pW));
     const yPt = Math.max(10, Math.min(pH - stampH - 10, pH - (((session.yPercent || 52.0) / 100) * pH) - stampH));
-    const pageNum = (targetPage === 'last') ? 0 : (parseInt(targetPage, 10) || 1);
+    const pageNum = (targetPage === 'last') ? (currentDocTotalPages > 0 ? currentDocTotalPages : 0) : (parseInt(targetPage, 10) || 1);
+
+    const currentUser = appState.currentUser;
+    const userRole = (currentUser?.role || '').toUpperCase();
+    const roleString = (userRole === 'BGH' || userRole === 'PRINCIPAL' || (currentUser?.fullName || '').includes('Liền')) ? 'principal'
+      : ((userRole === 'LEADER' || userRole === 'TO_TRUONG' || (currentUser?.fullName || '').includes('Hằng')) ? 'leader' : 'teacher');
 
     const payload = {
       doc: {
         id: 'DOC_' + Date.now(),
         title: session.docTitle || 'KeHoachBaiDay.pdf',
         author: session.cert.signerName,
+        signerRole: roleString,
+        role: roleString,
         signCoordinates: {
           x: Math.round(xPt * 10) / 10,
           y: Math.round(yPt * 10) / 10,
@@ -4316,6 +4377,8 @@ async function executeLocalAgentSigning() {
       xPercent: session.xPercent,
       yPercent: session.yPercent,
       scale: session.scale,
+      signerRole: roleString,
+      role: roleString,
       signCoordinates: {
         x: Math.round(xPt * 10) / 10,
         y: Math.round(yPt * 10) / 10,

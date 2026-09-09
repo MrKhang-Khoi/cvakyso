@@ -3389,10 +3389,21 @@ namespace RealPdfSigner
                     else if (needVisualAppearance)
                     {
                         sigImgBytes = ResolveSignatureImage(sigImgData);
-                        var coords = DetermineCoordinates(pdfBytes, signerName, "teacher", reqX, reqY, reqW, reqH, reqPage, reqXPercent, reqYPercent);
+                        string signerRole = "teacher";
+                        if (root.TryGetProperty("signerRole", out var srProp) && !string.IsNullOrWhiteSpace(srProp.GetString())) signerRole = srProp.GetString()!;
+                        else if (root.TryGetProperty("role", out var rProp) && !string.IsNullOrWhiteSpace(rProp.GetString())) signerRole = rProp.GetString()!;
+                        else if (root.TryGetProperty("doc", out var docRoleElem))
+                        {
+                            if (docRoleElem.TryGetProperty("signerRole", out var dsrProp) && !string.IsNullOrWhiteSpace(dsrProp.GetString())) signerRole = dsrProp.GetString()!;
+                            else if (docRoleElem.TryGetProperty("role", out var drProp) && !string.IsNullOrWhiteSpace(drProp.GetString())) signerRole = drProp.GetString()!;
+                        }
+                        if (signerName.Contains("Liền", StringComparison.OrdinalIgnoreCase) || signerName.Contains("Lien", StringComparison.OrdinalIgnoreCase)) signerRole = "principal";
+                        else if (signerName.Contains("Hằng", StringComparison.OrdinalIgnoreCase) || signerName.Contains("Hang", StringComparison.OrdinalIgnoreCase)) signerRole = "leader";
+
+                        var coords = DetermineCoordinates(pdfBytes, signerName, signerRole, reqX, reqY, reqW, reqH, reqPage, reqXPercent, reqYPercent);
                         targetPage = coords.page;
                         signRect = new Rectangle(coords.x, coords.y, coords.w, coords.h);
-                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 🎯 Xác định vị trí chữ ký số trực quan: Trang {targetPage}, X={coords.x:F1}, Y={coords.y:F1}, W={coords.w:F1}, H={coords.h:F1} (hasExistingSig={hasExisting}, ảnh={sigImgBytes?.Length ?? 0} bytes)");
+                        Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 🎯 Xác định vị trí chữ ký số trực quan: Trang {targetPage}, X={coords.x:F1}, Y={coords.y:F1}, W={coords.w:F1}, H={coords.h:F1} (role={signerRole}, hasExistingSig={hasExisting}, ảnh={sigImgBytes?.Length ?? 0} bytes)");
                     }
 
                     string signReason = isCopySign ? $"{copyType} theo NĐ 30/2020/NĐ-CP - {signerName}" : $"{signerName} đã ký số VGCA";
