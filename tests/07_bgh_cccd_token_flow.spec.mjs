@@ -1,4 +1,4 @@
-﻿import { test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
 test.describe('Kiểm thử Đối soát CCCD USB Token Ban Giám hiệu & Tự động Nhận diện Chế độ Ký', () => {
   test('Kiểm tra Validate CCCD trước khi Quét, Badge Header USB Token và Modal Ký Số', async ({ page }) => {
@@ -59,6 +59,15 @@ test.describe('Kiểm thử Đối soát CCCD USB Token Ban Giám hiệu & Tự 
     // Xác nhận ô Serial vẫn trống vì bị chặn do thiếu CCCD
     const serialValEmpty = await page.locator('#userCertSerial').inputValue();
     expect(serialValEmpty).toBe('');
+    
+    // Kiểm tra bghUsbScanAlert hiển thị cảnh báo trực quan inline
+    const scanAlert = page.locator('#bghUsbScanAlert');
+    await expect(scanAlert).toBeVisible();
+    expect(await scanAlert.textContent()).toContain('CẦN NHẬP SỐ CCCD');
+
+    // Đảm bảo không bật modalUnifiedAlert gây mờ màn hình
+    const alertModal = page.locator('#modalUnifiedAlert');
+    await expect(alertModal).toHaveClass(/hidden/);
 
     // 2.3. Bấm quét khi CCCD không đủ số (ví dụ '123') -> Kiểm tra bị chặn
     await page.locator('#userCccd').fill('123');
@@ -68,6 +77,70 @@ test.describe('Kiểm thử Đối soát CCCD USB Token Ban Giám hiệu & Tự 
     await page.waitForTimeout(500);
     const serialValInvalid = await page.locator('#userCertSerial').inputValue();
     expect(serialValInvalid).toBe('');
+    expect(await scanAlert.textContent()).toContain('SỐ CCCD KHÔNG HỢP LỆ');
+
+    // 2.4. Giả lập quét USB Token với CCCD KHÔNG KHỚP (Chống cắm nhầm USB)
+    await page.route('**/api/check-vgca-status*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          certInfo: {
+            serialNumber: '778899AABBCCDDEE',
+            signerName: 'Nguyễn Văn Khác',
+            cccd: '051200999999',
+            subject: 'CN=Nguyễn Văn Khác, UID=051200999999'
+          }
+        })
+      });
+    });
+
+    await page.locator('#userCccd').fill('051200111111');
+    await page.evaluate(async () => {
+      await window.scanUsbTokenForModalUser();
+    });
+    await page.waitForTimeout(500);
+
+    // Serial phải bị TỪ CHỐI cập nhật
+    const serialValMismatch = await page.locator('#userCertSerial').inputValue();
+    expect(serialValMismatch).toBe('');
+    expect(await scanAlert.textContent()).toContain('CẮM NHẦM USB TOKEN CỦA NGƯỜI KHÁC');
+    // Tuyệt đối KHÔNG làm mờ modal bằng modalUnifiedAlert
+    await expect(alertModal).toHaveClass(/hidden/);
+
+    // Chụp ảnh bằng chứng cảnh báo trực quan chống cắm nhầm thiết bị
+    await page.screenshot({ path: 'tests/screenshots/09_bgh_usb_scan_alert_inline.png' });
+
+    // 2.5. Giả lập quét USB Token với CCCD KHỚP CHUẨN
+    await page.unroute('**/api/check-vgca-status*');
+    await page.route('**/api/check-vgca-status*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          certInfo: {
+            serialNumber: '15FA69CF7ACCCC76',
+            signerName: 'Ngô Thị Liền',
+            cccd: '051200111111',
+            subject: 'CN=Ngô Thị Liền, UID=051200111111'
+          }
+        })
+      });
+    });
+
+    await page.evaluate(async () => {
+      await window.scanUsbTokenForModalUser();
+    });
+    await page.waitForTimeout(500);
+
+    // Serial phải được cập nhật chuẩn xác
+    const serialValMatch = await page.locator('#userCertSerial').inputValue();
+    expect(serialValMatch).toBe('15FA69CF7ACCCC76');
+    expect(await scanAlert.textContent()).toContain('XÁC THỰC THÀNH CÔNG');
+
+    await page.unroute('**/api/check-vgca-status*');
 
     // Đóng Modal User
     await page.evaluate(() => window.closeModal('modalUser'));

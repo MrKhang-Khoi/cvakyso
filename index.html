@@ -63,12 +63,12 @@
 
   <!-- Thư viện Mammoth.js đọc Word .docx sang HTML & html2pdf.js xuất bản PDF trực tiếp trên trình duyệt -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-  <script src="./html2pdf.bundle.min.js"></script>
+  <script src="./html2pdf.bundle.min.js?v=2.7.1"></script>
 
   <!-- Google Firebase SDK v10 (Compat version cho Realtime Sync) -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
-  <script src="./firebase-config.js"></script>
+  <script src="./firebase-config.js?v=2.7.1"></script>
 
   <style>
     /* Tùy chỉnh thanh cuộn đẹp mắt */
@@ -692,6 +692,9 @@
               EduSign Agent sẽ đối soát khóa cứng số Serial này khi tài khoản Ban Giám hiệu ký số phê duyệt chính thức.
             </p>
           </div>
+
+          <!-- Thông báo đối soát USB Token trực quan, không dùng modal đè gây mờ giao diện -->
+          <div id="bghUsbScanAlert" class="hidden p-3 rounded-xl text-xs border leading-relaxed transition-all"></div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -1735,6 +1738,6 @@
   </div>
 
   <!-- Client Application Logic -->
-  <script src="./js/app.js?v=2.7.0&t=20260909_1510"></script>
+  <script src="./js/app.js?v=2.7.1&t=20260909_2045"></script>
 </body>
 </html>
