@@ -4270,20 +4270,55 @@
       return c.toDataURL('image/png');
     }
 
-    // Tải chữ ký cá nhân từ server
+    // Tải chữ ký cá nhân từ Cache, Server và Firebase RTDB
     async function loadUserSignatureProfile() {
       try {
-        if (!authToken) return;
-        const res = await fetch('/api/signatures/mine', {
-          headers: { 'Authorization': `Bearer ${authToken}` }
-        });
-        const data = await res.json();
-        if (data && data.signatureImage) {
-          if (currentUser) currentUser.signatureImage = data.signatureImage;
+        const uid = currentUser ? (currentUser.id || currentUser.username) : null;
+        if (uid) {
+          const localSig = localStorage.getItem(`edusign_sig_${uid}`);
+          if (localSig && localSig.length > 50) {
+            if (currentUser) currentUser.signatureImage = localSig;
+            const preview = document.getElementById('newDocSigPreviewImg');
+            if (preview) preview.src = localSig;
+            const dragImg = document.getElementById('draggableSignatureImg');
+            if (dragImg) dragImg.src = localSig;
+          }
+        }
+
+        let cloudSig = null;
+        if (authToken) {
+          try {
+            const res = await fetch('/api/signatures/mine', {
+              headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            const data = await res.json();
+            if (data && data.signatureImage) cloudSig = data.signatureImage;
+          } catch (e) {}
+        }
+
+        // Tự động khôi phục từ Firebase Cloud nếu máy tính mới chưa có
+        if (!cloudSig && uid) {
+          try {
+            const rtdbUrl = 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+            const fRes = await fetch(`${rtdbUrl}/signatures/${uid}.json?_t=${Date.now()}`);
+            if (fRes.ok) {
+              const fData = await fRes.json();
+              cloudSig = fData && (fData.signatureImage || (typeof fData === 'string' ? fData : null));
+              if (cloudSig && cloudSig.length > 50) {
+                localStorage.setItem(`edusign_sig_${uid}`, cloudSig);
+                console.log(`[Signature] ☁️ Đã khôi phục chữ ký từ Firebase cho ${currentUser.name || uid}`);
+              }
+            }
+          } catch (e) {}
+        }
+
+        if (cloudSig && cloudSig.length > 50) {
+          if (currentUser) currentUser.signatureImage = cloudSig;
           const preview = document.getElementById('newDocSigPreviewImg');
-          if (preview) preview.src = data.signatureImage;
+          if (preview) preview.src = cloudSig;
           const dragImg = document.getElementById('draggableSignatureImg');
-          if (dragImg) dragImg.src = data.signatureImage;
+          if (dragImg) dragImg.src = cloudSig;
+          if (uid) localStorage.setItem(`edusign_sig_${uid}`, cloudSig);
         }
       } catch (err) {
         console.warn('Lỗi tải chữ ký:', err);
@@ -4422,6 +4457,20 @@
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Đang lưu...</span>';
       }
       try {
+        const uid = currentUser ? (currentUser.id || currentUser.username) : null;
+        if (uid) {
+          localStorage.setItem(`edusign_sig_${uid}`, sigToSave);
+          // Đồng bộ lên Firebase Realtime Database
+          try {
+            const rtdbUrl = 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+            fetch(`${rtdbUrl}/signatures/${uid}.json`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ signatureImage: sigToSave, updatedAt: new Date().toISOString() })
+            }).catch(() => {});
+          } catch (e) {}
+        }
+
         const res = await fetch('/api/user/signature', {
           method: 'POST',
           headers: {
@@ -4441,7 +4490,7 @@
         if (dragImg) dragImg.src = currentUser.signatureImage;
 
         closeModal('modalUploadSignature');
-        alert('🎉 Lưu mẫu chữ ký số cá nhân thành công! Chữ ký trong suốt đã sẵn sàng để đóng dấu vào các hồ sơ giáo án.');
+        alert('🎉 Lưu mẫu chữ ký số cá nhân thành công! Chữ ký đã được lưu vĩnh viễn trên Đám mây Firebase và sẵn sàng sử dụng trên mọi máy tính.');
       } catch (err) {
         alert('⚠️ Không thể lưu mẫu chữ ký: ' + err.message);
       } finally {

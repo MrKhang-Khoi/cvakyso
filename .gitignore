@@ -50,3 +50,5 @@ serviceAccountKey.json
 # Test outputs
 test-results/
 
+# Agent binaries
+_AgentPublish/

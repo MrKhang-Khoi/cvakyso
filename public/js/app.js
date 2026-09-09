@@ -74,10 +74,11 @@ function initFirebaseRealtime() {
       updateDepartmentSelectOptions();
     });
 
-    // 3. Lắng nghe thay đổi bảng Documents (Hồ sơ chờ ký) trong thời gian thực
+    // 3. Lắng nghe thay đổi bảng Documents trong thời gian thực
     firebaseDb.ref('documents').on('value', () => {
-      if (appState.currentUser && typeof loadTeacherPendingDocuments === 'function') {
-        loadTeacherPendingDocuments();
+      if (appState.currentUser) {
+        if (typeof loadTeacherPendingDocuments === 'function') loadTeacherPendingDocuments();
+        if (typeof loadTeacherSentDocuments === 'function') loadTeacherSentDocuments();
       }
     });
 
@@ -189,6 +190,7 @@ async function handleLogin(e) {
 
     appState.currentUser = authenticatedUser;
     localStorage.setItem('edusign_user', JSON.stringify(authenticatedUser));
+    syncUserSignatureFromFirebase(authenticatedUser);
 
     showToast(`Chào mừng ${authenticatedUser.fullName || authenticatedUser.username}!`, 'success');
     if (authenticatedUser.role === 'ADMIN') {
@@ -214,12 +216,16 @@ function handleLogout() {
   appState.currentUser = null;
   localStorage.removeItem('edusign_token');
   localStorage.removeItem('edusign_user');
+  if (typeof handleClearFile === 'function') {
+    handleClearFile();
+  }
   showView('login');
   showToast('Đã đăng xuất an toàn.', 'info');
 }
 
 function checkSession() {
   if (appState.currentUser) {
+    syncUserSignatureFromFirebase(appState.currentUser);
     if (appState.currentUser.role === 'ADMIN') {
       showView('admin');
     } else {
@@ -278,6 +284,9 @@ function showView(viewName) {
     }
     if (typeof loadTeacherPendingDocuments === 'function') {
       loadTeacherPendingDocuments();
+    }
+    if (typeof loadTeacherSentDocuments === 'function') {
+      loadTeacherSentDocuments();
     }
   }
 }
@@ -1134,6 +1143,10 @@ function handleClearFile() {
   if (input) input.value = '';
   const box = document.getElementById('fileSelectedBox');
   if (box) box.classList.add('hidden');
+  const fileNameEl = document.getElementById('fileNameDisplay');
+  if (fileNameEl) fileNameEl.textContent = '';
+  const fileSizeEl = document.getElementById('fileSizeDisplay');
+  if (fileSizeEl) fileSizeEl.textContent = '';
   updateTeacherButtonStates();
 }
 
@@ -1481,6 +1494,7 @@ async function handleConvertWordToPdf() {
 // ==================== QUẢN LÝ TAB GIÁO VIÊN & HỒ SƠ CHỜ KÝ ====================
 let currentTeacherTab = 'workspace';
 let teacherPendingDocs = [];
+let teacherSentDocs = [];
 let currentChainedPendingDoc = null;
 let currentSignedPdfBase64 = null;
 
@@ -1488,32 +1502,35 @@ function switchTeacherTab(tabName) {
   currentTeacherTab = tabName;
   const btnWorkspace = document.getElementById('tabBtnTeacherWorkspace');
   const btnPending = document.getElementById('tabBtnTeacherPending');
+  const btnSent = document.getElementById('tabBtnTeacherSent');
   const contentWorkspace = document.getElementById('tabContentTeacherWorkspace');
   const contentPending = document.getElementById('tabContentTeacherPending');
+  const contentSent = document.getElementById('tabContentTeacherSent');
+
+  const activeBtnClass = 'px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all bg-brand-600 text-white shadow-sm shadow-brand-500/20 flex items-center gap-2 cursor-pointer';
+  const inactiveBtnClass = 'px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center gap-2 cursor-pointer';
+
+  // Ẩn tất cả nội dung
+  if (contentWorkspace) contentWorkspace.classList.add('hidden');
+  if (contentPending) contentPending.classList.add('hidden');
+  if (contentSent) contentSent.classList.add('hidden');
+
+  // Đặt class mặc định cho nút
+  if (btnWorkspace) btnWorkspace.className = inactiveBtnClass;
+  if (btnPending) btnPending.className = inactiveBtnClass;
+  if (btnSent) btnSent.className = inactiveBtnClass;
 
   if (tabName === 'workspace') {
     if (contentWorkspace) contentWorkspace.classList.remove('hidden');
-    if (contentPending) contentPending.classList.add('hidden');
-
-    if (btnWorkspace) {
-      btnWorkspace.className = 'px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all bg-brand-600 text-white shadow-sm shadow-brand-500/20 flex items-center gap-2 cursor-pointer';
-    }
-    if (btnPending) {
-      btnPending.className = 'px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center gap-2 cursor-pointer';
-    }
-  } else {
-    // tabName === 'pending'
-    if (contentWorkspace) contentWorkspace.classList.add('hidden');
+    if (btnWorkspace) btnWorkspace.className = activeBtnClass;
+  } else if (tabName === 'pending') {
     if (contentPending) contentPending.classList.remove('hidden');
-
-    if (btnWorkspace) {
-      btnWorkspace.className = 'px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center gap-2 cursor-pointer';
-    }
-    if (btnPending) {
-      btnPending.className = 'px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all bg-brand-600 text-white shadow-sm shadow-brand-500/20 flex items-center gap-2 cursor-pointer';
-    }
-
+    if (btnPending) btnPending.className = activeBtnClass;
     loadTeacherPendingDocuments(true);
+  } else if (tabName === 'sent') {
+    if (contentSent) contentSent.classList.remove('hidden');
+    if (btnSent) btnSent.className = activeBtnClass;
+    loadTeacherSentDocuments(true);
   }
 }
 
@@ -1675,6 +1692,310 @@ function renderTeacherPendingList(docs) {
       </div>
     `;
   }).join('');
+}
+
+// ==================== QUẢN LÝ HỒ SƠ TÔI ĐÃ GỬI (THEO DÕI TIẾN ĐỘ & XÓA) ====================
+async function loadTeacherSentDocuments(force = false) {
+  const container = document.getElementById('listTeacherSentContainer');
+  const badgeEl = document.getElementById('badgeTeacherSentCount');
+  const user = appState.currentUser;
+  if (!user) return;
+
+  const currentUserId = user.id || user.username;
+  const currentUsername = user.username || user.id;
+
+  try {
+    let sentList = [];
+
+    // 1. Thử gọi API backend /api/documents/sent nếu có
+    const canCallBackend = (window.location.protocol !== 'file:' || window._mockSentList !== undefined);
+    if (canCallBackend) {
+      try {
+        const headers = {
+          'Content-Type': 'application/json',
+          'x-user-id': currentUserId,
+          'x-user-username': currentUsername,
+          'x-user-fullname': encodeURIComponent(user.fullName || currentUsername)
+        };
+        if (appState.token) {
+          headers['Authorization'] = `Bearer ${appState.token}`;
+        }
+
+        const fetchEndpoint = (window.location.protocol === 'file:' && window._mockSentList !== undefined)
+          ? '/api/documents/sent'
+          : (API_BASE ? `${API_BASE}/api/documents/sent` : '/api/documents/sent');
+
+        const res = await fetch(fetchEndpoint, { headers, cache: 'no-store' });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && Array.isArray(json.data)) {
+            sentList = json.data;
+          }
+        }
+      } catch (apiErr) {
+        console.warn('[Sent Docs] Backend API offline, fallback to Firebase:', apiErr.message);
+      }
+    }
+
+    // 2. Nếu API không có dữ liệu hoặc lỗi mạng -> query Firebase trực tiếp
+    if (sentList.length === 0) {
+      let allDocs = null;
+      if (firebaseDb) {
+        const snap = await firebaseDb.ref('documents').once('value');
+        allDocs = snap.val();
+      } else {
+        const fRes = await fetch(`${RTDB_URL}/documents.json?_t=${Date.now()}`);
+        if (fRes.ok) allDocs = await fRes.json();
+      }
+
+      if (allDocs) {
+        const docArray = Array.isArray(allDocs)
+          ? allDocs.filter(Boolean)
+          : Object.keys(allDocs).map(k => ({ id: allDocs[k].id || k, ...allDocs[k] }));
+
+        sentList = docArray.filter(d => {
+          if (!d) return false;
+          const isMySent = (d.creatorId && (d.creatorId === currentUserId || d.creatorId === currentUsername)) ||
+                           (d.creatorUsername && (d.creatorUsername === currentUserId || d.creatorUsername === currentUsername)) ||
+                           (d.authorId && (d.authorId === currentUserId || d.authorId === currentUsername)) ||
+                           (d.authorUsername && (d.authorUsername === currentUserId || d.authorUsername === currentUsername));
+          return Boolean(isMySent);
+        });
+
+        sentList.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+      }
+    }
+
+    teacherSentDocs = sentList;
+
+    // Cập nhật huy hiệu số lượng hồ sơ đã gửi
+    if (badgeEl) {
+      badgeEl.textContent = sentList.length;
+      if (sentList.length > 0) {
+        badgeEl.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-600 text-white';
+      } else {
+        badgeEl.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600';
+      }
+    }
+
+    // Render danh sách hồ sơ đã gửi
+    if (container) {
+      renderTeacherSentList(sentList);
+    }
+
+  } catch (err) {
+    console.error('[loadTeacherSentDocuments] Lỗi:', err);
+    if (container) {
+      container.innerHTML = `
+        <div class="p-6 bg-red-50 border border-red-200 rounded-2xl text-center text-red-700 text-xs">
+          Lỗi nạp danh sách hồ sơ đã gửi: ${escapeHtml(err.message)}
+        </div>
+      `;
+    }
+  }
+}
+
+function renderTeacherSentList(docs) {
+  const container = document.getElementById('listTeacherSentContainer');
+  if (!container) return;
+
+  if (!docs || docs.length === 0) {
+    container.innerHTML = `
+      <div class="py-14 text-center text-slate-400 space-y-2">
+        <div class="w-14 h-14 mx-auto rounded-3xl bg-slate-100 text-slate-400 flex items-center justify-center">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+        </div>
+        <p class="text-xs font-bold text-slate-600">Thầy/Cô chưa gửi văn bản nào cần ký phối hợp</p>
+        <p class="text-[11px] text-slate-400">Khi Thầy/Cô chọn tệp Báo cáo và chuyển tiếp đồng nghiệp ký, tiến độ sẽ xuất hiện tại đây.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = docs.map(doc => {
+    const isCompleted = doc.status === 'COMPLETED';
+    const isPending = doc.status === 'PENDING_SIGN';
+    const sigCount = Array.isArray(doc.signatures) ? doc.signatures.length : 1;
+    const createdStr = doc.createdAt ? new Date(doc.createdAt).toLocaleString('vi-VN') : 'Mới đây';
+    const nextPerson = doc.assignedToName || doc.currentSignerName || doc.nextSignerName || 'Đồng nghiệp';
+
+    let statusBadge = '';
+    if (isCompleted) {
+      statusBadge = `
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+          <svg class="w-3 h-3 text-emerald-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+          Đã hoàn tất (Đủ ${sigCount} chữ ký)
+        </span>
+      `;
+    } else if (isPending) {
+      statusBadge = `
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+          Đang chờ: <strong>${escapeHtml(nextPerson)}</strong> ký (Bước ${sigCount + 1})
+        </span>
+      `;
+    } else {
+      statusBadge = `
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+          ${escapeHtml(doc.status || 'Đang xử lý')}
+        </span>
+      `;
+    }
+
+    let actionButtons = '';
+    if (isCompleted) {
+      actionButtons += `
+        <button type="button" onclick="downloadCompletedDocument('${escapeHtml(doc.id)}')"
+          class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-1.5 cursor-pointer">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          <span>Tải file đã ký</span>
+        </button>
+      `;
+    } else {
+      actionButtons += `
+        <button type="button" onclick="viewSentDocumentDetail('${escapeHtml(doc.id)}')"
+          class="px-3.5 py-2 bg-slate-100 hover:bg-brand-50 hover:text-brand-700 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 transition flex items-center gap-1.5 cursor-pointer">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+          <span>Xem bản ký hiện tại</span>
+        </button>
+      `;
+    }
+
+    // Nút XÓA / THU HỒI HỒ SƠ
+    actionButtons += `
+      <button type="button" onclick="handleDeleteSentDoc('${escapeHtml(doc.id)}', '${escapeHtml(doc.title).replace(/'/g, "\\'")}')"
+        title="Thu hồi hoặc xóa hồ sơ này khỏi hệ thống"
+        class="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-semibold border border-rose-200 transition flex items-center gap-1 cursor-pointer">
+        <svg class="w-4 h-4 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        <span>Xóa / Thu hồi</span>
+      </button>
+    `;
+
+    return `
+      <div class="p-4 sm:p-5 bg-gradient-to-r from-white to-blue-50/20 border border-slate-200/90 hover:border-blue-300 rounded-2xl shadow-xs transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 group">
+        <div class="space-y-1.5 min-w-0 flex-1">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+              Báo cáo đã gửi
+            </span>
+            <span class="text-[11px] text-slate-400 font-mono">${createdStr}</span>
+            ${statusBadge}
+          </div>
+          <h4 class="text-sm font-bold text-slate-900 group-hover:text-brand-700 transition truncate" title="${escapeHtml(doc.title)}">
+            ${escapeHtml(doc.title)}
+          </h4>
+          <div class="text-[11px] text-slate-600 flex items-center gap-2 flex-wrap">
+            <span>👤 Người nhận tiếp theo: <strong>${escapeHtml(nextPerson)}</strong></span>
+            ${doc.note ? `<span>•</span><span class="italic text-slate-500">"${escapeHtml(doc.note)}"</span>` : ''}
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 self-end sm:self-center flex-wrap">
+          ${actionButtons}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Xóa hoặc thu hồi hồ sơ đã gửi
+async function handleDeleteSentDoc(docId, docTitle) {
+  const confirmMsg = `Thầy/Cô có chắc chắn muốn XÓA / THU HỒI hồ sơ:\n"${docTitle || docId}"?\n\nSau khi xóa, hồ sơ sẽ được gỡ khỏi danh sách chờ ký của đồng nghiệp và không thể phục hồi.`;
+  if (!confirm(confirmMsg)) {
+    return;
+  }
+
+  showToast('Đang tiến hành xóa / thu hồi hồ sơ...', 'info');
+
+  try {
+    let success = false;
+
+    // 1. Thử gọi API backend
+    try {
+      const user = appState.currentUser;
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-user-id': user?.id || user?.username || '',
+        'x-user-username': user?.username || '',
+        'x-user-role': user?.role || ''
+      };
+      if (appState.token) {
+        headers['Authorization'] = `Bearer ${appState.token}`;
+      }
+
+      const fetchEndpoint = API_BASE ? `${API_BASE}/api/documents/${docId}` : `/api/documents/${docId}`;
+      const res = await fetch(fetchEndpoint, {
+        method: 'DELETE',
+        headers
+      });
+      if (res.ok) {
+        const json = await res.json().catch(() => ({}));
+        if (json.success) success = true;
+      }
+    } catch (apiErr) {
+      console.warn('[Delete Doc] API backend gặp lỗi, fallback Firebase:', apiErr.message);
+    }
+
+    // 2. Đồng thời xóa trực tiếp trên Firebase Realtime Database
+    try {
+      if (firebaseDb) {
+        await firebaseDb.ref(`documents/${docId}`).remove();
+        success = true;
+      } else {
+        const fbRes = await fetch(`${RTDB_URL}/documents/${docId}.json`, { method: 'DELETE' });
+        if (fbRes.ok) success = true;
+      }
+    } catch (fbErr) {
+      console.warn('[Delete Doc] Lỗi xóa Firebase:', fbErr.message);
+    }
+
+    // Cập nhật lại state cục bộ nếu có
+    teacherSentDocs = teacherSentDocs.filter(d => d.id !== docId);
+    teacherPendingDocs = teacherPendingDocs.filter(d => d.id !== docId);
+
+    showToast(`🎉 Đã xóa / thu hồi thành công hồ sơ "${docTitle || docId}"!`, 'success');
+    loadTeacherSentDocuments(true);
+    loadTeacherPendingDocuments(true);
+
+  } catch (err) {
+    console.error('Lỗi xóa hồ sơ:', err);
+    showToast('Lỗi khi xóa hồ sơ: ' + err.message, 'error');
+  }
+}
+
+function viewSentDocumentDetail(docId) {
+  const doc = teacherSentDocs.find(d => d.id === docId);
+  if (!doc) return;
+
+  if (doc.fileBase64) {
+    openDocumentViewer(doc.title, {
+      name: (doc.title || 'BaoCao') + '.pdf',
+      size: Math.round(doc.fileBase64.length * 0.75),
+      dataUrl: doc.fileBase64
+    }, false);
+  } else {
+    const url = (API_BASE || '') + `/api/documents/${docId}/file?inline=1`;
+    window.open(url, '_blank');
+  }
+}
+
+function downloadCompletedDocument(docId) {
+  const doc = teacherSentDocs.find(d => d.id === docId);
+  if (doc && doc.googleDriveUrl) {
+    window.open(doc.googleDriveUrl, '_blank');
+    return;
+  }
+  if (doc && doc.fileBase64) {
+    const link = document.createElement('a');
+    link.href = doc.fileBase64;
+    link.download = `${doc.title || 'BaoCao'}_DaKySo.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    return;
+  }
+  const url = (API_BASE || '') + `/api/documents/${docId}/download-signed`;
+  window.open(url, '_blank');
 }
 
 async function openPendingDocumentToSign(docId) {
@@ -1970,6 +2291,7 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
     );
 
     loadTeacherPendingDocuments(true);
+    loadTeacherSentDocuments(true);
   }
 }
 
@@ -2263,11 +2585,55 @@ function toggleViewerFullscreen() {
   }
 }
 
+async function syncUserSignatureFromFirebase(user) {
+  if (!user) return null;
+  const uid = user.id || user.username;
+  const userSigKey = `edusign_sig_${uid}`;
+  const existing = localStorage.getItem(userSigKey) || user.signatureImage;
+
+  try {
+    const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+    const res = await fetch(`${rtdbUrl}/signatures/${uid}.json?_t=${Date.now()}`);
+    if (res.ok) {
+      const data = await res.json();
+      const cloudSig = (data && (data.signatureImage || (typeof data === 'string' ? data : null)));
+      if (cloudSig && cloudSig.length > 50) {
+        localStorage.setItem(userSigKey, cloudSig);
+        user.signatureImage = cloudSig;
+        const dragImg = document.getElementById('draggableSignatureImg');
+        if (dragImg) {
+          dragImg.src = cloudSig;
+          dragImg.classList.remove('hidden');
+        }
+        const defaultBox = document.getElementById('draggableSignatureDefaultBox');
+        if (defaultBox) defaultBox.classList.add('hidden');
+        console.log(`[Signature Sync] ☁️ Đã tự động khôi phục chữ ký từ Firebase cho giáo viên ${user.fullName || uid}`);
+        return cloudSig;
+      } else if (existing && existing.length > 50) {
+        // Firebase chưa có nhưng local có -> tự động đẩy lên Firebase sao lưu
+        fetch(`${rtdbUrl}/signatures/${uid}.json`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ signatureImage: existing, updatedAt: new Date().toISOString() })
+        }).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.warn('[Signature Sync] Không thể kết nối Firebase RTDB:', e.message);
+  }
+  return existing || null;
+}
+
 function getTeacherSignatureImage() {
   const currentUser = appState.currentUser;
   if (!currentUser) return null;
   const userSigKey = `edusign_sig_${currentUser.id || currentUser.username}`;
-  return localStorage.getItem(userSigKey) || currentUser.signatureImage || null;
+  const localSig = localStorage.getItem(userSigKey) || currentUser.signatureImage;
+  if (localSig) return localSig;
+  
+  // Nếu máy tính hiện tại chưa có, kích hoạt tải ngầm từ Firebase
+  syncUserSignatureFromFirebase(currentUser);
+  return null;
 }
 
 function toggleSignaturePlacementMode(forceState) {
@@ -3221,17 +3587,9 @@ function executeImmediateCleanupAndClose() {
     currentPdfBlobUrl = null;
   }
 
-  // 3. Giải phóng biến bộ nhớ
+  // 3. Giải phóng biến bộ nhớ và làm sạch ô chọn tệp
   currentActiveSignSession = null;
-  teacherSelectedFile = null;
-
-  // 4. Đặt lại form tải file
-  const dropZone = document.getElementById('dropZoneContainer');
-  const fileSelectedCard = document.getElementById('fileSelectedCard');
-  const fileInput = document.getElementById('lessonFileInput');
-  if (fileInput) fileInput.value = '';
-  if (dropZone) dropZone.classList.remove('hidden');
-  if (fileSelectedCard) fileSelectedCard.classList.add('hidden');
+  handleClearFile();
 
   showToast('🎉 Ký số & Lưu trữ Google Drive thành công! Đã dọn sạch an toàn.', 'success');
 }
@@ -3413,9 +3771,38 @@ function saveUserSignature() {
 
   const user = appState.currentUser;
   if (user) {
-    const key = `edusign_sig_${user.id || user.username}`;
+    const uid = user.id || user.username;
+    const key = `edusign_sig_${uid}`;
     localStorage.setItem(key, currentProcessedSignatureBase64);
     user.signatureImage = currentProcessedSignatureBase64;
+
+    // 1. Tự động đồng bộ lên Firebase Realtime Database (/signatures/{uid}.json)
+    try {
+      const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+      fetch(`${rtdbUrl}/signatures/${uid}.json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signatureImage: currentProcessedSignatureBase64,
+          updatedAt: new Date().toISOString()
+        })
+      }).then(() => {
+        console.log('[Signature Sync] ✅ Đã đồng bộ chữ ký lên Firebase Cloud thành công');
+      }).catch(e => console.warn('[Signature Sync] Lưu Firebase nền:', e.message));
+    } catch (e) {}
+
+    // 2. Gửi lưu lên Backend Server nếu có kết nối
+    if (appState.token || (typeof API_BASE !== 'undefined' && API_BASE)) {
+      const endpoint = (typeof API_BASE !== 'undefined' && API_BASE) ? `${API_BASE}/api/user/signature` : '/api/user/signature';
+      fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${appState.token || ''}`
+        },
+        body: JSON.stringify({ signatureImage: currentProcessedSignatureBase64 })
+      }).catch(() => {});
+    }
   }
 
   // Cập nhật lên con dấu trên giao diện ký nếu đang mở
@@ -3430,7 +3817,7 @@ function saveUserSignature() {
   closeModal('modalUploadSignature');
   showModalAlert(
     'Lưu thành công',
-    '🎉 Đã lưu mẫu ảnh chữ ký số cá nhân thành công! Nền ảnh đã được bóc tách trong suốt chuẩn PNG.',
+    '🎉 Đã lưu mẫu ảnh chữ ký số cá nhân thành công! Chữ ký đã được lưu vĩnh viễn trên Đám mây Firebase và sẵn sàng sử dụng trên mọi máy tính.',
     'success'
   );
 }

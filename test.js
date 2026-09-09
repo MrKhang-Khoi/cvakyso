@@ -565,10 +565,18 @@ async function runTests() {
         visualSignImage: dummySignature
       }]
     };
-    const cloudSignRes = await pdfSignerService.signWithRealVgca(cloudDoc);
-    fs.existsSync = origFsExists; // Khôi phục
+    let expectedAgentErr = null;
+    try {
+      await pdfSignerService.signWithRealVgca(cloudDoc);
+    } catch (e) {
+      expectedAgentErr = e.message;
+    } finally {
+      fs.existsSync = origFsExists; // Khôi phục an toàn
+    }
 
-    assert(cloudSignRes && cloudSignRes.signedFilePath && fs.existsSync(cloudSignRes.signedFilePath), 'Hệ thống ký số hoạt động trơn tru 100% trên môi trường Render Linux (Tự động niêm phong PAdES X.509 mà không bị lỗi thiếu file .exe)');
+    assert(expectedAgentErr && expectedAgentErr.includes('EduSign Agent'), 'Bảo vệ pháp lý (Fix F): Chặn đứng ký giả khi thiếu Agent, trả thông báo hướng dẫn cài đặt');
+    const stampedBuf = await pdfSignerService.generateSignedPdf(cloudDoc);
+    assert(stampedBuf && stampedBuf.length > 500, 'Máy chủ Render tự động đóng dấu ảnh chữ ký chuẩn vào tệp PDF thành công');
 
     // Kiểm tra API Ping Local Signer
     const pingLocalRes = await httpRequest({
@@ -857,7 +865,7 @@ async function runTests() {
       try { fs.unlinkSync(saoyOutputPdf); } catch (e) {}
     }
 
-    // 3.10c Kiểm tra API /api/documents/:id/sign-vgca-real với chế độ Ký Sao Y
+    // 3.10c Kiểm tra API /api/documents/:id/sign-vgca-real với chế độ Ký Sao Y (kèm tệp đã ký từ client)
     const saoyDocRes = await httpRequest({
       hostname: '127.0.0.1',
       port: TEST_PORT,
@@ -868,6 +876,7 @@ async function runTests() {
         'Authorization': `Bearer ${teacherToken}`
       }
     }, {
+      realSignedPdfBase64: sampleBase64,
       signType: 'COPY',
       copyType: 'SAO Y',
       copyText: 'SAO Y; Hà Văn Tý; Thời gian ký: 2026-09-06T16:01:42+07:00'
@@ -972,6 +981,37 @@ async function runTests() {
       serialNumber: '1111222233334444'
     });
     assert(teacherUpdateCfgRes.status === 403, 'Hệ thống CHẶN giáo viên thường sửa cấu hình USB Token của Ban Giám hiệu (Mã 403)');
+
+    // 5.1 Kiểm tra CORS Preflight (OPTIONS request) với Custom Header x-user-id
+    console.log('\n📌 6. Kiểm tra CORS Preflight & Đồng bộ Chữ ký Đám mây (Firebase RTDB):');
+    const corsPreflightRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: TEST_PORT,
+      path: '/api/documents/pending',
+      method: 'OPTIONS',
+      headers: {
+        'Origin': 'https://mrkhang-khoi.github.io',
+        'Access-Control-Request-Method': 'GET',
+        'Access-Control-Request-Headers': 'x-user-id, Content-Type, Authorization'
+      }
+    });
+    assert(corsPreflightRes.status === 204 || corsPreflightRes.status === 200, 'Máy chủ phản hồi thành công lệnh CORS Preflight OPTIONS (Mã 204/200)');
+    const allowHeaders = corsPreflightRes.headers['access-control-allow-headers'] || '';
+    assert(allowHeaders.toLowerCase().includes('x-user-id'), 'Header Access-Control-Allow-Headers CHO PHÉP x-user-id (Khắc phục triệt để lỗi CORS)');
+    assert(corsPreflightRes.headers['access-control-allow-origin'] === '*' || corsPreflightRes.headers['access-control-allow-origin'] === 'https://mrkhang-khoi.github.io', 'CORS Origin được cấp phép hợp lệ');
+
+    // 5.2 Kiểm tra API lưu chữ ký tự động đồng bộ lên Firebase RTDB
+    const testSigUploadRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: TEST_PORT,
+      path: '/api/user/signature',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${teacherToken}`
+      }
+    }, { signatureImage: dummySignature });
+    assert(testSigUploadRes.status === 200 && testSigUploadRes.body.success, 'Lưu mẫu chữ ký cá nhân và kích hoạt đồng bộ Firebase thành công');
 
   } catch (err) {
     assert(false, `Lỗi khi gọi API: ${err.message}`);

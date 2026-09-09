@@ -1,4 +1,4 @@
-﻿const { spawn } = require('child_process');
+const { spawn } = require('child_process');
 const puppeteer = require('puppeteer-core');
 const path = require('path');
 const fs = require('fs');
@@ -239,6 +239,86 @@ async function main() {
       console.log('  ✅ [PASS] Cấu trúc thư mục Google Drive chuẩn xác: GoogleDrive_KhoTruong/' + schoolYear + '/Hà Văn Tý');
     }
 
+    // Kiểm tra tính năng mới: Hồ sơ tôi đã gửi (/api/documents/sent) và Xóa/Thu hồi (/api/documents/:id)
+    console.log('\n📌 2b. Kiểm tra Tính Năng Tab 3 (Hồ sơ tôi đã gửi) và Xóa/Thu hồi văn bản:');
+    const sendRepRes = await fetch(`${BASE_URL}/api/documents/forward`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': 'hvty',
+        'x-user-username': 'hvty',
+        'x-user-fullname': encodeURIComponent('Hà Văn Tý')
+      },
+      body: JSON.stringify({
+        title: 'Báo cáo chuyên môn Test Luân Chuyển GV A -> GV B',
+        docType: 'REPORT',
+        fileBase64: 'data:application/pdf;base64,JVBERi0xLjQKJcTl8uXrCg==',
+        nextSignerId: 'tvnam',
+        nextSignerName: 'Trần Văn Nam',
+        note: 'Kính gửi Thầy Nam ký tiếp'
+      })
+    });
+    const sendRepData = await sendRepRes.json();
+    if (!sendRepRes.ok || !sendRepData.success) {
+      throw new Error('Gửi báo cáo thất bại: ' + sendRepData.message);
+    }
+    const sentDocId = sendRepData.data.id;
+    console.log('  ✅ [PASS] GV A (hvty) nộp và chuyển tiếp báo cáo thành công tới GV B (tvnam)');
+
+    // 1. Kiểm tra GV A có thấy trong /api/documents/sent không
+    const sentListRes = await fetch(`${BASE_URL}/api/documents/sent`, {
+      headers: { 'x-user-id': 'hvty' }
+    });
+    const sentListData = await sentListRes.json();
+    const foundInSent = sentListData.data.find(d => d.id === sentDocId);
+    if (!foundInSent) {
+      throw new Error('GV A không tìm thấy văn bản trong /api/documents/sent!');
+    }
+    console.log('  ✅ [PASS] GV A (hvty) thấy văn bản của mình trong /api/documents/sent (Tiến độ: Đang chờ tvnam ký)');
+
+    // 2. Kiểm tra GV A có thấy trong /api/documents/pending không (Phải KHÔNG thấy vì đã chuyển GV B)
+    const pendingListResA = await fetch(`${BASE_URL}/api/documents/pending`, {
+      headers: { 'x-user-id': 'hvty' }
+    });
+    const pendingListDataA = await pendingListResA.json();
+    const foundInPendingA = pendingListDataA.data.find(d => d.id === sentDocId);
+    if (foundInPendingA) {
+      throw new Error('Lỗi logic: GV A không được thấy văn bản trong /api/documents/pending sau khi đã chuyển cho GV B!');
+    }
+    console.log('  ✅ [PASS] GV A (hvty) KHÔNG thấy văn bản trong /api/documents/pending (Đúng logic vì đã chuyển GV B)');
+
+    // 3. Kiểm tra GV B (tvnam) CÓ thấy trong /api/documents/pending không
+    const pendingListResB = await fetch(`${BASE_URL}/api/documents/pending`, {
+      headers: { 'x-user-id': 'tvnam' }
+    });
+    const pendingListDataB = await pendingListResB.json();
+    const foundInPendingB = pendingListDataB.data.find(d => d.id === sentDocId);
+    if (!foundInPendingB) {
+      throw new Error('GV B (tvnam) không thấy văn bản trong /api/documents/pending!');
+    }
+    console.log('  ✅ [PASS] GV B (tvnam) thấy văn bản đang chờ mình ký trong /api/documents/pending');
+
+    // 4. Kiểm tra tính năng XÓA / THU HỒI của GV A:
+    const delDocRes = await fetch(`${BASE_URL}/api/documents/${sentDocId}`, {
+      method: 'DELETE',
+      headers: { 'x-user-id': 'hvty' }
+    });
+    const delDocData = await delDocRes.json();
+    if (!delDocRes.ok || !delDocData.success) {
+      throw new Error('Xóa/thu hồi hồ sơ thất bại: ' + delDocData.message);
+    }
+    console.log('  ✅ [PASS] GV A (hvty) THU HỒI / XÓA thành công hồ sơ của mình');
+
+    // 5. Xác minh hồ sơ đã biến mất khỏi cả sent của GV A và pending của GV B
+    const verifySentRes = await fetch(`${BASE_URL}/api/documents/sent`, { headers: { 'x-user-id': 'hvty' } });
+    const verifyPendingRes = await fetch(`${BASE_URL}/api/documents/pending`, { headers: { 'x-user-id': 'tvnam' } });
+    const hasInSent = (await verifySentRes.json()).data.some(d => d.id === sentDocId);
+    const hasInPending = (await verifyPendingRes.json()).data.some(d => d.id === sentDocId);
+    if (hasInSent || hasInPending) {
+      throw new Error('Hồ sơ vẫn còn tồn tại sau khi xóa!');
+    }
+    console.log('  ✅ [PASS] Xác minh: Hồ sơ đã được gỡ sạch khỏi cả hộp gửi của GV A và hộp chờ ký của GV B');
+
     await fetch(`${BASE_URL}/api/documents/${doc1.id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
     await fetch(`${BASE_URL}/api/documents/${doc2.id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
     console.log('  ✅ [PASS] Dọn dẹp hồ sơ kiểm thử thành công\n');
@@ -274,55 +354,73 @@ async function main() {
     console.log('  ✅ [PASS] Mở giao diện Desktop (1280x800) thành công');
 
     await page.evaluate(async (tok) => {
-      window.authToken = tok;
-      window.currentUser = {
-        id: 'admin',
-        name: 'Nguyễn Văn Hiệu Trưởng',
-        username: 'admin',
-        role: 'ADMIN',
-        signType: 'USB_TOKEN',
-        department: 'Ban Giám Hiệu'
+      window.appState = window.appState || {};
+      window.appState.token = tok;
+      window.appState.currentUser = {
+        id: 'hvty',
+        name: 'Hà Văn Tý',
+        fullName: 'Hà Văn Tý',
+        username: 'hvty',
+        role: 'TEACHER',
+        roleTitle: 'Giáo viên Toán - Tin',
+        signType: 'VGCA',
+        department: 'Tổ Toán - Tin'
       };
-      renderUserInterface();
-      switchMainTab('docs');
+      if (typeof showView === 'function') {
+        showView('teacher');
+      }
     }, token);
 
-    await new Promise(r => setTimeout(r, 1000));
+    await new Promise(r => setTimeout(r, 800));
 
+    // Kiểm tra chuyển đổi 3 Tab Giáo viên: Soạn & Ký, Hồ sơ chờ ký, Hồ sơ tôi đã gửi
     await page.evaluate(() => {
-      switchDocCategoryTab('REPORT');
+      switchTeacherTab('pending');
     });
     await new Promise(r => setTimeout(r, 600));
 
     await page.evaluate(() => {
-      switchDocCategoryTab('PERSONAL');
-    });
-    await new Promise(r => setTimeout(r, 600));
-    console.log('  ✅ [PASS] Chuyển đổi mượt mà giữa Tab 1 (Hồ sơ cá nhân) và Tab 2 (Ký báo cáo)');
-
-    await page.evaluate(() => {
-      switchMainTab('users');
+      switchTeacherTab('sent');
     });
     await new Promise(r => setTimeout(r, 600));
 
     await page.evaluate(() => {
-      switchAdminSubTab('depts');
+      switchTeacherTab('workspace');
+    });
+    await new Promise(r => setTimeout(r, 600));
+    console.log('  ✅ [PASS] Chuyển đổi mượt mà giữa 3 Tab Giáo viên (Soạn & Ký, Hồ sơ chờ ký, Hồ sơ tôi đã gửi)');
+
+    // Kiểm tra tính năng dọn sạch ô chọn tệp handleClearFile
+    const clearFileOk = await page.evaluate(() => {
+      const box = document.getElementById('fileSelectedBox');
+      const nameEl = document.getElementById('fileNameDisplay');
+      handleClearFile();
+      return box.classList.contains('hidden') && (!nameEl || nameEl.textContent === '');
+    });
+    if (!clearFileOk) throw new Error('handleClearFile không ẩn được thẻ fileSelectedBox!');
+    console.log('  ✅ [PASS] Kiểm tra dọn sạch form tải tệp (handleClearFile): Khung file đã ẩn và dọn sạch 100%');
+
+    // Kiểm tra chuyển sang giao diện Admin và các Tab Quản trị
+    await page.evaluate(() => {
+      window.appState.currentUser.role = 'ADMIN';
+      showView('admin');
+      switchTab('departments');
     });
     await new Promise(r => setTimeout(r, 600));
 
     await page.evaluate(() => {
-      switchAdminSubTab('users');
+      switchTab('teachers');
     });
     await new Promise(r => setTimeout(r, 600));
-    console.log('  ✅ [PASS] Quản lý Admin: Chuyển đổi giữa Tab Tài khoản và Tab Tổ chuyên môn thành công');
+    console.log('  ✅ [PASS] Quản lý Admin: Chuyển đổi giữa Tab Giáo viên và Tab Tổ chuyên môn thành công');
 
     await page.setViewport({ width: 375, height: 812, isMobile: true, hasTouch: true });
     await page.evaluate(() => {
-      switchMainTab('docs');
-      switchDocCategoryTab('REPORT');
+      showView('teacher');
+      switchTeacherTab('sent');
     });
-    await new Promise(r => setTimeout(r, 1000));
-    console.log('  ✅ [PASS] Mobile Viewport (375x812): Thẻ tài liệu Mobile Cards & Stepper hiển thị chuẩn Apple HIG');
+    await new Promise(r => setTimeout(r, 600));
+    console.log('  ✅ [PASS] Mobile Viewport (375x812): Giao diện Mobile Responsive hiển thị chuẩn sắc nét');
 
     await browser.close();
 

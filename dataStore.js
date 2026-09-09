@@ -491,9 +491,14 @@ function resolveFilePath(filePath) {
   return null;
 }
 
-function createDocument(docData, currentUser) {
+function createDocument(docData, currentUser = {}) {
   const docs = getDocuments();
-  const newId = 'KHBD-' + new Date().getFullYear() + '-' + Date.now().toString().slice(-6);
+  const newId = docData.id || ('KHBD-' + new Date().getFullYear() + '-' + Date.now().toString().slice(-6));
+
+  const authorName = currentUser.name || currentUser.fullName || docData.creatorName || docData.author || 'Giáo viên';
+  const authorId = currentUser.id || docData.creatorId || docData.authorId || 'teacher';
+  const authorUsername = currentUser.username || docData.creatorUsername || docData.authorUsername || authorId;
+  const deptName = currentUser.department || currentUser.departmentName || docData.creatorDept || docData.department || 'Tổ Toán - Tin';
 
   const category = docData.category || 'PERSONAL';
   const isPersonal = (category === 'PERSONAL');
@@ -504,14 +509,22 @@ function createDocument(docData, currentUser) {
     id: newId,
     title: docData.title,
     category: category,
-    author: currentUser.name,
-    authorId: currentUser.id,
-    authorUsername: currentUser.username,
-    department: currentUser.department || docData.department || 'Tổ Toán - Tin',
+    author: authorName,
+    authorId: authorId,
+    authorUsername: authorUsername,
+    creatorId: docData.creatorId || authorId,
+    creatorName: docData.creatorName || authorName,
+    creatorDept: docData.creatorDept || deptName,
+    assignedTo: docData.assignedTo || null,
+    assignedToName: docData.assignedToName || null,
+    currentSignerId: docData.currentSignerId || null,
+    currentSignerName: docData.currentSignerName || null,
+    department: deptName,
     grade: docData.grade || 'Khối 9',
     week: docData.week || 'Tuần 1',
     term: docData.term || 'Học kỳ I',
-    createdAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+    createdAt: docData.createdAt || new Date().toISOString().replace('T', ' ').substring(0, 19),
+    updatedAt: docData.updatedAt || new Date().toISOString(),
     status: defaultStatus,
     currentSignerRole: currentSignerRole,
     nextSignerId: docData.nextSignerId || null,
@@ -564,6 +577,20 @@ function syncDocToFirebase(doc) {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cleanDoc)
+    }).catch(() => {});
+  } catch (e) {}
+}
+
+function syncSignatureToFirebase(userId, signatureImage) {
+  if (!userId || !signatureImage) return;
+  try {
+    fetch(`${FIREBASE_RTDB_URL}/signatures/${userId}.json`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        signatureImage,
+        updatedAt: new Date().toISOString()
+      })
     }).catch(() => {});
   } catch (e) {}
 }
@@ -673,5 +700,6 @@ module.exports = {
   getBghSigningConfig,
   saveBghSigningConfig,
   isDocArchived,
-  sanitizeDocuments
+  sanitizeDocuments,
+  syncSignatureToFirebase
 };

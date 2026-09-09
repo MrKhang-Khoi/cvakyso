@@ -676,6 +676,7 @@ async function signWithRealVgca(doc) {
             resolve({
               signedBuffer: signedBuf,
               signedFilePath: tempOutput,
+              isRealSigned: true,
               stdout
             });
           } else {
@@ -688,60 +689,31 @@ async function signWithRealVgca(doc) {
       try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (e) {}
       return result;
     } catch (err) {
-      console.log('[VGCA Engine] Không chạy được C# Runner, tự động chuyển sang Cloud PAdES Sealer...');
+      console.error('[VGCA Engine] C# Runner thất bại:', err.message);
+      // Dọn dẹp trước khi throw
+      try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (e) {}
+      // === Fix F: KHÔNG fallback sang ký giả — throw lỗi rõ ràng ===
+      throw new Error(
+        `Ký số thất bại: ${err.message}\n` +
+        `Vui lòng kiểm tra:\n` +
+        `1. EduSign Agent đang chạy (biểu tượng khiên xanh ở khay hệ thống)\n` +
+        `2. Thiết bị USB Token đã cắm vào máy tính\n` +
+        `3. Virtual CSP (vgca_vcsp_v2_mgr.exe) đang hoạt động`
+      );
     }
   }
 
-  // 3. Giải pháp niêm phong mật mã số PAdES X.509 RFC 3279 trực tiếp trên Cloud (Render Linux / Docker / Web Hosting)
-  try {
-    const isPreSigned = stampedPdfBuffer && (
-      stampedPdfBuffer.toString('binary').includes('/ByteRange') ||
-      stampedPdfBuffer.toString('binary').includes('/Type /Sig')
-    );
+  // === Fix F: Không có Agent → KHÔNG được ký giả — trả lỗi rõ ràng ===
+  try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (e) {}
 
-    if (isPreSigned) {
-      fs.writeFileSync(tempOutput, stampedPdfBuffer);
-      return {
-        signedBuffer: stampedPdfBuffer,
-        signedFilePath: tempOutput,
-        stdout: '[VGCA Cloud Sealer] Đã giữ nguyên vẹn 100% chữ ký số hợp lệ của người ký trước.'
-      };
-    }
-
-    const crypto = require('crypto');
-    const pdfDoc = await PDFDocument.load(stampedPdfBuffer);
-    
-    // Tính mã băm toàn vẹn SHA-256
-    const hash = crypto.createHash('sha256').update(stampedPdfBuffer).digest('hex').toUpperCase();
-
-    // Thiết lập siêu dữ liệu chứng thực điện tử Ban Cơ yếu Chính phủ
-    pdfDoc.setTitle(doc.title || 'Kế hoạch bài dạy đã ký số VGCA');
-    pdfDoc.setAuthor((doc.author || 'Giáo viên') + ' - TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN');
-    pdfDoc.setSubject('Chứng thực Chữ ký số Ban Cơ yếu Chính phủ - Chuẩn PAdES X.509 RFC 3279 ECDSA SHA-256');
-    pdfDoc.setKeywords(['VGCA', 'Ban Cơ yếu Chính phủ', 'PAdES', 'X.509', 'RFC 3279', 'ECDSA SHA-256', 'THCS Chu Văn An', 'Có giá trị pháp lý']);
-    pdfDoc.setCreator('Hệ thống Quản lý Ký số Giáo dục THCS Chu Văn An (EduSign VGCA Cloud Engine)');
-    pdfDoc.setProducer('Ban Cơ yếu Chính phủ (VGCA) Cryptographic Subsystem v2.0');
-    pdfDoc.setModificationDate(new Date());
-
-    const sealedPdfBytes = await pdfDoc.save();
-    fs.writeFileSync(tempOutput, sealedPdfBytes);
-
-    try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (e) {}
-
-    return {
-      signedBuffer: Buffer.from(sealedPdfBytes),
-      signedFilePath: tempOutput,
-      stdout: `[VGCA Cloud Sealer] Đã niêm phong mật mã PAdES X.509 RFC 3279 DER ECDSA SHA-256 Ban Cơ yếu Chính phủ thành công 100% trên đám mây. SHA-256 Digest: ${hash}`
-    };
-  } catch (sealErr) {
-    fs.writeFileSync(tempOutput, stampedPdfBuffer);
-    try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (e) {}
-    return {
-      signedBuffer: stampedPdfBuffer,
-      signedFilePath: tempOutput,
-      stdout: 'Đã hoàn tất ký số điện tử VGCA.'
-    };
-  }
+  throw new Error(
+    'EduSign Agent chưa được cài đặt hoặc chưa chạy trên máy tính này.\n' +
+    'Chữ ký số pháp lý VGCA yêu cầu EduSign Agent phải hoạt động cục bộ.\n' +
+    'Vui lòng:\n' +
+    '1. Tải và cài đặt EduSign Agent từ trang web\n' +
+    '2. Chạy EduSign_Agent.exe → biểu tượng khiên xanh xuất hiện ở khay hệ thống\n' +
+    '3. Thực hiện ký số lại'
+  );
 }
 
 module.exports = {
