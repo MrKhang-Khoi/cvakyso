@@ -2822,8 +2822,24 @@
     }
 
     // ==================== TẢI FILE THẬT CHO HỒ SƠ GIÁO ÁN ====================
+    function canUserUploadWord() {
+      if (!currentUser) return false;
+      const role = (currentUser.role || '').toUpperCase();
+      if (role === 'ADMIN' || role === 'BGH') return true;
+      if (currentUser.canUploadWord !== undefined) {
+        return Boolean(currentUser.canUploadWord);
+      }
+      return false;
+    }
+
     function handleNewDocFileSelected(file) {
       if (!file) return;
+      const ext = file.name.split('.').pop().toLowerCase();
+      if (['docx', 'doc'].includes(ext) && !canUserUploadWord()) {
+        removeSelectedFile();
+        alert('⚠️ Tài khoản của Thầy/Cô chưa được Quản trị viên cấp quyền gửi tệp Word (.docx, .doc).\nVui lòng tự xuất hoặc chuyển đổi tệp sang PDF chuẩn (.pdf) trước khi nộp.');
+        return;
+      }
       selectedUploadFile = file;
 
       const reader = new FileReader();
@@ -2839,7 +2855,6 @@
       document.getElementById('fileNameDisplay').innerText = file.name;
       document.getElementById('fileSizeDisplay').innerText = formatFileSize(file.size);
 
-      const ext = file.name.split('.').pop().toLowerCase();
       const icon = document.getElementById('fileTypeIcon');
       if (ext === 'pdf') {
         icon.className = 'fa-solid fa-file-pdf text-red-600 text-2xl';
@@ -2891,6 +2906,16 @@
       const isPdf = (ext === 'pdf');
 
       if (isWord) {
+        if (!canUserUploadWord()) {
+          btnConvert.disabled = true;
+          btnConvert.className = 'px-4 py-2.5 rounded-xl font-bold transition text-xs flex items-center justify-center gap-2 cursor-not-allowed bg-rose-100 text-rose-600 border border-rose-200';
+          btnConvert.innerHTML = '<i class="fa-solid fa-ban"></i> <span id="btnConvertToPdfText">Chặn nộp Word</span>';
+
+          btnSubmit.disabled = true;
+          btnSubmit.className = 'px-5 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 transition text-xs cursor-not-allowed bg-slate-100 text-slate-400 border border-slate-200';
+          return;
+        }
+
         // Nút Chuyển sang PDF SÁNG LÊN
         btnConvert.disabled = false;
         btnConvert.className = 'px-4 py-2.5 rounded-xl font-bold transition text-xs flex items-center justify-center gap-2 cursor-pointer bg-amber-500 hover:bg-amber-600 text-white shadow-sm border border-amber-600 active:scale-95';
@@ -2913,6 +2938,11 @@
 
     // Xử lý chuyển đổi Word sang PDF khi người dùng nhấn nút Chuyển sang PDF (có loading)
     async function handleConvertWordToPdf() {
+      if (!canUserUploadWord()) {
+        removeSelectedFile();
+        alert('⚠️ Tài khoản của Thầy/Cô chưa được Quản trị viên cấp quyền chuyển đổi Word trên hệ thống. Vui lòng nộp tệp PDF chuẩn.');
+        return;
+      }
       if (!selectedUploadFile || !selectedUploadFileBase64) return;
       const btnConvert = document.getElementById('btnConvertToPdf');
       const origHtml = btnConvert ? btnConvert.innerHTML : '';

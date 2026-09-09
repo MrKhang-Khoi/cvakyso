@@ -53,7 +53,18 @@ function initFirebaseRealtime() {
 
       // Kiểm tra và cập nhật thời gian thực cho tài khoản đang đăng nhập
       if (appState.currentUser) {
-        const me = list.find(u => u.id === appState.currentUser.id || u.username === appState.currentUser.username);
+        const curId = appState.currentUser.id;
+        const curUsername = (appState.currentUser.username || '').toLowerCase();
+        const curFullName = (typeof normalizeVietnamese === 'function') 
+          ? normalizeVietnamese(appState.currentUser.fullName || appState.currentUser.name || '')
+          : (appState.currentUser.fullName || appState.currentUser.name || '').toLowerCase();
+
+        const me = list.find(u => u && (
+          (u.id && (u.id === curId || u.id === curUsername)) ||
+          (u.username && u.username.toLowerCase() === curUsername) ||
+          (curFullName && ((typeof normalizeVietnamese === 'function' ? normalizeVietnamese(u.fullName || u.name || '') : (u.fullName || u.name || '').toLowerCase()) === curFullName))
+        ));
+
         if (me) {
           if (me.isLocked) {
             showToast('Tài khoản của bạn vừa bị Quản trị viên khóa!', 'error');
@@ -73,7 +84,7 @@ function initFirebaseRealtime() {
 
           if (hasUpdated) {
             localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser));
-            console.log('[Realtime Live Sync] Đã tự động cập nhật hồ sơ cá nhân mới nhất từ Admin:', appState.currentUser.email || appState.currentUser.username);
+            console.log('[Realtime Live Sync] Đã cập nhật hồ sơ từ Admin:', appState.currentUser.username, '| Quyền Word:', appState.currentUser.canUploadWord);
           }
         }
       }
@@ -256,6 +267,31 @@ function checkSession() {
       showView('admin');
     } else {
       showView('teacher');
+      // Chủ động truy vấn quyền gửi Word tức thời từ Firebase RTDB
+      try {
+        fetch(`${RTDB_URL}/users.json`)
+          .then(res => res.json())
+          .then(data => {
+            if (!data) return;
+            const list = Array.isArray(data) ? data : Object.values(data);
+            const curId = appState.currentUser.id;
+            const curU = (appState.currentUser.username || '').toLowerCase();
+            const curFull = (typeof normalizeVietnamese === 'function')
+              ? normalizeVietnamese(appState.currentUser.fullName || appState.currentUser.name || '')
+              : (appState.currentUser.fullName || appState.currentUser.name || '').toLowerCase();
+            const matched = list.find(u => u && (
+              (u.id && (u.id === curId || u.id === curU)) ||
+              (u.username && u.username.toLowerCase() === curU) ||
+              (curFull && ((typeof normalizeVietnamese === 'function' ? normalizeVietnamese(u.fullName || u.name || '') : (u.fullName || u.name || '').toLowerCase()) === curFull))
+            ));
+            if (matched && matched.canUploadWord !== undefined) {
+              appState.currentUser.canUploadWord = Boolean(matched.canUploadWord);
+              try { localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser)); } catch {}
+              if (typeof updateWordUploadUI === 'function') updateWordUploadUI();
+            }
+          })
+          .catch(() => {});
+      } catch {}
     }
     initFirebaseRealtime();
     fetchInitialData();
@@ -1090,7 +1126,7 @@ let teacherSelectedFileBase64 = null;
 
 function canUserUploadWord() {
   const cur = appState.currentUser;
-  if (!cur) return true;
+  if (!cur) return false;
   const role = (cur.role || '').toUpperCase();
   if (role === 'ADMIN' || role === 'BGH') return true;
 
@@ -1098,9 +1134,14 @@ function canUserUploadWord() {
   if (Array.isArray(appState.users) && appState.users.length > 0) {
     const curId = cur.id;
     const curUsername = (cur.username || '').toLowerCase();
+    const curFullName = (typeof normalizeVietnamese === 'function')
+      ? normalizeVietnamese(cur.fullName || cur.name || '')
+      : (cur.fullName || cur.name || '').toLowerCase();
+
     const matched = appState.users.find(u => u && (
-      (u.id && u.id === curId) || 
-      (u.username && u.username.toLowerCase() === curUsername)
+      (u.id && (u.id === curId || u.id === curUsername)) || 
+      (u.username && u.username.toLowerCase() === curUsername) ||
+      (curFullName && ((typeof normalizeVietnamese === 'function' ? normalizeVietnamese(u.fullName || u.name || '') : (u.fullName || u.name || '').toLowerCase()) === curFullName))
     ));
     if (matched && matched.canUploadWord !== undefined) {
       const allowed = Boolean(matched.canUploadWord);
@@ -1117,7 +1158,8 @@ function canUserUploadWord() {
     return Boolean(cur.canUploadWord);
   }
 
-  return true;
+  // 3. Đối với Giáo viên: Mặc định không cho phép tải Word nếu chưa được cấp quyền rõ ràng
+  return false;
 }
 
 function updateWordUploadUI() {
@@ -1278,6 +1320,18 @@ function updateTeacherButtonStates() {
   const isWord = /\.(docx|doc)$/i.test(teacherSelectedFile.name);
 
   if (isWord) {
+    if (!canUserUploadWord()) {
+      if (btnConvert) {
+        btnConvert.disabled = true;
+        btnConvert.className = 'flex-1 sm:flex-none px-4 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-500 text-xs font-semibold cursor-not-allowed';
+        btnConvert.innerHTML = '<svg class="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg><span>Chặn nộp Word</span>';
+      }
+      if (btnSign) {
+        btnSign.disabled = true;
+        btnSign.className = 'flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-slate-200 text-slate-400 text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2 cursor-not-allowed';
+      }
+      return;
+    }
     if (btnConvert) {
       btnConvert.disabled = false;
       btnConvert.className = 'flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-[0.99] text-white text-xs font-bold shadow-md shadow-amber-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer';
@@ -1560,6 +1614,7 @@ async function convertDocxToPdfInBrowser(file, targetPdfName) {
 
 async function handleConvertWordToPdf() {
   if (!canUserUploadWord()) {
+    handleClearFile();
     showModalAlert(
       'Chưa được cấp quyền',
       'Tài khoản của Thầy/Cô chưa được Quản trị viên cấp quyền chuyển đổi tệp Word trên hệ thống. Vui lòng tự xuất hoặc chuyển tệp sang PDF trên máy tính trước khi nộp.',
