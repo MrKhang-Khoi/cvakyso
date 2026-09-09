@@ -2703,24 +2703,43 @@ async function openPendingDocumentToSign(docId) {
       }
     }
 
-    if (!doc || !doc.fileBase64) {
+    let pdfBlob = null;
+    if (doc && doc.fileBase64 && doc.fileBase64.length > 50) {
+      try {
+        const cleanB64 = doc.fileBase64.replace(/^data:application\/pdf;base64,/, '');
+        const byteCharacters = atob(cleanB64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        pdfBlob = new Blob([new Uint8Array(byteNumbers)], { type: 'application/pdf' });
+      } catch (bErr) {}
+    }
+
+    if (!pdfBlob) {
+      // Tải trực tiếp luồng nhị phân Blob từ endpoint /api/documents/:id/file của máy chủ / Cloud Drive
+      try {
+        const fileRes = await fetch(`/api/documents/${docId}/file?_t=${Date.now()}`);
+        if (fileRes.ok) {
+          const blobData = await fileRes.blob();
+          if (blobData && blobData.size > 50) {
+            pdfBlob = blobData;
+          }
+        }
+      } catch (fErr) {
+        console.warn('Lỗi nạp tệp từ máy chủ:', fErr.message);
+      }
+    }
+
+    if (!pdfBlob || pdfBlob.size < 50) {
       showModalAlert('Không tìm thấy tệp', 'Không thể lấy nội dung tệp PDF của hồ sơ này. Vui lòng thử lại.', 'error');
       return;
     }
 
-    currentChainedPendingDoc = doc;
-
-    // Chuyển base64 thành Blob
-    const byteCharacters = atob(doc.fileBase64.replace(/^data:application\/pdf;base64,/, ''));
-    const byteNumbers = new Array(byteCharacters.length);
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-    const byteArray = new Uint8Array(byteNumbers);
-    const pdfBlob = new Blob([byteArray], { type: 'application/pdf' });
+    currentChainedPendingDoc = doc || { id: docId, title: 'Báo cáo chuyên môn' };
 
     // Mở Viewer
-    openDocumentViewer(doc.title, pdfBlob, true);
+    openDocumentViewer(doc?.title || 'Báo cáo chuyên môn', pdfBlob, true);
 
     // Bật thanh điều khiển ký liên hoàn
     const chainedBar = document.getElementById('viewerChainedSignBar');
@@ -3127,11 +3146,44 @@ let isSigPlacementActive = true;
 let currentStampPlacement = 'bottom-right';
 let currentStampCoords = { xPercent: 74.5, yPercent: 52.0, isManualDrag: false };
 let currentStampScale = 1.0;
+let currentStampPage = 1;
 let isDraggingStamp = false;
 let stampDragStartX = 0, stampDragStartY = 0;
 let stampElemStartX = 0, stampElemStartY = 0;
 let currentPdfBlobUrl = null;
 let currentViewingFileName = '';
+
+function onSigTargetPageChange(val) {
+  const pageInput = document.getElementById('sigTargetPageInput');
+  const pdfFrame = document.getElementById('viewerPdfFrame');
+  if (val === 'custom') {
+    if (pageInput) {
+      pageInput.classList.remove('hidden');
+      pageInput.focus();
+    }
+    currentStampPage = parseInt(pageInput?.value, 10) || 1;
+  } else {
+    if (pageInput) pageInput.classList.add('hidden');
+    currentStampPage = (val === 'last') ? 'last' : (parseInt(val, 10) || 1);
+  }
+
+  // Tự động cuộn khung PDF đến trang mong muốn
+  if (pdfFrame && currentPdfBlobUrl) {
+    const pNum = (currentStampPage === 'last') ? 9999 : currentStampPage;
+    pdfFrame.src = currentPdfBlobUrl + `#page=${pNum}&view=FitH&toolbar=1&navpanes=0`;
+  }
+  updateStampCoordsDisplay();
+}
+
+function onSigTargetPageInputChange(val) {
+  const p = Math.max(1, parseInt(val, 10) || 1);
+  currentStampPage = p;
+  const pdfFrame = document.getElementById('viewerPdfFrame');
+  if (pdfFrame && currentPdfBlobUrl) {
+    pdfFrame.src = currentPdfBlobUrl + `#page=${p}&view=FitH&toolbar=1&navpanes=0`;
+  }
+  updateStampCoordsDisplay();
+}
 
 async function handleTeacherSignAction() {
   if (!teacherSelectedFile) {
@@ -3223,6 +3275,11 @@ function openDocumentViewer(fileName, fileObject, enableSigning = true) {
 
   openModal('modalDocViewer');
   // Khởi tạo ở trạng thái ẩn chữ ký ban đầu để giáo viên nhìn rõ văn bản, không hiện stamp ngay
+  currentStampPage = 1;
+  const pageSel = document.getElementById('sigTargetPageSelect');
+  const pageInp = document.getElementById('sigTargetPageInput');
+  if (pageSel) pageSel.value = '1';
+  if (pageInp) { pageInp.value = '1'; pageInp.classList.add('hidden'); }
   toggleSignaturePlacementMode(false);
   snapSignatureTo('teacher');
   setSignatureScale(1.0);
@@ -3457,7 +3514,8 @@ function updateStampCoordsDisplay() {
   const coordsEl = document.getElementById('draggableStampCoords');
   if (!coordsEl) return;
   const scaleText = Math.round(currentStampScale * 100) + '%';
-  coordsEl.textContent = `X: ${currentStampCoords.xPercent}% | Y: ${currentStampCoords.yPercent}% | ${scaleText}`;
+  const pageText = currentStampPage === 'last' ? 'Trang cuối' : `Trang ${currentStampPage}`;
+  coordsEl.textContent = `${pageText} | X: ${currentStampCoords.xPercent}% | Y: ${currentStampCoords.yPercent}% | ${scaleText}`;
 }
 
 function initDraggableSignature() {
@@ -4114,6 +4172,7 @@ async function executeMasterSigningPipeline(credentials) {
     cert,
     isUsb,
     docTitle: currentViewingFileName,
+    page: currentStampPage || 1,
     xPercent: currentStampCoords.xPercent,
     yPercent: currentStampCoords.yPercent,
     scale: currentStampScale
@@ -4194,17 +4253,35 @@ async function executeLocalAgentSigning() {
       throw new Error('Không tìm thấy nội dung tệp PDF để niêm phong chữ ký');
     }
 
+    const targetPage = session.page || currentStampPage || 1;
+    // Tọa độ điểm chuẩn khổ A4 (595.28 x 841.89 pt)
+    const pW = 595.28;
+    const pH = 841.89;
+    const stampW = Math.round(160 * (session.scale || 1.0) * 0.75);
+    const stampH = Math.round(80 * (session.scale || 1.0) * 0.75);
+    const xPt = Math.max(10, Math.min(pW - stampW - 10, ((session.xPercent || 74.5) / 100) * pW));
+    const yPt = Math.max(10, Math.min(pH - stampH - 10, pH - (((session.yPercent || 52.0) / 100) * pH) - stampH));
+    const pageNum = (targetPage === 'last') ? 0 : (parseInt(targetPage, 10) || 1);
+
     const payload = {
       doc: {
         id: 'DOC_' + Date.now(),
         title: session.docTitle || 'KeHoachBaiDay.pdf',
         author: session.cert.signerName,
         signCoordinates: {
+          x: Math.round(xPt * 10) / 10,
+          y: Math.round(yPt * 10) / 10,
+          width: stampW,
+          height: stampH,
+          page: pageNum,
+          targetPage: pageNum,
           xPercent: session.xPercent,
           yPercent: session.yPercent,
           scale: session.scale
         }
       },
+      page: pageNum,
+      targetPage: pageNum,
       fileBase64: pdfBase64,
       signMode: session.isUsb ? 'HARDWARE' : 'PERSONAL',
       signType: session.isUsb ? 'USB_TOKEN' : 'VGCA',

@@ -990,6 +990,17 @@
         </div>
 
         <div class="flex items-center gap-2 flex-wrap">
+          <!-- Chọn Trang đóng dấu ký số -->
+          <div class="flex items-center gap-1.5 bg-white/90 px-3 py-1 rounded-xl border border-blue-200 shadow-sm">
+            <span class="text-slate-700 font-bold text-[11px]">📄 Trang ký:</span>
+            <select id="sigTargetPageSelect" onchange="onSigTargetPageChange(this.value)" class="px-2 py-0.5 text-xs bg-slate-50 border border-slate-300 rounded-lg font-bold text-brand-700 focus:outline-none focus:ring-1 focus:ring-brand-500 cursor-pointer">
+              <option value="1">Trang 1 (Trang đầu)</option>
+              <option value="last">Trang cuối</option>
+              <option value="custom">Trang cụ thể...</option>
+            </select>
+            <input type="number" id="sigTargetPageInput" min="1" max="999" value="1" onchange="onSigTargetPageInputChange(this.value)" class="hidden w-14 px-1.5 py-0.5 text-xs text-center border border-slate-300 rounded-lg font-bold text-brand-700 focus:outline-none focus:ring-1 focus:ring-brand-500" title="Nhập số trang cần đóng dấu">
+          </div>
+
           <!-- Phóng to / Thu nhỏ chữ ký -->
           <div class="flex items-center gap-2 bg-white/90 px-3 py-1 rounded-xl border border-blue-200 shadow-sm">
             <span class="text-slate-700 font-bold text-[11px]">Kích cỡ:</span>

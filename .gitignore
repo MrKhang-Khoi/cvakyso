@@ -26,6 +26,9 @@ uploads/signatures/*
 **/bin/
 **/obj/
 **/publish/
+**/publish_single/
+**/publish_compressed/
+*.tmp
 *.user
 *.suo
 *.pdb

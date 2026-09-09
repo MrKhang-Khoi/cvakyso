@@ -836,12 +836,63 @@ app.post('/api/documents/forward', async (req, res) => {
     const docId = req.body.id || generateTrackingId(user.departmentName || user.department, docType);
     const nowStr = new Date().toISOString();
 
+    // 1. Lưu dữ liệu nhị phân PDF đã ký vào thư mục đệm cục bộ
+    const uploadDir = path.join(__dirname, 'uploads', 'documents');
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+    const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '');
+    const rawBuffer = Buffer.from(cleanBase64, 'base64');
+    const safeDocId = docId.replace(/[^a-zA-Z0-9_\-]/g, '_');
+    const savedFileName = `doc_${safeDocId}.pdf`;
+    const savedFilePath = path.join(uploadDir, savedFileName);
+    fs.writeFileSync(savedFilePath, rawBuffer);
+
+    // 2. Tìm kiếm Email công vụ của người nhận để tự động cấp quyền truy cập trên Google Drive
+    let nextSignerEmail = '';
+    try {
+      const uList = (typeof dataStore.getUsers === 'function') ? dataStore.getUsers() : [];
+      const foundNext = uList.find(u => 
+        u.id === nextSignerId || 
+        u.username === nextSignerId || 
+        (u.fullName && u.fullName.trim().toLowerCase() === (nextSignerName || '').trim().toLowerCase()) ||
+        (u.name && u.name.trim().toLowerCase() === (nextSignerName || '').trim().toLowerCase())
+      );
+      if (foundNext && (foundNext.email || foundNext.officialEmail)) {
+        nextSignerEmail = (foundNext.email || foundNext.officialEmail).trim();
+      }
+    } catch (e) {}
+
+    // 3. Đẩy file PDF lên Google Drive cá nhân / nhà trường để lưu trữ vĩnh viễn (chống sập Render)
+    let driveResult = null;
+    try {
+      const driveMeta = {
+        id: docId,
+        title: title || `Báo cáo chuyên môn ${new Date().toLocaleDateString('vi-VN')}`,
+        author: user.fullName || user.username,
+        authorName: user.fullName || user.username,
+        authorEmail: user.email || user.officialEmail || '',
+        signerEmails: nextSignerEmail ? [nextSignerEmail] : [],
+        department: user.departmentName || user.department || 'Tổ chuyên môn',
+        schoolYear: 'Năm học 2026 - 2027'
+      };
+      driveResult = await googleDriveService.uploadToGoogleDrive(driveMeta, cleanBase64);
+    } catch (driveErr) {
+      console.warn('[Google Drive Forwarding] Cảnh báo lưu Drive:', driveErr.message);
+    }
+
     const newDoc = {
       id: docId,
       title: title || `Báo cáo chuyên môn ${new Date().toLocaleDateString('vi-VN')}`,
       docType: docType,
       category: 'REPORT',
       fileBase64: fileBase64,
+      fileName: savedFileName,
+      filePath: `uploads/documents/${savedFileName}`,
+      fileSize: `${(rawBuffer.length / (1024 * 1024)).toFixed(1)} MB`,
+      pages: 8,
+      googleDriveUrl: driveResult?.viewUrl || null,
+      googleDriveFolder: driveResult?.folderPath || null,
+      googleDriveFileName: driveResult?.fileName || null,
+      driveInfo: driveResult || null,
       status: 'PENDING_SIGN',
       creatorId: user.id || user.username,
       creatorName: user.fullName || user.username,
@@ -887,6 +938,7 @@ app.post('/api/documents/forward', async (req, res) => {
         id: docId,
         title: newDoc.title,
         assignedTo: nextSignerName,
+        driveUrl: driveResult?.viewUrl || null,
         createdAt: nowStr
       }
     });
@@ -1014,6 +1066,26 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
       });
     }
 
+    // Lưu dữ liệu file nhị phân đã ký vào thư mục đệm cục bộ
+    if (fileBase64) {
+      try {
+        const uploadDir = path.join(__dirname, 'uploads', 'documents');
+        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+        const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '');
+        const rawBuffer = Buffer.from(cleanBase64, 'base64');
+        const safeId = id.replace(/[^a-zA-Z0-9_\-]/g, '_');
+        const fname = isFinal ? `Signed_${safeId}.pdf` : `Step_${safeId}_${currentSignatures.length}.pdf`;
+        const fpath = path.join(uploadDir, fname);
+        fs.writeFileSync(fpath, rawBuffer);
+        doc.filePath = `uploads/documents/${fname}`;
+        if (isFinal) {
+          doc.realSignedPath = `uploads/documents/${fname}`;
+        }
+      } catch (fErr) {
+        console.warn('[server.js sign-step] Lỗi lưu file đệm ký bước:', fErr.message);
+      }
+    }
+
     doc.fileBase64 = fileBase64;
     doc.signatures = currentSignatures;
     doc.history = currentHistory;
@@ -1109,7 +1181,29 @@ app.get('/api/documents/:id/file', async (req, res) => {
   // 1. Kiểm tra filePath đã lưu (hỗ trợ cả Windows và Linux)
   let resolvedPath = doc.filePath ? dataStore.resolveFilePath(doc.filePath) : null;
 
-  // 2. Nếu file vật lý bị mất do restart container Render, khôi phục từ fileBase64
+  // 2. Tìm kiếm qua các ứng viên tệp đệm trên đĩa nếu filePath chưa giải quyết được
+  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+    const uploadDir = path.join(__dirname, 'uploads', 'documents');
+    const safeId = req.params.id.replace(/[^a-zA-Z0-9_\-]/g, '_');
+    const candidates = [
+      doc.realSignedPath ? dataStore.resolveFilePath(doc.realSignedPath) : null,
+      path.join(uploadDir, `doc_${safeId}.pdf`),
+      path.join(uploadDir, `Signed_${safeId}.pdf`),
+      path.join(uploadDir, `Report_${safeId}.pdf`),
+      path.join(uploadDir, `recovered_${safeId}.pdf`),
+      path.join(uploadDir, `recovered_${req.params.id}.pdf`),
+      path.join(uploadDir, `${safeId}.pdf`),
+      doc.driveInfo?.localMirrorPath || null
+    ];
+    for (const cand of candidates) {
+      if (cand && fs.existsSync(cand) && fs.statSync(cand).size > 100) {
+        resolvedPath = cand;
+        break;
+      }
+    }
+  }
+
+  // 3. Nếu file vật lý bị mất do restart container Render, khôi phục từ fileBase64
   if ((!resolvedPath || !fs.existsSync(resolvedPath)) && doc.fileBase64) {
     try {
       const cleanBase64 = doc.fileBase64.replace(/^data:[^;]+;base64,/, '');

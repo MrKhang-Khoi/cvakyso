@@ -388,7 +388,11 @@ async function generateSignedPdf(doc) {
     }
 
     const lastDocPage = sourcePages[sourcePages.length - 1];
-    const { width: pW, height: pH } = lastDocPage.getSize();
+    const targetPageNum = (doc.signCoordinates && doc.signCoordinates.page > 0 && doc.signCoordinates.page <= sourcePages.length)
+      ? doc.signCoordinates.page
+      : ((doc.page > 0 && doc.page <= sourcePages.length) ? doc.page : sourcePages.length);
+    const targetDocPage = sourcePages[targetPageNum - 1];
+    const { width: pW, height: pH } = targetDocPage.getSize();
     
     // 1. Tìm chữ ký giáo viên (Cấp 1)
     const teacherSignature = (doc.signatures || []).find(s => s.step === 1);
@@ -421,30 +425,34 @@ async function generateSignedPdf(doc) {
           let stampX = defaultX;
           let stampY = defaultY;
 
-          // Tự động tìm neo vị trí chữ ký thông minh (Smart Pedagogical Anchor)
-          const teacherName = (teacherSignature && teacherSignature.signerName) || doc.author || 'Hà Văn Tý';
-          const smartAnchor = await findSmartSignatureAnchor(sourcePdfBuffer, teacherName, 'teacher');
-
-          if (smartAnchor && smartAnchor.found) {
-            stampX = smartAnchor.x;
-            stampY = smartAnchor.y;
-          } else if (doc.signCoordinates && doc.signCoordinates.isManualDrag && typeof doc.signCoordinates.xPercent === 'number' && typeof doc.signCoordinates.yPercent === 'number') {
+          if (doc.signCoordinates && typeof doc.signCoordinates.x === 'number' && typeof doc.signCoordinates.y === 'number') {
+            stampX = doc.signCoordinates.x;
+            stampY = doc.signCoordinates.y;
+          } else if (doc.signCoordinates && typeof doc.signCoordinates.xPercent === 'number' && typeof doc.signCoordinates.yPercent === 'number') {
             stampX = (doc.signCoordinates.xPercent / 100) * pW;
-            const safeYPercent = doc.signCoordinates.yPercent < 40 ? (isLandscape ? 52 : 82) : doc.signCoordinates.yPercent;
-            stampY = (1 - (safeYPercent / 100)) * pH;
-          } else if (doc.signPlacement === 'bottom-left') {
-            stampX = pW * 0.18;
-            stampY = defaultY;
-          } else if (doc.signPlacement === 'middle-right') {
-            stampX = pW * 0.46;
-            stampY = defaultY;
+            stampY = pH - ((doc.signCoordinates.yPercent / 100) * pH) - stampHeight;
+          } else {
+            // Tự động tìm neo vị trí chữ ký thông minh (Smart Pedagogical Anchor)
+            const teacherName = (teacherSignature && teacherSignature.signerName) || doc.author || 'Hà Văn Tý';
+            const smartAnchor = await findSmartSignatureAnchor(sourcePdfBuffer, teacherName, 'teacher');
+
+            if (smartAnchor && smartAnchor.found) {
+              stampX = smartAnchor.x;
+              stampY = smartAnchor.y;
+            } else if (doc.signPlacement === 'bottom-left') {
+              stampX = pW * 0.18;
+              stampY = defaultY;
+            } else if (doc.signPlacement === 'middle-right') {
+              stampX = pW * 0.46;
+              stampY = defaultY;
+            }
           }
 
           // Tự động kiểm tra biên an toàn (tránh văng khỏi trang PDF)
           stampX = Math.max(10, Math.min(pW - stampWidth - 10, stampX));
           stampY = Math.max(10, Math.min(pH - stampHeight - 10, stampY));
 
-          lastDocPage.drawImage(pngSignImg, {
+          targetDocPage.drawImage(pngSignImg, {
             x: stampX,
             y: stampY,
             width: stampWidth,
@@ -535,10 +543,14 @@ async function generateSignedPdf(doc) {
  */
 function findSignerRunner() {
   const candidates = [
+    path.join(__dirname, 'RealPdfSigner', 'publish_single', 'RealPdfSigner.exe'),
     path.join(__dirname, 'RealPdfSigner', 'bin', 'Release', 'net8.0', 'RealPdfSigner.exe'),
-    path.join(__dirname, 'RealPdfSigner', 'bin', 'Debug', 'net8.0', 'RealPdfSigner.exe'),
+    path.join(__dirname, 'RealPdfSigner', 'publish', 'RealPdfSigner.exe'),
+    path.join(__dirname, 'downloads', 'RealPdfSigner.exe'),
     path.join(__dirname, 'public', 'downloads', 'RealPdfSigner.exe'),
     path.join(__dirname, 'public', 'downloads', 'EduSign_Agent.exe'),
+    path.join(__dirname, 'RealPdfSigner', 'bin', 'Release', 'net8.0-windows', 'RealPdfSigner.exe'),
+    path.join(__dirname, 'RealPdfSigner', 'bin', 'Debug', 'net8.0', 'RealPdfSigner.exe'),
     path.join(__dirname, 'RealPdfSigner', 'bin', 'Release', 'net8.0', 'RealPdfSigner'),
     path.join(__dirname, 'RealPdfSigner', 'bin', 'Debug', 'net8.0', 'RealPdfSigner')
   ];

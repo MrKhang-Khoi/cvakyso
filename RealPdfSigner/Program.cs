@@ -3089,6 +3089,8 @@ namespace RealPdfSigner
                     bool isPreStamped = false;
 
                     if (root.TryGetProperty("isPreStamped", out var ipP)) isPreStamped = ipP.GetBoolean();
+                    if (root.TryGetProperty("page", out var rPage)) reqPage = rPage.GetInt32();
+                    else if (root.TryGetProperty("targetPage", out var rTPage)) reqPage = rTPage.GetInt32();
 
                     if (root.TryGetProperty("doc", out var docElem))
                     {
@@ -3112,7 +3114,21 @@ namespace RealPdfSigner
                             if (coordElem.TryGetProperty("y", out var yProp)) reqY = (float)yProp.GetDouble();
                             if (coordElem.TryGetProperty("width", out var wProp)) reqW = (float)wProp.GetDouble();
                             if (coordElem.TryGetProperty("height", out var hProp)) reqH = (float)hProp.GetDouble();
-                            if (coordElem.TryGetProperty("page", out var pProp)) reqPage = pProp.GetInt32();
+                            if (!reqPage.HasValue && coordElem.TryGetProperty("page", out var pProp)) reqPage = pProp.GetInt32();
+                            if (!reqPage.HasValue && coordElem.TryGetProperty("targetPage", out var tpProp)) reqPage = tpProp.GetInt32();
+
+                            // Tự động quy đổi tỷ lệ phần trăm (xPercent / yPercent) sang tọa độ điểm PDF chuẩn A4 nếu x, y chưa có
+                            if ((!reqX.HasValue || reqX <= 0) && coordElem.TryGetProperty("xPercent", out var xpProp))
+                            {
+                                float xPct = (float)xpProp.GetDouble();
+                                reqX = (xPct / 100f) * 595.28f;
+                            }
+                            if ((!reqY.HasValue || reqY <= 0) && coordElem.TryGetProperty("yPercent", out var ypProp))
+                            {
+                                float yPct = (float)ypProp.GetDouble();
+                                float defH = reqH.HasValue && reqH.Value > 0 ? reqH.Value : 60f;
+                                reqY = 841.89f - ((yPct / 100f) * 841.89f) - defH;
+                            }
                         }
                     }
 

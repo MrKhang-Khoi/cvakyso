@@ -555,7 +555,21 @@ function createDocument(docData, currentUser = {}) {
     isArchived: docData.isArchived || false,
     fileName: docData.fileName || 'GiaoAn_Chuan.pdf',
     fileType: docData.fileType || 'pdf', // 'pdf', 'docx', 'doc'
-    filePath: normalizeFilePath(docData.filePath),
+    filePath: normalizeFilePath(docData.filePath) || (() => {
+      if (docData.fileBase64) {
+        try {
+          const uploadDir = path.join(__dirname, 'uploads', 'documents');
+          if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+          const cleanBase64 = docData.fileBase64.replace(/^data:[^;]+;base64,/, '');
+          const rawBuffer = Buffer.from(cleanBase64, 'base64');
+          const safeId = newId.replace(/[^a-zA-Z0-9_\-]/g, '_');
+          const fname = `doc_${safeId}.pdf`;
+          fs.writeFileSync(path.join(uploadDir, fname), rawBuffer);
+          return `uploads/documents/${fname}`;
+        } catch (e) { return null; }
+      }
+      return null;
+    })(),
     fileBase64: null,
     customContentHtml: docData.customContentHtml || null,
     realSignedPath: normalizeFilePath(docData.realSignedPath),
@@ -571,7 +585,10 @@ function createDocument(docData, currentUser = {}) {
     copySignBannerWidthPt: docData.copySignBannerWidthPt || null,
     copySignBannerHeightPt: docData.copySignBannerHeightPt || null,
     signatures: docData.signatures || [],
-    driveInfo: null,
+    driveInfo: docData.driveInfo || null,
+    googleDriveUrl: docData.googleDriveUrl || null,
+    googleDriveFolder: docData.googleDriveFolder || null,
+    googleDriveFileName: docData.googleDriveFileName || null,
     logs: [
       {
         time: new Date().toISOString().replace('T', ' ').substring(0, 19),
@@ -623,6 +640,19 @@ function updateDocument(id, updates) {
   if (index === -1) throw new Error('Không tìm thấy hồ sơ!');
 
   const cleanUpdates = { ...updates };
+  if (cleanUpdates.fileBase64 && (!cleanUpdates.filePath || !docs[index].filePath)) {
+    try {
+      const uploadDir = path.join(__dirname, 'uploads', 'documents');
+      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+      const cleanBase64 = cleanUpdates.fileBase64.replace(/^data:[^;]+;base64,/, '');
+      const rawBuffer = Buffer.from(cleanBase64, 'base64');
+      const safeId = id.replace(/[^a-zA-Z0-9_\-]/g, '_');
+      const fname = `doc_${safeId}_updated.pdf`;
+      fs.writeFileSync(path.join(uploadDir, fname), rawBuffer);
+      cleanUpdates.filePath = `uploads/documents/${fname}`;
+    } catch (e) {}
+  }
+
   delete cleanUpdates.fileBase64;
   delete cleanUpdates.signedPdfBase64;
   if (cleanUpdates.filePath) cleanUpdates.filePath = normalizeFilePath(cleanUpdates.filePath);
