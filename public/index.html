@@ -8,6 +8,10 @@
   <meta http-equiv="Expires" content="0">
   <title>EduSign — Quản trị Ký số Giáo dục Chu Văn An</title>
   
+  <!-- Favicon -->
+  <link rel="icon" type="image/x-icon" href="./favicon.ico">
+  <link rel="shortcut icon" type="image/x-icon" href="./favicon.ico">
+
   <!-- Google Fonts: Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -237,6 +241,24 @@
       </div>
     </header>
 
+    <!-- Banner Cảnh báo Hoàn thiện Thông tin Chữ ký số BGH -->
+    <div id="bannerAdminIncompleteConfig" class="hidden max-w-7xl w-full mx-auto px-4 sm:px-8 pt-4">
+      <div class="p-3.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div class="flex items-center gap-2.5">
+          <span class="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          </span>
+          <div>
+            <div class="text-xs font-bold text-amber-900" id="bannerAdminIncompleteTitle">Tài khoản Ban Giám hiệu chưa thiết lập Số Serial USB Token!</div>
+            <div class="text-[11px] text-amber-800" id="bannerAdminIncompleteDesc">Thầy/Cô cần thiết lập Số Serial USB Token Ban Cơ yếu để có thể ký số phê duyệt giáo án cấp trường.</div>
+          </div>
+        </div>
+        <button type="button" onclick="handleQuickFixBghSerial()" class="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs shrink-0 flex items-center gap-1.5 transition cursor-pointer">
+          <span>⚙️ Thiết lập Serial ngay</span>
+        </button>
+      </div>
+    </div>
+
     <!-- Main Container -->
     <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-6">
       <!-- Tabs Navigation -->
@@ -395,6 +417,22 @@
         </div>
       </div>
     </header>
+
+    <!-- Banner Cảnh báo Hoàn thiện CCCD cho Giáo viên -->
+    <div id="bannerTeacherIncompleteConfig" class="hidden max-w-5xl w-full mx-auto px-4 sm:px-8 pt-4">
+      <div class="p-3.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+        <div class="flex items-center gap-2.5">
+          <span class="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          </span>
+          <div>
+            <div class="text-xs font-bold text-amber-900">Tài khoản Giáo viên chưa có Số CCCD (12 số)!</div>
+            <div class="text-[11px] text-amber-800">Thầy/Cô cần được cập nhật Số CCCD để hệ thống khớp định danh với chứng thư số Virtual CSP khi ký bài dạy.</div>
+          </div>
+        </div>
+        <span class="text-[11px] text-amber-800 font-semibold px-2.5 py-1 bg-amber-100 rounded-lg shrink-0">Liên hệ BGH cập nhật</span>
+      </div>
+    </div>
 
     <!-- Main Workspace Giáo viên (2 Tabs) -->
     <main class="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-8 space-y-6">
@@ -611,7 +649,7 @@
           </div>
           <div>
             <label class="block text-xs font-semibold text-slate-600 mb-1">Chức vụ</label>
-            <select id="userRole" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-1 focus:ring-brand-500 focus:outline-none">
+            <select id="userRole" onchange="updateBghBoxVisibility()" class="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-1 focus:ring-brand-500 focus:outline-none">
               <option value="TEACHER">Giáo viên</option>
               <option value="LEADER">Tổ trưởng chuyên môn</option>
               <option value="BGH">Ban Giám hiệu</option>
@@ -624,13 +662,35 @@
           <label class="block text-xs font-semibold text-slate-600 mb-1">Loại Chữ ký số sử dụng</label>
           <div class="grid grid-cols-2 gap-2">
             <label class="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 text-xs font-medium cursor-pointer hover:bg-slate-50">
-              <input type="radio" name="userSignType" value="VGCA" checked class="text-brand-600 focus:ring-brand-500">
+              <input type="radio" name="userSignType" value="VGCA" checked onchange="updateBghBoxVisibility()" class="text-brand-600 focus:ring-brand-500">
               <span>VGCA SmartCA (App)</span>
             </label>
             <label class="flex items-center gap-2 p-2.5 rounded-xl border border-slate-200 text-xs font-medium cursor-pointer hover:bg-slate-50">
-              <input type="radio" name="userSignType" value="USB_TOKEN" class="text-brand-600 focus:ring-brand-500">
+              <input type="radio" name="userSignType" value="USB_TOKEN" onchange="updateBghBoxVisibility()" class="text-brand-600 focus:ring-brand-500">
               <span>USB Token (Cắm PC)</span>
             </label>
+          </div>
+        </div>
+
+        <!-- Cấu hình Số Serial USB Token Ban Cơ yếu (Tích hợp trực tiếp cho Ban Giám hiệu) -->
+        <div id="boxBghUsbTokenConfig" class="p-3.5 bg-purple-50/80 rounded-2xl border border-purple-200 space-y-2.5 transition-all">
+          <div class="flex items-center justify-between">
+            <div class="text-xs font-bold text-purple-950 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-purple-600 animate-pulse"></span>
+              <span>Khóa cứng USB Token Ban Cơ yếu (Ban Giám hiệu)</span>
+            </div>
+            <button type="button" onclick="scanUsbTokenForModalUser()" class="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 active:scale-95 text-white rounded-lg text-[11px] font-bold shadow-xs flex items-center gap-1 transition cursor-pointer">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+              <span>🔍 Quét USB đang cắm</span>
+            </button>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-purple-900 mb-1">Số Serial USB Token Ban Cơ yếu <span class="text-red-500">*</span></label>
+            <input type="text" id="userCertSerial" placeholder="Ví dụ: 15FA69CF7ACCCC76 hoặc 025E056A3F133DA9"
+              class="w-full px-3 py-2 text-xs font-mono font-bold uppercase tracking-wider border border-purple-300 rounded-xl bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none">
+            <p class="text-[10px] text-purple-700 mt-1">
+              EduSign Agent sẽ đối soát khóa cứng số Serial này khi tài khoản Ban Giám hiệu ký số phê duyệt chính thức.
+            </p>
           </div>
         </div>
 

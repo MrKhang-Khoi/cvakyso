@@ -81,8 +81,12 @@ app.use((req, res, next) => {
 app.use(express.static(path.join(__dirname, 'public'), { etag: false, lastModified: false }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Tránh lỗi 404 cho favicon
-app.get('/favicon.ico', (req, res) => res.status(204).end());
+// Phục vụ favicon.ico chuẩn xác
+app.get('/favicon.ico', (req, res) => {
+  const ico = path.join(__dirname, 'public', 'favicon.ico');
+  if (fs.existsSync(ico)) return res.sendFile(ico);
+  return res.status(204).end();
+});
 
 // ==================== TẢI EDUSIGN AGENT 2.0 (CHUẨN WINDOWS - ZIP & EXE) ====================
 app.get(['/downloads/EduSign_Agent_v2.0_Setup.zip', '/downloads/EduSign_Agent.zip'], (req, res) => {
