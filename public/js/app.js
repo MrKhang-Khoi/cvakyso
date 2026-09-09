@@ -3584,6 +3584,7 @@ function nudgeSignature(deltaX, deltaY) {
 
   currentStampCoords.xPercent = Math.max(1, Math.min(95, Math.round((currentStampCoords.xPercent + deltaX) * 10) / 10));
   currentStampCoords.yPercent = Math.max(1, Math.min(95, Math.round((currentStampCoords.yPercent + deltaY) * 10) / 10));
+  currentStampCoords.isManualDrag = true;
 
   stamp.style.left = currentStampCoords.xPercent + '%';
   stamp.style.top = currentStampCoords.yPercent + '%';
@@ -4260,7 +4261,8 @@ async function executeMasterSigningPipeline(credentials) {
     page: currentStampPage || 1,
     xPercent: currentStampCoords.xPercent,
     yPercent: currentStampCoords.yPercent,
-    scale: currentStampScale
+    scale: currentStampScale,
+    isManualDrag: !!currentStampCoords.isManualDrag
   };
 
   openModal('modalSignProgress');
@@ -4342,6 +4344,7 @@ async function executeLocalAgentSigning() {
     // Tọa độ điểm chuẩn khổ A4 (595.28 x 841.89 pt)
     const pW = 595.28;
     const pH = 841.89;
+    const isManualDrag = !!session.isManualDrag;
     const stampW = Math.round(160 * (session.scale || 1.0) * 0.75);
     const stampH = Math.round(80 * (session.scale || 1.0) * 0.75);
     const xPt = Math.max(10, Math.min(pW - stampW - 10, ((session.xPercent || 74.5) / 100) * pW));
@@ -4353,6 +4356,21 @@ async function executeLocalAgentSigning() {
     const roleString = (userRole === 'BGH' || userRole === 'PRINCIPAL' || (currentUser?.fullName || '').includes('Liền')) ? 'principal'
       : ((userRole === 'LEADER' || userRole === 'TO_TRUONG' || (currentUser?.fullName || '').includes('Hằng')) ? 'leader' : 'teacher');
 
+    const signCoordObj = {
+      width: stampW,
+      height: stampH,
+      page: pageNum,
+      targetPage: pageNum,
+      scale: session.scale,
+      isManualDrag: isManualDrag
+    };
+    if (isManualDrag) {
+      signCoordObj.x = Math.round(xPt * 10) / 10;
+      signCoordObj.y = Math.round(yPt * 10) / 10;
+      signCoordObj.xPercent = session.xPercent;
+      signCoordObj.yPercent = session.yPercent;
+    }
+
     const payload = {
       doc: {
         id: 'DOC_' + Date.now(),
@@ -4360,36 +4378,15 @@ async function executeLocalAgentSigning() {
         author: session.cert.signerName,
         signerRole: roleString,
         role: roleString,
-        signCoordinates: {
-          x: Math.round(xPt * 10) / 10,
-          y: Math.round(yPt * 10) / 10,
-          width: stampW,
-          height: stampH,
-          page: pageNum,
-          targetPage: pageNum,
-          xPercent: session.xPercent,
-          yPercent: session.yPercent,
-          scale: session.scale
-        }
+        signCoordinates: signCoordObj
       },
       page: pageNum,
       targetPage: pageNum,
-      xPercent: session.xPercent,
-      yPercent: session.yPercent,
       scale: session.scale,
+      isManualDrag: isManualDrag,
       signerRole: roleString,
       role: roleString,
-      signCoordinates: {
-        x: Math.round(xPt * 10) / 10,
-        y: Math.round(yPt * 10) / 10,
-        width: stampW,
-        height: stampH,
-        page: pageNum,
-        targetPage: pageNum,
-        xPercent: session.xPercent,
-        yPercent: session.yPercent,
-        scale: session.scale
-      },
+      signCoordinates: signCoordObj,
       fileBase64: pdfBase64,
       signMode: session.isUsb ? 'HARDWARE' : 'PERSONAL',
       signType: session.isUsb ? 'USB_TOKEN' : 'VGCA',
@@ -4398,6 +4395,10 @@ async function executeLocalAgentSigning() {
       expectedSerial: session.cert.serialNumber,
       thumbprint: session.cert.thumbprint
     };
+    if (isManualDrag) {
+      payload.xPercent = session.xPercent;
+      payload.yPercent = session.yPercent;
+    }
 
     // GỌI API AGENT THẬT — CẤM KÝ GIẢ
     const res = await fetch('http://127.0.0.1:18888/api/local-sign-doc', {

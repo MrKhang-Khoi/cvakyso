@@ -608,6 +608,13 @@ namespace RealPdfSigner
                     lines.Add((curLineChunks[0].Y, new List<TextChunk>(curLineChunks), lineText));
                 }
 
+                static string Norm(string s)
+                {
+                    if (string.IsNullOrEmpty(s)) return "";
+                    string n = s.Normalize(System.Text.NormalizationForm.FormC);
+                    return System.Text.RegularExpressions.Regex.Replace(n, @"\s+", "").ToLowerInvariant();
+                }
+
                 bool isTeacher = role.ToLower().Contains("teacher") || role.Contains("1") || (!role.ToLower().Contains("leader") && !role.ToLower().Contains("principal"));
                 bool isLeader = role.ToLower().Contains("leader") || role.Contains("2");
                 bool isPrincipal = role.ToLower().Contains("principal") || role.Contains("3");
@@ -623,31 +630,39 @@ namespace RealPdfSigner
                 foreach (var line in lines)
                 {
                     string lt = line.Text;
-                    if (lt.Contains("GIÁO VIÊN", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("TỔ TRƯỞNG", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("HIỆU TRƯỞNG", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("PHÓ HIỆU", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("Người lập", StringComparison.OrdinalIgnoreCase))
+                    string normLt = Norm(lt);
+
+                    bool isRoleLine = normLt.Contains(Norm("GIÁO VIÊN")) ||
+                                      normLt.Contains(Norm("TỔ TRƯỞNG")) ||
+                                      normLt.Contains(Norm("HIỆU TRƯỞNG")) ||
+                                      normLt.Contains(Norm("PHÓ HIỆU")) ||
+                                      normLt.Contains(Norm("Người lập")) ||
+                                      normLt.Contains(Norm("GIÁM HIỆU")) ||
+                                      normLt.Contains(Norm("BAN GIÁM HIỆU"));
+
+                    if (isRoleLine)
                     {
-                        targetRoleY = line.Y;
                         var colChunks = line.Chunks.FindAll(c => c.X >= minColX && c.X <= maxColX);
                         if (colChunks.Count > 0)
                         {
+                            targetRoleY = line.Y;
                             targetRoleX = colChunks[0].X;
                         }
                     }
 
-                    if (lt.Contains("Hà Văn Tý", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("Phan Thị", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("Ngô Thị", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("Trần Văn", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("Trần Khắc", StringComparison.OrdinalIgnoreCase) ||
-                        (!string.IsNullOrWhiteSpace(signerName) && lt.Contains(signerName, StringComparison.OrdinalIgnoreCase)))
+                    bool isNameLine = normLt.Contains(Norm("Hà Văn Tý")) ||
+                                      normLt.Contains(Norm("Phan Thị")) ||
+                                      normLt.Contains(Norm("Ngô Thị")) ||
+                                      normLt.Contains(Norm("Trần Văn")) ||
+                                      normLt.Contains(Norm("Trần Khắc")) ||
+                                      (!string.IsNullOrWhiteSpace(signerName) && normLt.Contains(Norm(signerName)));
+
+                    if (isNameLine)
                     {
-                        targetNameY = line.Y;
                         var colChunks = line.Chunks.FindAll(c => c.X >= minColX && c.X <= maxColX);
                         if (colChunks.Count > 0)
                         {
+                            targetNameY = line.Y;
                             targetNameX = colChunks[0].X;
                         }
                     }
@@ -828,7 +843,7 @@ namespace RealPdfSigner
             return (ms.ToArray(), widthPt, heightPt);
         }
 
-        public static (int page, float x, float y, float w, float h) DetermineCoordinates(byte[] pdfBytes, string signerName, string role, float? reqX = null, float? reqY = null, float? reqW = null, float? reqH = null, int? reqPage = null, float? reqXPercent = null, float? reqYPercent = null)
+        public static (int page, float x, float y, float w, float h) DetermineCoordinates(byte[] pdfBytes, string signerName, string role, float? reqX = null, float? reqY = null, float? reqW = null, float? reqH = null, int? reqPage = null, float? reqXPercent = null, float? reqYPercent = null, bool isManualDrag = false)
         {
             int targetPage = 1;
             float pW = 595.28f, pH = 841.89f;
@@ -849,23 +864,23 @@ namespace RealPdfSigner
                 float w = reqW.HasValue && reqW.Value > 0 ? reqW.Value : 95f;
                 float h = reqH.HasValue && reqH.Value > 0 ? reqH.Value : 60f;
 
-                // ƯU TIÊN 1: Tỷ lệ phần trăm (xPercent / yPercent) định vị CHÍNH XÁC theo chiều rộng/cao thực tế của trang (Landscape/Portrait)
-                if (reqXPercent.HasValue && reqYPercent.HasValue && reqXPercent.Value >= 0 && reqYPercent.Value >= 0)
+                // CHỈ KHI NGƯỜI DÙNG CHỦ ĐỘNG KÉO THẢ CON DẤU (isManualDrag == true):
+                // Mới ưu tiên dùng tọa độ phần trăm / điểm do người dùng tự đặt
+                if (isManualDrag && reqXPercent.HasValue && reqYPercent.HasValue && reqXPercent.Value >= 0 && reqYPercent.Value >= 0)
                 {
                     float safeX = Math.Max(10f, Math.Min(pW - w - 10f, (reqXPercent.Value / 100f) * pW));
                     float safeY = Math.Max(10f, Math.Min(pH - h - 10f, pH - ((reqYPercent.Value / 100f) * pH) - h));
                     return (targetPage, safeX, safeY, w, h);
                 }
 
-                // ƯU TIÊN 2: Tọa độ điểm trực tiếp (x, y)
-                if (reqX.HasValue && reqX.Value > 0 && reqY.HasValue && reqY.Value > 0)
+                if (isManualDrag && reqX.HasValue && reqX.Value > 0 && reqY.HasValue && reqY.Value > 0)
                 {
                     float safeX = Math.Max(10f, Math.Min(pW - w - 10f, reqX.Value));
                     float safeY = Math.Max(10f, Math.Min(pH - h - 10f, reqY.Value));
                     return (targetPage, safeX, safeY, w, h);
                 }
 
-                // Dò tìm vị trí neo trên trang văn bản
+                // Dò tìm vị trí neo trên trang văn bản bằng Smart Anchor
                 var listener = new TextCollectorListener();
                 var processor = new PdfCanvasProcessor(listener);
                 processor.ProcessPageContent(page);
@@ -895,8 +910,16 @@ namespace RealPdfSigner
                     lines.Add((curLineChunks[0].Y, new List<TextChunk>(curLineChunks), string.Join("", curLineChunks.ConvertAll(c => c.Text))));
                 }
 
+                static string Norm(string s)
+                {
+                    if (string.IsNullOrEmpty(s)) return "";
+                    string n = s.Normalize(System.Text.NormalizationForm.FormC);
+                    return System.Text.RegularExpressions.Regex.Replace(n, @"\s+", "").ToLowerInvariant();
+                }
+
                 bool isTeacher = role.ToLower().Contains("teacher") || role.Contains("1") || (!role.ToLower().Contains("leader") && !role.ToLower().Contains("principal"));
                 bool isLeader = role.ToLower().Contains("leader") || role.Contains("2");
+                bool isPrincipal = role.ToLower().Contains("principal") || role.Contains("3");
 
                 float minColX = isTeacher ? (pW * 0.55f) : (isLeader ? (pW * 0.30f) : 0f);
                 float maxColX = isTeacher ? pW : (isLeader ? (pW * 0.65f) : (pW * 0.35f));
@@ -909,27 +932,41 @@ namespace RealPdfSigner
                 foreach (var line in lines)
                 {
                     string lt = line.Text;
-                    if (lt.Contains("GIÁO VIÊN", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("TỔ TRƯỞNG", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("HIỆU TRƯỞNG", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("PHÓ HIỆU", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("Người lập", StringComparison.OrdinalIgnoreCase))
+                    string normLt = Norm(lt);
+
+                    bool isRoleLine = normLt.Contains(Norm("GIÁO VIÊN")) ||
+                                      normLt.Contains(Norm("TỔ TRƯỞNG")) ||
+                                      normLt.Contains(Norm("HIỆU TRƯỞNG")) ||
+                                      normLt.Contains(Norm("PHÓ HIỆU")) ||
+                                      normLt.Contains(Norm("Người lập")) ||
+                                      normLt.Contains(Norm("GIÁM HIỆU")) ||
+                                      normLt.Contains(Norm("BAN GIÁM HIỆU"));
+
+                    if (isRoleLine)
                     {
-                        targetRoleY = line.Y;
                         var colChunks = line.Chunks.FindAll(c => c.X >= minColX && c.X <= maxColX);
-                        if (colChunks.Count > 0) targetRoleX = colChunks[0].X;
+                        if (colChunks.Count > 0)
+                        {
+                            targetRoleY = line.Y;
+                            targetRoleX = colChunks[0].X;
+                        }
                     }
 
-                    if (lt.Contains("Hà Văn Tý", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("Phan Thị", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("Ngô Thị", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("Trần Văn", StringComparison.OrdinalIgnoreCase) ||
-                        lt.Contains("Trần Khắc", StringComparison.OrdinalIgnoreCase) ||
-                        (!string.IsNullOrWhiteSpace(signerName) && lt.Contains(signerName, StringComparison.OrdinalIgnoreCase)))
+                    bool isNameLine = normLt.Contains(Norm("Hà Văn Tý")) ||
+                                      normLt.Contains(Norm("Phan Thị")) ||
+                                      normLt.Contains(Norm("Ngô Thị")) ||
+                                      normLt.Contains(Norm("Trần Văn")) ||
+                                      normLt.Contains(Norm("Trần Khắc")) ||
+                                      (!string.IsNullOrWhiteSpace(signerName) && normLt.Contains(Norm(signerName)));
+
+                    if (isNameLine)
                     {
-                        targetNameY = line.Y;
                         var colChunks = line.Chunks.FindAll(c => c.X >= minColX && c.X <= maxColX);
-                        if (colChunks.Count > 0) targetNameX = colChunks[0].X;
+                        if (colChunks.Count > 0)
+                        {
+                            targetNameY = line.Y;
+                            targetNameX = colChunks[0].X;
+                        }
                     }
                 }
 
@@ -3097,8 +3134,10 @@ namespace RealPdfSigner
                     int? reqPage = null;
                     float? reqXPercent = null, reqYPercent = null;
                     bool isPreStamped = false;
+                    bool isManualDrag = false;
 
                     if (root.TryGetProperty("isPreStamped", out var ipP)) isPreStamped = ipP.GetBoolean();
+                    if (root.TryGetProperty("isManualDrag", out var imdRoot)) isManualDrag = imdRoot.GetBoolean();
                     if (root.TryGetProperty("page", out var rPage)) reqPage = rPage.GetInt32();
                     else if (root.TryGetProperty("targetPage", out var rTPage)) reqPage = rTPage.GetInt32();
 
@@ -3137,6 +3176,10 @@ namespace RealPdfSigner
                             if (coordElem.TryGetProperty("yPercent", out var ypProp))
                             {
                                 reqYPercent = (float)ypProp.GetDouble();
+                            }
+                            if (coordElem.TryGetProperty("isManualDrag", out var imdProp))
+                            {
+                                isManualDrag = imdProp.GetBoolean();
                             }
                         }
                     }
@@ -3400,7 +3443,7 @@ namespace RealPdfSigner
                         if (signerName.Contains("Liền", StringComparison.OrdinalIgnoreCase) || signerName.Contains("Lien", StringComparison.OrdinalIgnoreCase)) signerRole = "principal";
                         else if (signerName.Contains("Hằng", StringComparison.OrdinalIgnoreCase) || signerName.Contains("Hang", StringComparison.OrdinalIgnoreCase)) signerRole = "leader";
 
-                        var coords = DetermineCoordinates(pdfBytes, signerName, signerRole, reqX, reqY, reqW, reqH, reqPage, reqXPercent, reqYPercent);
+                        var coords = DetermineCoordinates(pdfBytes, signerName, signerRole, reqX, reqY, reqW, reqH, reqPage, reqXPercent, reqYPercent, isManualDrag);
                         targetPage = coords.page;
                         signRect = new Rectangle(coords.x, coords.y, coords.w, coords.h);
                         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 🎯 Xác định vị trí chữ ký số trực quan: Trang {targetPage}, X={coords.x:F1}, Y={coords.y:F1}, W={coords.w:F1}, H={coords.h:F1} (role={signerRole}, hasExistingSig={hasExisting}, ảnh={sigImgBytes?.Length ?? 0} bytes)");
