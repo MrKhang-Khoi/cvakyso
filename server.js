@@ -278,8 +278,10 @@ app.post('/api/auth/login', (req, res) => {
       departmentId: user.departmentId || null,
       signType: signType,
       status: user.status || 'ACTIVE',
+      cccd: user.cccd || '',
       email: user.email,
       phone: user.phone,
+      canUploadWord: user.canUploadWord !== false,
       school: user.school,
       signatureImage: user.signatureImage
     }
@@ -302,8 +304,10 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
       departmentId: user.departmentId || null,
       signType: signType,
       status: user.status || 'ACTIVE',
+      cccd: user.cccd || '',
       email: user.email,
       phone: user.phone,
+      canUploadWord: user.canUploadWord !== false,
       school: user.school,
       signatureImage: user.signatureImage
     }

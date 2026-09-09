@@ -61,9 +61,9 @@ function initFirebaseRealtime() {
             return;
           }
 
-          // Tự động đồng bộ thông tin mới nhất từ Admin (Email, CCCD, Họ tên, Tổ...) mà KHÔNG cần đăng xuất lại
+          // Tự động đồng bộ thông tin mới nhất từ Admin (Email, CCCD, Họ tên, Tổ, Phân quyền Word...) mà KHÔNG cần đăng xuất lại
           let hasUpdated = false;
-          const fields = ['email', 'officialEmail', 'cccd', 'fullName', 'name', 'department', 'departmentId', 'departmentName', 'role', 'roleTitle', 'signType'];
+          const fields = ['email', 'officialEmail', 'cccd', 'fullName', 'name', 'department', 'departmentId', 'departmentName', 'role', 'roleTitle', 'signType', 'canUploadWord'];
           fields.forEach(field => {
             if (me[field] !== undefined && me[field] !== appState.currentUser[field]) {
               appState.currentUser[field] = me[field];
@@ -76,6 +76,9 @@ function initFirebaseRealtime() {
             console.log('[Realtime Live Sync] Đã tự động cập nhật hồ sơ cá nhân mới nhất từ Admin:', appState.currentUser.email || appState.currentUser.username);
           }
         }
+      }
+      if (typeof updateWordUploadUI === 'function') {
+        updateWordUploadUI();
       }
     });
 
@@ -183,7 +186,8 @@ async function handleLogin(e) {
             roleTitle: matched.roleTitle || (matched.role === 'ADMIN' ? 'Quản trị viên' : 'Giáo viên'),
             departmentId: matched.departmentId || '',
             departmentName: matched.departmentName || matched.department || '',
-            signType: matched.signType || 'VGCA'
+            signType: matched.signType || 'VGCA',
+            canUploadWord: matched.canUploadWord !== false
           };
         }
       }
@@ -1084,8 +1088,74 @@ function showModalConfirm(title, message, onConfirm, confirmText = 'Xác nhận'
 let teacherSelectedFile = null;
 let teacherSelectedFileBase64 = null;
 
+function canUserUploadWord() {
+  const cur = appState.currentUser;
+  if (!cur) return true;
+  const role = (cur.role || '').toUpperCase();
+  if (role === 'ADMIN' || role === 'BGH') return true;
+
+  // 1. Kiểm tra đối chiếu trong danh sách appState.users đồng bộ thời gian thực từ Firebase
+  if (Array.isArray(appState.users) && appState.users.length > 0) {
+    const curId = cur.id;
+    const curUsername = (cur.username || '').toLowerCase();
+    const matched = appState.users.find(u => u && (
+      (u.id && u.id === curId) || 
+      (u.username && u.username.toLowerCase() === curUsername)
+    ));
+    if (matched && matched.canUploadWord !== undefined) {
+      const allowed = Boolean(matched.canUploadWord);
+      if (cur.canUploadWord !== allowed) {
+        cur.canUploadWord = allowed;
+        try { localStorage.setItem('edusign_user', JSON.stringify(cur)); } catch {}
+      }
+      return allowed;
+    }
+  }
+
+  // 2. Kiểm tra trực tiếp trên cur.canUploadWord
+  if (cur.canUploadWord !== undefined) {
+    return Boolean(cur.canUploadWord);
+  }
+
+  return true;
+}
+
+function updateWordUploadUI() {
+  const allowed = canUserUploadWord();
+  const fileInput = document.getElementById('teacherFileInput');
+  const dropzoneText = document.getElementById('dropzoneText');
+  const badge = document.getElementById('wordRestrictedBadge');
+
+  if (fileInput) {
+    fileInput.accept = allowed ? '.docx,.doc,.pdf' : '.pdf';
+  }
+  if (dropzoneText) {
+    dropzoneText.textContent = allowed
+      ? 'Kéo thả tệp Word (.docx) hoặc PDF vào đây'
+      : 'Kéo thả tệp PDF chuẩn vào đây (Tài khoản chỉ nộp tệp PDF)';
+  }
+  if (badge) {
+    if (!allowed) {
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  }
+
+  // Nếu đang có tệp Word được chọn mà quyền bị tắt thì xóa ngay tệp nháp
+  if (!allowed && teacherSelectedFile && /\.(docx|doc)$/i.test(teacherSelectedFile.name)) {
+    handleClearFile();
+    showModalAlert(
+      'Quyền gửi Word đã bị tắt',
+      'Quản trị viên đã giới hạn quyền của Thầy/Cô: Chỉ được phép nộp tệp PDF chuẩn (.pdf). Tệp Word đang chọn đã được hủy bỏ.',
+      'warning'
+    );
+  }
+}
+
 function initTeacherWorkspace() {
   initDropzone();
+  updateWordUploadUI();
 }
 
 function initDropzone() {
@@ -1138,12 +1208,13 @@ function processSelectedFile(file) {
 
   // Kiểm tra phân quyền gửi/tải lên file Word của Giáo viên
   if (['docx', 'doc'].includes(ext)) {
-    const cur = appState.currentUser;
-    if (cur && cur.canUploadWord === false && cur.role !== 'ADMIN' && cur.role !== 'BGH') {
+    if (!canUserUploadWord()) {
       handleClearFile();
+      const cur = appState.currentUser;
+      const displayName = cur?.fullName || cur?.name || cur?.username || 'Thầy/Cô';
       showModalAlert(
         'Chưa được cấp quyền gửi file Word',
-        `Tài khoản của Thầy/Cô (${cur.fullName || cur.name || cur.username}) chưa được Quản trị viên cấp quyền gửi tệp Word (.docx, .doc).\n\nVui lòng tự xuất hoặc chuyển đổi tệp sang PDF chuẩn (.pdf) trên máy tính trước khi nộp, hoặc liên hệ Quản trị viên để được cấp quyền.`,
+        `Tài khoản của Thầy/Cô (${displayName}) chưa được Quản trị viên cấp quyền gửi tệp Word (.docx, .doc).\n\nVui lòng tự xuất hoặc chuyển đổi tệp sang PDF chuẩn (.pdf) trên máy tính trước khi nộp, hoặc liên hệ Quản trị viên để được cấp quyền.`,
         'warning'
       );
       return;
@@ -1488,11 +1559,10 @@ async function convertDocxToPdfInBrowser(file, targetPdfName) {
 }
 
 async function handleConvertWordToPdf() {
-  const cur = appState.currentUser;
-  if (cur && cur.canUploadWord === false && cur.role !== 'ADMIN' && cur.role !== 'BGH') {
+  if (!canUserUploadWord()) {
     showModalAlert(
       'Chưa được cấp quyền',
-      'Tài khoản của Thầy/Cô chưa được Quản trị viên cấp quyền chuyển đổi tệp Word trên hệ thống. Vui lòng liên hệ Quản trị viên.',
+      'Tài khoản của Thầy/Cô chưa được Quản trị viên cấp quyền chuyển đổi tệp Word trên hệ thống. Vui lòng tự xuất hoặc chuyển tệp sang PDF trên máy tính trước khi nộp.',
       'warning'
     );
     return;
