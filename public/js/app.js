@@ -23,6 +23,7 @@ let appState = {
   departments: [],
   activeTab: 'teachers'
 };
+window.appState = appState;
 
 // ==================== FIREBASE REALTIME CLIENT ====================
 let firebaseDb = null;
@@ -438,7 +439,15 @@ function renderTeachersTable() {
             ${escapeHtml(u.roleTitle || u.role)}
           </span>
         </td>
-        <td class="py-3 px-4">${signTypeBadge}</td>
+        <td class="py-3 px-4">
+          ${signTypeBadge}
+          <div class="mt-1">
+            ${(u.canUploadWord === false) 
+              ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200" title="Chưa được cấp quyền gửi file Word">🚫 Chặn Word</span>'
+              : '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200" title="Được phép gửi file Word">📄 Word OK</span>'
+            }
+          </div>
+        </td>
         <td class="py-3 px-4">${statusBadge}</td>
         <td class="py-3 px-4 text-right">
           <div class="flex items-center justify-end gap-1.5">
@@ -596,6 +605,9 @@ function openModalCreateUser() {
   if (document.getElementById('userCccd')) document.getElementById('userCccd').value = '';
   document.getElementById('userEmail').value = '';
   document.getElementById('userPhone').value = '';
+  if (document.getElementById('userCanUploadWord')) {
+    document.getElementById('userCanUploadWord').checked = true;
+  }
 
   const radios = document.getElementsByName('userSignType');
   radios.forEach(r => { r.checked = (r.value === 'VGCA'); });
@@ -622,6 +634,9 @@ function openModalEditUser(userId) {
   if (document.getElementById('userCccd')) document.getElementById('userCccd').value = u.cccd || '';
   document.getElementById('userEmail').value = u.email || '';
   document.getElementById('userPhone').value = u.phone || '';
+  if (document.getElementById('userCanUploadWord')) {
+    document.getElementById('userCanUploadWord').checked = (u.canUploadWord !== false);
+  }
 
   const radios = document.getElementsByName('userSignType');
   radios.forEach(r => { r.checked = (r.value === (u.signType || 'VGCA')); });
@@ -640,6 +655,7 @@ async function handleSaveUser(e) {
   const cccd = (document.getElementById('userCccd')?.value || '').trim();
   const email = document.getElementById('userEmail').value.trim();
   const phone = document.getElementById('userPhone').value.trim();
+  const canUploadWord = document.getElementById('userCanUploadWord') ? document.getElementById('userCanUploadWord').checked : true;
 
   // Validate CCCD: nếu nhập thì phải đúng 12 chữ số
   if (cccd && !/^\d{12}$/.test(cccd)) {
@@ -673,8 +689,18 @@ async function handleSaveUser(e) {
           cccd,
           email,
           phone,
+          canUploadWord,
           updatedAt: new Date().toISOString()
         };
+
+        // Nếu cập nhật chính tài khoản đang đăng nhập, đồng bộ ngay appState.currentUser
+        if (appState.currentUser && (appState.currentUser.id === id || appState.currentUser.username === users[idx].username)) {
+          appState.currentUser.canUploadWord = canUploadWord;
+          try {
+            localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser));
+          } catch {}
+        }
+
         await syncUsersToFirebase(users);
         showToast('Cập nhật thông tin giáo viên thành công!', 'success');
 
@@ -706,6 +732,7 @@ async function handleSaveUser(e) {
         cccd,
         email,
         phone,
+        canUploadWord,
         isLocked: false,
         createdAt: new Date().toISOString()
       };
@@ -1023,7 +1050,7 @@ function showModalAlert(title, message, type = 'info', actionConfig = null) {
   openModal('modalUnifiedAlert');
 }
 
-function showModalConfirm(title, message, onConfirm) {
+function showModalConfirm(title, message, onConfirm, confirmText = 'Xác nhận', isDanger = true) {
   pendingConfirmCallback = onConfirm;
   const elTitle = document.getElementById('confirmTitle');
   const elMsg = document.getElementById('confirmMessage');
@@ -1031,12 +1058,22 @@ function showModalConfirm(title, message, onConfirm) {
   if (elMsg) elMsg.textContent = message;
 
   const btnOk = document.getElementById('btnConfirmOk');
+  const iconBox = document.getElementById('confirmIconContainer');
   if (btnOk) {
+    btnOk.textContent = confirmText || 'Xác nhận';
+    if (isDanger) {
+      btnOk.className = 'py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-500/20 transition-all';
+      if (iconBox) iconBox.className = 'mx-auto w-12 h-12 rounded-2xl flex items-center justify-center bg-red-50 text-red-600';
+    } else {
+      btnOk.className = 'py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-md shadow-amber-500/20 transition-all';
+      if (iconBox) iconBox.className = 'mx-auto w-12 h-12 rounded-2xl flex items-center justify-center bg-amber-50 text-amber-600';
+    }
     btnOk.onclick = () => {
       closeModal('modalUnifiedConfirm');
       if (typeof pendingConfirmCallback === 'function') {
-        pendingConfirmCallback();
+        const cb = pendingConfirmCallback;
         pendingConfirmCallback = null;
+        cb();
       }
     };
   }
@@ -1097,6 +1134,20 @@ function processSelectedFile(file) {
       'warning'
     );
     return;
+  }
+
+  // Kiểm tra phân quyền gửi/tải lên file Word của Giáo viên
+  if (['docx', 'doc'].includes(ext)) {
+    const cur = appState.currentUser;
+    if (cur && cur.canUploadWord === false && cur.role !== 'ADMIN' && cur.role !== 'BGH') {
+      handleClearFile();
+      showModalAlert(
+        'Chưa được cấp quyền gửi file Word',
+        `Tài khoản của Thầy/Cô (${cur.fullName || cur.name || cur.username}) chưa được Quản trị viên cấp quyền gửi tệp Word (.docx, .doc).\n\nVui lòng tự xuất hoặc chuyển đổi tệp sang PDF chuẩn (.pdf) trên máy tính trước khi nộp, hoặc liên hệ Quản trị viên để được cấp quyền.`,
+        'warning'
+      );
+      return;
+    }
   }
 
   if (file.size > 50 * 1024 * 1024) {
@@ -1437,6 +1488,16 @@ async function convertDocxToPdfInBrowser(file, targetPdfName) {
 }
 
 async function handleConvertWordToPdf() {
+  const cur = appState.currentUser;
+  if (cur && cur.canUploadWord === false && cur.role !== 'ADMIN' && cur.role !== 'BGH') {
+    showModalAlert(
+      'Chưa được cấp quyền',
+      'Tài khoản của Thầy/Cô chưa được Quản trị viên cấp quyền chuyển đổi tệp Word trên hệ thống. Vui lòng liên hệ Quản trị viên.',
+      'warning'
+    );
+    return;
+  }
+
   if (!teacherSelectedFile) {
     showModalAlert('Chưa chọn tệp', 'Vui lòng chọn tệp Word (.docx, .doc) cần chuyển đổi.', 'warning');
     return;
@@ -1975,99 +2036,94 @@ function renderTeacherSentList(docs) {
 // THU HỒI HỒ SƠ ĐANG CHỜ KÝ
 async function handleRecallSentDoc(docId, docTitle) {
   const confirmMsg = `Thầy/Cô có chắc chắn muốn THU HỒI hồ sơ:\n"${docTitle || docId}"?\n\nSau khi thu hồi, văn bản sẽ lập tức được rút khỏi hộp chờ ký của đồng nghiệp và chuyển về trạng thái "Đã thu hồi" của Thầy/Cô.`;
-  if (!confirm(confirmMsg)) {
-    return;
-  }
+  showModalConfirm('Xác nhận thu hồi hồ sơ', confirmMsg, async () => {
+    showToast('Đang tiến hành thu hồi hồ sơ...', 'info');
 
-  showToast('Đang tiến hành thu hồi hồ sơ...', 'info');
-
-  try {
-    const user = appState.currentUser;
-    const headers = {
-      'Content-Type': 'application/json',
-      'x-user-id': user?.id || user?.username || '',
-      'x-user-username': user?.username || '',
-      'x-user-fullname': encodeURIComponent(user?.fullName || user?.name || user?.username || ''),
-      'x-user-role': user?.role || ''
-    };
-    if (appState.token) {
-      headers['Authorization'] = `Bearer ${appState.token}`;
-    }
-
-    try {
-      const fetchEndpoint = API_BASE ? `${API_BASE}/api/documents/${docId}/recall` : `/api/documents/${docId}/recall`;
-      await fetch(fetchEndpoint, { method: 'POST', headers });
-    } catch (apiErr) {
-      console.warn('[Recall Doc] Backend offline, fallback Firebase:', apiErr.message);
-    }
-
-    try {
-      const nowStr = new Date().toISOString();
-      if (typeof firebase !== 'undefined' && firebase.database) {
-        const snap = await firebase.database().ref('documents').once('value');
-        const all = snap.val() || {};
-        const updatePromises = [];
-        Object.keys(all).forEach(k => {
-          if (all[k] && all[k].id === docId) {
-            updatePromises.push(firebase.database().ref(`documents/${k}`).update({
-              status: 'RECALLED',
-              assignedTo: null,
-              assignedToName: null,
-              currentSignerId: null,
-              currentSignerName: null,
-              updatedAt: nowStr
-            }));
-          }
-        });
-        await Promise.all(updatePromises);
-      } else {
-        const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
-        await fetch(`${rtdbUrl}/documents/${docId}.json`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            status: 'RECALLED',
-            assignedTo: null,
-            assignedToName: null,
-            currentSignerId: null,
-            currentSignerName: null,
-            updatedAt: nowStr
-          })
-        });
-      }
-    } catch (fbErr) {
-      console.warn('[Recall Doc] Lỗi cập nhật Firebase:', fbErr.message);
-    }
-
-    showToast(`🎉 Đã thu hồi thành công hồ sơ "${docTitle || docId}"!`, 'success');
-    loadTeacherSentDocuments(true);
-    loadTeacherPendingDocuments(true);
-
-  } catch (err) {
-    console.error('Lỗi thu hồi hồ sơ:', err);
-    showToast('Lỗi khi thu hồi hồ sơ: ' + err.message, 'error');
-  }
-}
-
-// XÓA VĨNH VIỄN HỒ SƠ ĐÃ GỬI
-async function handleDeleteSentDoc(docId, docTitle) {
-  const confirmMsg = `Thầy/Cô có chắc chắn muốn XÓA VĨNH VIỄN hồ sơ:\n"${docTitle || docId}"?\n\nSau khi xóa, hồ sơ sẽ được gỡ hoàn toàn khỏi cơ sở dữ liệu và không thể phục hồi.`;
-  if (!confirm(confirmMsg)) {
-    return;
-  }
-
-  showToast('Đang tiến hành xóa hồ sơ...', 'info');
-
-  try {
-    let success = false;
-
-    // 1. Thử gọi API backend
     try {
       const user = appState.currentUser;
       const headers = {
         'Content-Type': 'application/json',
         'x-user-id': user?.id || user?.username || '',
         'x-user-username': user?.username || '',
+        'x-user-fullname': encodeURIComponent(user?.fullName || user?.name || user?.username || ''),
+        'x-user-role': user?.role || ''
+      };
+      if (appState.token) {
+        headers['Authorization'] = `Bearer ${appState.token}`;
+      }
+
+      try {
+        const fetchEndpoint = API_BASE ? `${API_BASE}/api/documents/${docId}/recall` : `/api/documents/${docId}/recall`;
+        await fetch(fetchEndpoint, { method: 'POST', headers });
+      } catch (apiErr) {
+        console.warn('[Recall Doc] Backend offline, fallback Firebase:', apiErr.message);
+      }
+
+      try {
+        const nowStr = new Date().toISOString();
+        if (typeof firebase !== 'undefined' && firebase.database) {
+          const snap = await firebase.database().ref('documents').once('value');
+          const all = snap.val() || {};
+          const updatePromises = [];
+          Object.keys(all).forEach(k => {
+            if (all[k] && all[k].id === docId) {
+              updatePromises.push(firebase.database().ref(`documents/${k}`).update({
+                status: 'RECALLED',
+                assignedTo: null,
+                assignedToName: null,
+                currentSignerId: null,
+                currentSignerName: null,
+                updatedAt: nowStr
+              }));
+            }
+          });
+          await Promise.all(updatePromises);
+        } else {
+          const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+          await fetch(`${rtdbUrl}/documents/${docId}.json`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              status: 'RECALLED',
+              assignedTo: null,
+              assignedToName: null,
+              currentSignerId: null,
+              currentSignerName: null,
+              updatedAt: nowStr
+            })
+          });
+        }
+      } catch (fbErr) {
+        console.warn('[Recall Doc] Lỗi cập nhật Firebase:', fbErr.message);
+      }
+
+      showToast(`🎉 Đã thu hồi thành công hồ sơ "${docTitle || docId}"!`, 'success');
+      loadTeacherSentDocuments(true);
+      loadTeacherPendingDocuments(true);
+
+    } catch (err) {
+      console.error('Lỗi thu hồi hồ sơ:', err);
+      showToast('Lỗi khi thu hồi hồ sơ: ' + err.message, 'error');
+    }
+  }, 'Thu hồi ngay', false);
+}
+
+// XÓA VĨNH VIỄN HỒ SƠ ĐÃ GỬI
+async function handleDeleteSentDoc(docId, docTitle) {
+  const confirmMsg = `Thầy/Cô có chắc chắn muốn XÓA VĨNH VIỄN hồ sơ:\n"${docTitle || docId}"?\n\nSau khi xóa, hồ sơ sẽ được gỡ hoàn toàn khỏi cơ sở dữ liệu và không thể phục hồi.`;
+  showModalConfirm('Xác nhận xóa vĩnh viễn', confirmMsg, async () => {
+    showToast('Đang tiến hành xóa hồ sơ...', 'info');
+
+    try {
+      let success = false;
+
+      // 1. Thử gọi API backend
+      try {
+        const user = appState.currentUser;
+        const headers = {
+          'Content-Type': 'application/json',
+          'x-user-id': user?.id || user?.username || '',
+          'x-user-username': user?.username || '',
         'x-user-fullname': encodeURIComponent(user?.fullName || user?.name || user?.username || ''),
         'x-user-role': user?.role || ''
       };
@@ -2133,10 +2189,11 @@ async function handleDeleteSentDoc(docId, docTitle) {
     loadTeacherSentDocuments(true);
     loadTeacherPendingDocuments(true);
 
-  } catch (err) {
-    console.error('Lỗi xóa hồ sơ:', err);
-    showToast('Lỗi khi xóa hồ sơ: ' + err.message, 'error');
-  }
+    } catch (err) {
+      console.error('Lỗi xóa hồ sơ:', err);
+      showToast('Lỗi khi xóa hồ sơ: ' + err.message, 'error');
+    }
+  }, 'Xóa vĩnh viễn', true);
 }
 
 function viewSentDocumentDetail(docId) {

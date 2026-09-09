@@ -391,8 +391,10 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
     departmentId: u.departmentId || null,
     signType: u.signType || (u.role === 'BGH' || u.role === 'ADMIN' ? 'USB_TOKEN' : 'VGCA'),
     status: u.status || 'ACTIVE',
+    cccd: u.cccd || '',
     email: u.email,
     phone: u.phone,
+    canUploadWord: u.canUploadWord !== false,
     createdAt: u.createdAt
   }));
   res.json({ success: true, data: users });
@@ -400,7 +402,7 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
 
 // Tạo tài khoản giáo viên mới (Chỉ định Tổ bộ môn, Vai trò & Loại chữ ký số)
 app.post('/api/admin/users', requireAdmin, (req, res) => {
-  const { username, password, name, role, department, departmentId, signType, email, phone } = req.body;
+  const { username, password, name, role, department, departmentId, signType, email, phone, cccd, canUploadWord } = req.body;
   if (!username || !name || !department) {
     return res.status(400).json({ success: false, message: 'Vui lòng điền đủ Tên đăng nhập, Họ và tên và Tổ bộ môn!' });
   }
@@ -416,7 +418,9 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
       signType: signType || (role === 'BGH' || role === 'ADMIN' ? 'USB_TOKEN' : 'VGCA'),
       status: 'ACTIVE',
       email,
-      phone
+      phone,
+      cccd: cccd || '',
+      canUploadWord: canUploadWord !== undefined ? Boolean(canUploadWord) : true
     });
     res.json({
       success: true,
@@ -429,6 +433,7 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
         roleTitle: newUser.roleTitle,
         department: newUser.department,
         signType: newUser.signType,
+        canUploadWord: newUser.canUploadWord !== false,
         status: newUser.status
       }
     });
@@ -2910,12 +2915,13 @@ app.post('/api/documents/:id/recall', (req, res) => {
     });
   }
 
+  const actorName = (req.user && (req.user.name || req.user.fullName)) || headerFullName || headerUsername || doc.author || 'Tác giả';
   const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
   const updatedLogs = [
     ...(doc.logs || []),
     {
       time: now,
-      actor: `${req.user.name} (Tác giả)`,
+      actor: `${actorName} (Tác giả)`,
       action: 'Đã thu hồi hồ sơ trước khi cấp tiếp theo ký duyệt để chỉnh sửa nội dung'
     }
   ];
@@ -2929,7 +2935,7 @@ app.post('/api/documents/:id/recall', (req, res) => {
     logs: updatedLogs
   });
 
-  console.log(`[Document] Hồ sơ ${doc.id} đã được thu hồi bởi ${req.user.name}`);
+  console.log(`[Document] Hồ sơ ${doc.id} đã được thu hồi bởi ${actorName}`);
   res.json({
     success: true,
     message: 'Đã thu hồi hồ sơ thành công! Bạn có thể chỉnh sửa nội dung hoặc nộp lại.',

@@ -1889,6 +1889,13 @@
             <option value="USB_TOKEN">Chữ ký số phần cứng USB Token (BGH)</option>
           </select>
         </div>
+        <div class="p-2.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+          <label class="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+            <input type="checkbox" id="editUserCanUploadWord" checked class="w-4 h-4 rounded text-blue-600 focus:ring-blue-500">
+            <span>Cho phép gửi / tải lên file Word (.docx)</span>
+          </label>
+          <p class="text-[10px] text-slate-500 pl-6">Nếu tắt, giáo viên chỉ được phép tải lên file PDF đã chuyển đổi sẵn</p>
+        </div>
         <div class="pt-2 flex justify-end gap-2 border-t border-slate-100">
           <button type="button" onclick="closeModal('modalEditUser')" class="px-4 py-2 border border-slate-300 rounded-xl text-slate-600 font-semibold hover:bg-slate-50 cursor-pointer">Hủy</button>
           <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md cursor-pointer">Lưu thay đổi</button>
@@ -8767,6 +8774,9 @@
       document.getElementById('editUserName').value = u.name;
       document.getElementById('editUserRole').value = u.role || 'TEACHER';
       document.getElementById('editUserSignType').value = u.signType || 'VGCA';
+      if (document.getElementById('editUserCanUploadWord')) {
+        document.getElementById('editUserCanUploadWord').checked = (u.canUploadWord !== false);
+      }
 
       const deptSelect = document.getElementById('editUserDept');
       if (deptSelect && cachedAdminDepts.length > 0) {
@@ -8790,12 +8800,13 @@
       const department = document.getElementById('editUserDept').value;
       const role = document.getElementById('editUserRole').value;
       const signType = document.getElementById('editUserSignType').value;
+      const canUploadWord = document.getElementById('editUserCanUploadWord') ? document.getElementById('editUserCanUploadWord').checked : true;
 
       try {
         const res = await fetch(`/api/admin/users/${id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
-          body: JSON.stringify({ name, department, role, signType })
+          body: JSON.stringify({ name, department, role, signType, canUploadWord })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.message);
