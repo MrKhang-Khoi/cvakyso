@@ -403,7 +403,11 @@ function renderTeachersTable() {
             </div>
             <div>
               <div class="font-bold text-slate-900">${escapeHtml(displayName)}</div>
-              <div class="text-[11px] text-slate-400 font-mono">@${escapeHtml(u.username)} ${u.email ? `• ${escapeHtml(u.email)}` : ''}</div>
+              <div class="text-[11px] text-slate-400 font-mono flex items-center gap-1.5 flex-wrap">
+                <span>@${escapeHtml(u.username)}</span>
+                ${u.cccd ? `<span>•</span><span class="font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">CCCD: ${escapeHtml(u.cccd)}</span>` : ''}
+                ${u.email ? `<span>•</span><span>${escapeHtml(u.email)}</span>` : ''}
+              </div>
             </div>
           </div>
         </td>
@@ -568,6 +572,7 @@ function openModalCreateUser() {
   document.getElementById('userPassword').required = true;
   document.getElementById('userPassword').value = '';
   document.getElementById('userRole').value = 'TEACHER';
+  if (document.getElementById('userCccd')) document.getElementById('userCccd').value = '';
   document.getElementById('userEmail').value = '';
   document.getElementById('userPhone').value = '';
 
@@ -593,6 +598,7 @@ function openModalEditUser(userId) {
 
   document.getElementById('userDepartmentId').value = u.departmentId || '';
   document.getElementById('userRole').value = u.role || 'TEACHER';
+  if (document.getElementById('userCccd')) document.getElementById('userCccd').value = u.cccd || '';
   document.getElementById('userEmail').value = u.email || '';
   document.getElementById('userPhone').value = u.phone || '';
 
@@ -610,8 +616,15 @@ async function handleSaveUser(e) {
   const password = document.getElementById('userPassword').value;
   const departmentId = document.getElementById('userDepartmentId').value;
   const role = document.getElementById('userRole').value;
+  const cccd = (document.getElementById('userCccd')?.value || '').trim();
   const email = document.getElementById('userEmail').value.trim();
   const phone = document.getElementById('userPhone').value.trim();
+
+  // Validate CCCD: nếu nhập thì phải đúng 12 chữ số
+  if (cccd && !/^\d{12}$/.test(cccd)) {
+    showToast('Số CCCD phải bao gồm đúng 12 chữ số!', 'error');
+    return;
+  }
 
   let signType = 'VGCA';
   const radios = document.getElementsByName('userSignType');
@@ -636,6 +649,7 @@ async function handleSaveUser(e) {
           role,
           roleTitle: role === 'ADMIN' ? 'Quản trị viên' : (role === 'BGH' ? 'Ban Giám hiệu' : (role === 'LEADER' ? 'Tổ trưởng chuyên môn' : 'Giáo viên')),
           signType,
+          cccd,
           email,
           phone,
           updatedAt: new Date().toISOString()
@@ -662,6 +676,7 @@ async function handleSaveUser(e) {
         role,
         roleTitle: role === 'ADMIN' ? 'Quản trị viên' : (role === 'BGH' ? 'Ban Giám hiệu' : (role === 'LEADER' ? 'Tổ trưởng chuyên môn' : 'Giáo viên')),
         signType,
+        cccd,
         email,
         phone,
         isLocked: false,
@@ -1665,6 +1680,12 @@ function renderTeacherPendingList(docs) {
             <span class="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
               Báo cáo liên hoàn
             </span>
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 cursor-pointer hover:bg-indigo-100 transition"
+                  onclick="navigator.clipboard.writeText('${escapeHtml(doc.id)}'); showToast('Đã sao chép mã theo dõi: ${escapeHtml(doc.id)}', 'success')"
+                  title="Bấm để sao chép mã theo dõi">
+              <span>🏷️ ${escapeHtml(doc.id)}</span>
+              <svg class="w-3 h-3 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            </span>
             <span class="text-[11px] text-slate-400 font-mono">${createdStr}</span>
           </div>
           <h4 class="text-sm font-bold text-slate-900 group-hover:text-purple-700 transition truncate" title="${escapeHtml(doc.title)}">
@@ -1878,6 +1899,12 @@ function renderTeacherSentList(docs) {
             <span class="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
               Báo cáo đã gửi
             </span>
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 cursor-pointer hover:bg-indigo-100 transition"
+                  onclick="navigator.clipboard.writeText('${escapeHtml(doc.id)}'); showToast('Đã sao chép mã theo dõi: ${escapeHtml(doc.id)}', 'success')"
+                  title="Bấm để sao chép mã theo dõi">
+              <span>🏷️ ${escapeHtml(doc.id)}</span>
+              <svg class="w-3 h-3 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+            </span>
             <span class="text-[11px] text-slate-400 font-mono">${createdStr}</span>
             ${statusBadge}
           </div>
@@ -1938,11 +1965,12 @@ async function handleDeleteSentDoc(docId, docTitle) {
 
     // 2. Đồng thời xóa trực tiếp trên Firebase Realtime Database
     try {
-      if (firebaseDb) {
-        await firebaseDb.ref(`documents/${docId}`).remove();
+      const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+      if (typeof firebase !== 'undefined' && firebase.database) {
+        await firebase.database().ref(`documents/${docId}`).remove();
         success = true;
       } else {
-        const fbRes = await fetch(`${RTDB_URL}/documents/${docId}.json`, { method: 'DELETE' });
+        const fbRes = await fetch(`${rtdbUrl}/documents/${docId}.json`, { method: 'DELETE' });
         if (fbRes.ok) success = true;
       }
     } catch (fbErr) {
@@ -2195,7 +2223,16 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
   const currentUserId = user?.id || user?.username;
   const currentUsername = user?.username || user?.id;
 
+  const deptClean = (user?.departmentName || user?.department || 'CVA')
+    .replace(/Tổ\s*/gi, '')
+    .trim()
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toUpperCase()
+    .slice(0, 8) || 'CVA';
+  const trackingId = `BC-${new Date().getFullYear()}-${deptClean}-${Math.floor(100000 + Math.random() * 900000)}`;
+
   const payload = {
+    id: trackingId,
     title: session.docTitle || teacherSelectedFile?.name || 'Báo cáo chuyên môn',
     docType: 'REPORT',
     fileBase64: signedPdfBase64,
@@ -2214,11 +2251,13 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
       'x-user-id': currentUserId,
       'x-user-username': currentUsername,
       'x-user-fullname': encodeURIComponent(user?.fullName || currentUsername),
-      'x-user-dept': encodeURIComponent(user?.departmentName || user?.department || 'Tổ chuyên môn')
+      'x-user-dept': encodeURIComponent(user?.departmentName || user?.department || 'Tổ chuyên môn'),
+      'x-user-role': user?.role || ''
     };
     if (appState.token) headers['Authorization'] = `Bearer ${appState.token}`;
 
-    const res = await fetch('/api/documents/forward', {
+    const endpoint = API_BASE ? `${API_BASE}/api/documents/forward` : '/api/documents/forward';
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload)
@@ -2231,7 +2270,7 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
     }
   } catch (apiErr) {
     console.warn('[forward] API backend gặp lỗi, lưu trực tiếp qua Firebase:', apiErr.message);
-    const docId = `DOC_REP_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const docId = trackingId;
     const nowStr = new Date().toISOString();
     const newDoc = {
       id: docId,
@@ -2260,21 +2299,27 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
       updatedAt: nowStr
     };
 
-    if (firebaseDb) {
-      await firebaseDb.ref(`documents/${docId}`).set(newDoc);
-    } else {
-      await fetch(`${RTDB_URL}/documents/${docId}.json`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newDoc)
-      });
+    try {
+      const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+      if (typeof firebase !== 'undefined' && firebase.database) {
+        await firebase.database().ref(`documents/${docId}`).set(newDoc);
+      } else {
+        await fetch(`${rtdbUrl}/documents/${docId}.json`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newDoc)
+        });
+      }
+      sendSuccess = true;
+    } catch(fbErr) {
+      console.warn('[forward] Lỗi fallback Firebase:', fbErr.message);
     }
-    sendSuccess = true;
   }
 
   if (sendSuccess) {
     // Đóng viewer
     closeModal('modalDocViewer');
+    showToast(`🎉 Đã ký và gửi báo cáo [${trackingId}] thành công tới ${nextSignerName}!`, 'success');
     if (currentPdfBlobUrl) {
       try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) {}
       currentPdfBlobUrl = null;
@@ -3958,6 +4003,53 @@ async function handleChangePasswordSelf(e) {
   } catch (err) {
     showModalAlert('Lỗi cập nhật', err.message, 'error');
   }
+}
+
+// ==================== QUẢN LÝ HỒ SƠ KÝ GOOGLE DRIVE ====================
+let currentTeacherDriveUrl = 'https://drive.google.com';
+
+async function openModalMyDriveFolder() {
+  const user = appState.currentUser;
+  const teacherName = (user?.fullName || user?.name || user?.username || 'Giáo viên').trim();
+  const email = (user?.email || '').trim();
+  const schoolYear = 'Năm học 2026 - 2027';
+  const folderPath = `${schoolYear} / ${teacherName}`;
+
+  if (document.getElementById('driveModalSubtitle')) {
+    document.getElementById('driveModalSubtitle').textContent = `Thầy/Cô: ${teacherName}`;
+  }
+  if (document.getElementById('driveFolderDisplay')) {
+    document.getElementById('driveFolderDisplay').textContent = folderPath;
+  }
+  if (document.getElementById('driveEmailDisplay')) {
+    document.getElementById('driveEmailDisplay').textContent = email || '(Chưa cấu hình email công vụ)';
+  }
+
+  currentTeacherDriveUrl = `https://drive.google.com/drive/search?q=${encodeURIComponent(teacherName)}`;
+
+  openModal('modalMyDriveFolder');
+
+  // Gọi API lấy link chuẩn xác từ server hoặc Google Apps Script
+  try {
+    const endpoint = API_BASE ? `${API_BASE}/api/drive/my-folder` : '/api/drive/my-folder';
+    const params = new URLSearchParams({ teacherName, email });
+    const res = await fetch(`${endpoint}?${params.toString()}`);
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && json.data && json.data.folderUrl) {
+        currentTeacherDriveUrl = json.data.folderUrl;
+        if (json.data.folderPath && document.getElementById('driveFolderDisplay')) {
+          document.getElementById('driveFolderDisplay').textContent = json.data.folderPath;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Google Drive] Lỗi lấy link trực tiếp, dùng fallback tìm kiếm:', err.message);
+  }
+}
+
+function handleOpenTeacherDriveFolder() {
+  window.open(currentTeacherDriveUrl, '_blank');
 }
 
 // ==================== APP INITIALIZATION ====================

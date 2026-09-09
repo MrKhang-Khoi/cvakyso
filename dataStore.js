@@ -491,14 +491,34 @@ function resolveFilePath(filePath) {
   return null;
 }
 
+function generateTrackingId(deptName, docType = 'REPORT') {
+  const clean = (deptName || 'CVA').replace(/Tổ\s*/gi, '').trim();
+  const map = {
+    'Toán - Tin': 'TOAN-TIN',
+    'Toán': 'TOAN',
+    'Tin': 'TIN',
+    'Khoa học Tự nhiên': 'KHTN',
+    'Khoa học Xã hội': 'KHXH',
+    'Ngữ văn': 'VAN',
+    'Tiếng Anh': 'ANH',
+    'Nghệ thuật': 'NT',
+    'GDTC': 'GDTC'
+  };
+  const deptCode = map[clean] || clean.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 8) || 'CVA';
+  const prefix = (docType === 'REPORT' || docType === 'BC') ? 'BC' : 'KHBD';
+  const year = new Date().getFullYear();
+  const rand = Math.floor(100000 + Math.random() * 900000);
+  return `${prefix}-${year}-${deptCode}-${rand}`;
+}
+
 function createDocument(docData, currentUser = {}) {
   const docs = getDocuments();
-  const newId = docData.id || ('KHBD-' + new Date().getFullYear() + '-' + Date.now().toString().slice(-6));
+  const deptName = currentUser.department || currentUser.departmentName || docData.creatorDept || docData.department || 'Tổ Toán - Tin';
+  const newId = docData.id || generateTrackingId(deptName, docData.category === 'REPORT' ? 'REPORT' : 'KHBD');
 
   const authorName = currentUser.name || currentUser.fullName || docData.creatorName || docData.author || 'Giáo viên';
   const authorId = currentUser.id || docData.creatorId || docData.authorId || 'teacher';
   const authorUsername = currentUser.username || docData.creatorUsername || docData.authorUsername || authorId;
-  const deptName = currentUser.department || currentUser.departmentName || docData.creatorDept || docData.department || 'Tổ Toán - Tin';
 
   const category = docData.category || 'PERSONAL';
   const isPersonal = (category === 'PERSONAL');

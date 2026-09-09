@@ -1,4 +1,4 @@
-﻿/**
+/**
  * =========================================================================
  * GOOGLE APPS SCRIPT: TỰ ĐỘNG LƯU TRỮ HỒ SƠ GIÁO ÁN ĐÃ KÝ SỐ VÀO GOOGLE DRIVE
  * Trường THCS Chu Văn An - Xã Đăk Hà - Tỉnh Quảng Ngãi
@@ -31,6 +31,30 @@ function doPost(e) {
     }
 
     var data = JSON.parse(e.postData.contents);
+
+    // ================= ACTION: LẤY THƯ MỤC CỦA GIÁO VIÊN =================
+    if (data.action === 'GET_TEACHER_FOLDER') {
+      var teacherFolderStr = data.folderPath || ("Năm học 2026 - 2027 / " + (data.teacherName || "Giáo viên"));
+      var myFolder = getOrCreateFolderHierarchy(teacherFolderStr);
+
+      // Phân quyền Quản trị/Chỉnh sửa riêng cho Email công vụ của giáo viên đó (nếu có)
+      if (data.email && data.email.indexOf('@') !== -1) {
+        try {
+          myFolder.addEditor(data.email.trim());
+        } catch (permErr) {
+          console.warn("Không thể add editor:", permErr);
+        }
+      }
+
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true,
+        folderId: myFolder.getId(),
+        folderUrl: myFolder.getUrl(),
+        folderPath: teacherFolderStr,
+        teacherName: data.teacherName,
+        message: "Lấy thành công thư mục Google Drive của Thầy/Cô!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
     
     var fileName = data.fileName || ("GiaoAn_DaKy_" + new Date().getTime() + ".pdf");
     var folderPath = data.folderPath || ("Năm học 2026 - 2027 / " + (data.author || "Giáo viên"));
@@ -40,15 +64,41 @@ function doPost(e) {
     }
 
     var fileBytes = Utilities.base64Decode(data.fileBase64);
+    if (fileBytes.length < 500) {
+      throw new Error("Tệp quá nhỏ hoặc rỗng (" + fileBytes.length + " bytes), từ chối lưu tệp rác!");
+    }
     var blob = Utilities.newBlob(fileBytes, "application/pdf", fileName);
 
     // 1. Tự động tạo và lấy thư mục phân cấp: [Năm học] / [Tên giáo viên]
     var targetFolder = getOrCreateFolderHierarchy(folderPath);
 
-    // 2. Tạo file PDF đã ký số vào đúng thư mục của giáo viên
+    // 2. DỌN DẸP TỆP RÁC & FILE CŨ THEO MÃ HỒ SƠ (docId) ĐỂ TRÁNH TRÙNG LẶP (ANTI-SPAM)
+    try {
+      var filesIterator = targetFolder.getFiles();
+      while (filesIterator.hasNext()) {
+        var existingFile = filesIterator.next();
+        var existingDesc = existingFile.getDescription() || '';
+        var existingName = existingFile.getName();
+        var existingSize = existingFile.getSize();
+
+        // Xóa file rác < 100 bytes hoặc file cũ trùng tên hoặc file cũ mang cùng docId
+        var isTrash = false;
+        if (existingSize < 100) isTrash = true;
+        if (data.docId && existingDesc.indexOf(data.docId) !== -1) isTrash = true;
+        if (existingName === fileName) isTrash = true;
+
+        if (isTrash) {
+          existingFile.setTrashed(true);
+        }
+      }
+    } catch (cleanErr) {
+      console.warn("Lỗi dọn tệp cũ:", cleanErr);
+    }
+
+    // 3. Tạo file PDF đã ký số vào đúng thư mục của giáo viên
     var file = targetFolder.createFile(blob);
     file.setDescription(
-      "Hồ sơ giáo án điện tử đã ký số chuẩn VGCA.\n" +
+      "Hồ sơ giáo án / Báo cáo điện tử đã ký số chuẩn VGCA.\n" +
       "• Mã hồ sơ: " + (data.docId || "N/A") + "\n" +
       "• Tiêu đề: " + (data.docTitle || fileName) + "\n" +
       "• Người ký / Tác giả: " + (data.author || "N/A") + "\n" +
@@ -56,14 +106,25 @@ function doPost(e) {
       "• Thời gian lưu trữ: " + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })
     );
 
-    // 3. Cấp quyền xem công khai qua liên kết (bất kỳ ai trong trường có link đều xem được file PDF)
+    // 4. Cấp quyền xem công khai qua liên kết
     try {
       file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     } catch (shareErr) {
       console.warn("Không thể set sharing công khai:", shareErr);
     }
 
-    // 4. Trả về kết quả thành công cho EduSign
+    // 5. Tự động chia sẻ quyền xem/tải cho các Thầy/Cô tham gia ký qua Email công vụ
+    if (data.signerEmails && Array.isArray(data.signerEmails)) {
+      data.signerEmails.forEach(function(em) {
+        if (em && em.indexOf('@') !== -1) {
+          try {
+            file.addViewer(em.trim());
+          } catch(e) {}
+        }
+      });
+    }
+
+    // 6. Trả về kết quả thành công cho EduSign
     return ContentService.createTextOutput(JSON.stringify({
       success: true,
       fileId: file.getId(),

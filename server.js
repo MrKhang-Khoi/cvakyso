@@ -51,7 +51,12 @@ const PORT = process.env.PORT || 3000;
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, x-user-id, x-user-username, x-user-fullname, x-user-dept, x-auth-token, Accept, Origin, Cache-Control');
+  const reqHeaders = req.headers['access-control-request-headers'];
+  if (reqHeaders) {
+    res.setHeader('Access-Control-Allow-Headers', reqHeaders);
+  } else {
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, x-user-id, x-user-username, x-user-fullname, x-user-dept, x-user-role, x-auth-token, Accept, Origin, Cache-Control');
+  }
   res.setHeader('Access-Control-Allow-Private-Network', 'true');
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
@@ -61,7 +66,7 @@ app.use((req, res, next) => {
 app.use(cors({
   origin: true,
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-user-id', 'x-user-username', 'x-user-fullname', 'x-user-dept', 'x-auth-token', 'Accept', 'Origin', 'Cache-Control']
+  allowedHeaders: ['*']
 }));
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
@@ -712,6 +717,27 @@ app.delete('/api/documents/:id', (req, res) => {
   }
 });
 
+// Hàm sinh Mã ID theo dõi văn bản duy nhất (Unique Tracking ID)
+function generateTrackingId(deptName, docType = 'REPORT') {
+  const clean = (deptName || 'CVA').replace(/Tổ\s*/gi, '').trim();
+  const map = {
+    'Toán - Tin': 'TOAN-TIN',
+    'Toán': 'TOAN',
+    'Tin': 'TIN',
+    'Khoa học Tự nhiên': 'KHTN',
+    'Khoa học Xã hội': 'KHXH',
+    'Ngữ văn': 'VAN',
+    'Tiếng Anh': 'ANH',
+    'Nghệ thuật': 'NT',
+    'GDTC': 'GDTC'
+  };
+  const deptCode = map[clean] || clean.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 8) || 'CVA';
+  const prefix = (docType === 'REPORT' || docType === 'BC') ? 'BC' : 'KHBD';
+  const year = new Date().getFullYear();
+  const rand = Math.floor(100000 + Math.random() * 900000);
+  return `${prefix}-${year}-${deptCode}-${rand}`;
+}
+
 // Khởi tạo & Chuyển tiếp Báo cáo sau khi ký lần 1
 app.post('/api/documents/forward', async (req, res) => {
   try {
@@ -745,7 +771,7 @@ app.post('/api/documents/forward', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Vui lòng chọn người ký tiếp theo trong quy trình.' });
     }
 
-    const docId = `DOC_REP_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const docId = req.body.id || generateTrackingId(user.departmentName || user.department, docType);
     const nowStr = new Date().toISOString();
 
     const newDoc = {
@@ -872,11 +898,24 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
 
       // 1. Google Drive Nhà trường
       try {
+        const allUsers = (typeof dataStore.getUsers === 'function') ? dataStore.getUsers() : [];
+        const signerEmails = [];
+        currentSignatures.forEach(sig => {
+          const u = allUsers.find(x => x.id === sig.signerId || x.username === sig.signerId);
+          if (u && u.email && !signerEmails.includes(u.email)) signerEmails.push(u.email);
+        });
+        const authorUser = allUsers.find(x => x.id === doc.creatorId || x.username === doc.creatorId);
+        if (authorUser && authorUser.email && !signerEmails.includes(authorUser.email)) {
+          signerEmails.push(authorUser.email);
+        }
+
         const driveDocMeta = {
           id: doc.id,
           title: doc.title,
           author: doc.creatorName,
           authorName: doc.creatorName,
+          authorEmail: authorUser?.email || '',
+          signerEmails: signerEmails,
           department: doc.creatorDept || 'Báo cáo chuyên môn',
           schoolYear: 'Năm học 2026 - 2027'
         };
@@ -935,6 +974,29 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
     });
   } catch (err) {
     console.error('[KÝ SỐ server.js] Lỗi ký bước:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Lấy liên kết thư mục Google Drive cá nhân của Giáo viên
+app.get('/api/drive/my-folder', async (req, res) => {
+  try {
+    const user = req.user || (req.headers['x-user-id'] ? {
+      id: req.headers['x-user-id'],
+      fullName: decodeURIComponent(req.headers['x-user-fullname'] || '') || req.headers['x-user-id'],
+      email: decodeURIComponent(req.headers['x-user-email'] || '') || ''
+    } : null);
+
+    const teacherName = (req.query.teacherName || user?.fullName || user?.name || 'Giáo viên').trim();
+    const email = (req.query.email || user?.email || '').trim();
+    const folderRes = await googleDriveService.getTeacherFolder(teacherName, 'Năm học 2026 - 2027', email);
+
+    res.json({
+      success: true,
+      data: folderRes
+    });
+  } catch (err) {
+    console.error('[Google Drive] Lỗi lấy thư mục giáo viên:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });

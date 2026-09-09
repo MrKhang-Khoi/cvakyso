@@ -52,10 +52,24 @@ async function uploadToGoogleDrive(doc, pdfFilePathOrBase64) {
   const schoolYear = doc.schoolYear || 'Năm học 2026 - 2027';
   const teacherName = (doc.authorName || doc.author || 'GiaoVien').trim();
   const safeDocTitle = (doc.title || doc.id).replace(/[^a-zA-Z0-9_\-\s]/g, '').trim();
-  const safeFileName = `[${doc.department || 'CVA'}]_${safeDocTitle}_DaKy.pdf`;
+  const safeDocId = (doc.id || '').replace(/[^a-zA-Z0-9_\-]/g, '').trim();
+  const safeFileName = safeDocId 
+    ? `[${doc.department || 'CVA'}]_[${safeDocId}]_${safeDocTitle}_DaKy.pdf`
+    : `[${doc.department || 'CVA'}]_${safeDocTitle}_DaKy.pdf`;
 
   // Cấu trúc phân loại thư mục lưu trữ theo tên từng giáo viên
   const folderPath = `${schoolYear} / ${teacherName}`;
+
+  // Thu thập danh sách email công vụ của các giáo viên tham gia ký
+  let signerEmails = Array.isArray(doc.signerEmails) ? [...doc.signerEmails] : [];
+  if (Array.isArray(doc.signatures)) {
+    doc.signatures.forEach(sig => {
+      if (sig.email && !signerEmails.includes(sig.email)) signerEmails.push(sig.email);
+    });
+  }
+  if (doc.authorEmail && !signerEmails.includes(doc.authorEmail)) {
+    signerEmails.push(doc.authorEmail);
+  }
 
   // Nếu nhà trường đã cấu hình Google Apps Script Webhook URL thật
   if (config.gasWebhookUrl && config.gasWebhookUrl.startsWith('http')) {
@@ -69,6 +83,7 @@ async function uploadToGoogleDrive(doc, pdfFilePathOrBase64) {
       docTitle: doc.title,
       author: doc.author,
       department: doc.department,
+      signerEmails: signerEmails,
       fileBase64: base64Content
     });
 
@@ -78,6 +93,7 @@ async function uploadToGoogleDrive(doc, pdfFilePathOrBase64) {
         success: true,
         isRealCloud: true,
         fileId: result.fileId || `drive_${Date.now()}`,
+        fileName: safeFileName,
         viewUrl: result.viewUrl || (result.fileId ? `https://drive.google.com/file/d/${result.fileId}/view` : `https://drive.google.com`),
         downloadUrl: result.downloadUrl || null,
         folderPath: result.folderPath || folderPath,
@@ -100,18 +116,53 @@ async function uploadToGoogleDrive(doc, pdfFilePathOrBase64) {
     fs.mkdirSync(localDriveDir, { recursive: true });
   }
   const destPath = path.join(localDriveDir, safeFileName);
-  fs.copyFileSync(pdfFilePath, destPath);
+  fs.writeFileSync(destPath, Buffer.from(base64Content, 'base64'));
 
   return {
     success: true,
     isRealCloud: false,
     fileId: fakeFileId,
+    fileName: safeFileName,
     viewUrl: driveViewUrl,
     folderPath: folderPath,
     localMirrorPath: destPath,
     uploadedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
     mode: 'SIMULATION_LOCAL_MIRROR',
     message: 'Lưu trữ tại thư mục cục bộ theo tên giáo viên (Google Drive)'
+  };
+}
+
+/**
+ * Lấy liên kết thư mục Google Drive của từng giáo viên
+ */
+async function getTeacherFolder(teacherName, schoolYear = 'Năm học 2026 - 2027', email = '') {
+  const config = getDriveConfig();
+  const folderPath = `${schoolYear} / ${(teacherName || 'GiaoVien').trim()}`;
+
+  if (config.gasWebhookUrl && config.gasWebhookUrl.startsWith('http')) {
+    try {
+      const payload = JSON.stringify({
+        action: 'GET_TEACHER_FOLDER',
+        teacherName: teacherName,
+        folderPath: folderPath,
+        email: email,
+        schoolFolderId: config.schoolFolderId
+      });
+      const result = await sendHttpPost(config.gasWebhookUrl, payload);
+      if (result && result.success) {
+        return result;
+      }
+    } catch(e) {
+      console.warn('[Google Drive] Lỗi gọi GAS GET_TEACHER_FOLDER:', e.message);
+    }
+  }
+
+  // Fallback: Tìm kiếm thư mục theo tên giáo viên trên Google Drive
+  return {
+    success: true,
+    folderPath: folderPath,
+    folderUrl: `https://drive.google.com/drive/search?q=${encodeURIComponent(teacherName)}`,
+    message: 'Thư mục Google Drive cá nhân của Thầy/Cô'
   };
 }
 
@@ -150,5 +201,6 @@ async function sendHttpPost(urlStr, dataStr) {
 module.exports = {
   getDriveConfig,
   saveDriveConfig,
-  uploadToGoogleDrive
+  uploadToGoogleDrive,
+  getTeacherFolder
 };
