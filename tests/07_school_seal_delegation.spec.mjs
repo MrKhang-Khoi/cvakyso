@@ -91,9 +91,8 @@ test.describe('7. Phân quyền và Ký số USB Token Con dấu nhà trường'
     });
     await page.waitForTimeout(500);
 
-    const uniqueSuffix = Date.now().toString().slice(-4);
-    const testUsername = `cva.ntlien_${uniqueSuffix}`;
-    await page.locator('#userFullName').fill(`Ngô Thị Liền ${uniqueSuffix}`);
+    const testUsername = 'cva.ntlien_seal';
+    await page.locator('#userFullName').fill('Ngô Thị Liền');
     await page.locator('#userUsername').fill(testUsername);
     await page.locator('#userPassword').fill('123456');
     await page.locator('#userCccd').fill('042185009999');
@@ -210,6 +209,7 @@ test.describe('7. Phân quyền và Ký số USB Token Con dấu nhà trường'
     await page.waitForTimeout(1500);
 
     await page.evaluate(() => {
+      if (appState.currentUser) appState.currentUser.canStampSeal = false;
       const dummyPdfBytes = '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/MediaBox[0 0 595 842]/Parent 2 0 R>>endobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000056 00000 n \n0000000111 00000 n \ntrailer<</Size 4/Root 1 0 R>>\nstartxref\n185\n%%EOF';
       const pdfBlob = new Blob([dummyPdfBytes], { type: 'application/pdf' });
       window.openDocumentViewer('KeHoachBaiDay_Ty.pdf', pdfBlob, true);

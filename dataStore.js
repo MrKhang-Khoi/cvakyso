@@ -241,7 +241,7 @@ function createUser(userData) {
   };
 
   const newUser = {
-    id: 'user_' + crypto.randomBytes(4).toString('hex'),
+    id: userData.id || ('user_' + crypto.randomBytes(4).toString('hex')),
     username: username,
     password: userData.password || '123456',
     name: userData.name ? userData.name.trim() : username,
@@ -258,7 +258,7 @@ function createUser(userData) {
     school: 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN',
     phone: userData.phone ? userData.phone.trim() : '',
     canUploadWord: userData.canUploadWord !== undefined ? Boolean(userData.canUploadWord) : true,
-    canStampSeal: userData.canStampSeal !== undefined ? Boolean(userData.canStampSeal) : (userData.role === 'BGH' || userData.role === 'ADMIN'),
+    canStampSeal: userData.canStampSeal !== undefined ? Boolean(userData.canStampSeal) : (userData.role === 'ADMIN'),
     signatureImage: null,
     createdAt: new Date().toISOString()
   };
@@ -270,8 +270,13 @@ function createUser(userData) {
 
 function updateUser(id, updates) {
   const users = getUsers();
-  const index = users.findIndex(u => u.id === id);
-  if (index === -1) throw new Error('Không tìm thấy người dùng!');
+  let index = users.findIndex(u => u.id === id);
+  if (index === -1 && updates.username) {
+    index = users.findIndex(u => (u.username || '').toLowerCase() === updates.username.toLowerCase().trim());
+  }
+  if (index === -1) {
+    return createUser({ id, ...updates });
+  }
 
   // Không cho đổi id hoặc hạ quyền/khóa admin gốc
   if (users[index].id === 'admin') {

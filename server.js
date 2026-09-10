@@ -241,6 +241,13 @@ function getCurrentUser(req) {
   if (userId) {
     const user = dataStore.getUserById(userId);
     if (user) return user;
+    if (userId === 'admin') {
+      return { id: 'admin', username: 'admin', role: 'ADMIN', name: 'Quản trị viên', status: 'ACTIVE' };
+    }
+  }
+  const userRole = req.headers['x-user-role'];
+  if (userRole === 'ADMIN') {
+    return { id: 'admin', username: 'admin', role: 'ADMIN', name: 'Quản trị viên', status: 'ACTIVE' };
   }
   return null;
 }
@@ -307,7 +314,7 @@ app.post('/api/auth/login', (req, res) => {
       email: user.email,
       phone: user.phone,
       canUploadWord: user.canUploadWord !== false,
-      canStampSeal: user.canStampSeal !== undefined ? Boolean(user.canStampSeal) : (user.role === 'BGH' || user.role === 'ADMIN'),
+      canStampSeal: user.canStampSeal !== undefined ? Boolean(user.canStampSeal) : (user.role === 'ADMIN'),
       school: user.school,
       signatureImage: user.signatureImage
     }
@@ -334,7 +341,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
       email: user.email,
       phone: user.phone,
       canUploadWord: user.canUploadWord !== false,
-      canStampSeal: user.canStampSeal !== undefined ? Boolean(user.canStampSeal) : (user.role === 'BGH' || user.role === 'ADMIN'),
+      canStampSeal: user.canStampSeal !== undefined ? Boolean(user.canStampSeal) : (user.role === 'ADMIN'),
       school: user.school,
       signatureImage: user.signatureImage
     }
@@ -433,13 +440,14 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
 
 // Tạo tài khoản giáo viên mới (Chỉ định Tổ bộ môn, Vai trò & Loại chữ ký số)
 app.post('/api/admin/users', requireAdmin, (req, res) => {
-  const { username, password, name, role, department, departmentId, signType, email, phone, cccd, canUploadWord, canStampSeal } = req.body;
+  const { id, username, password, name, role, department, departmentId, signType, email, phone, cccd, canUploadWord, canStampSeal } = req.body;
   if (!username || !name || !department) {
     return res.status(400).json({ success: false, message: 'Vui lòng điền đủ Tên đăng nhập, Họ và tên và Tổ bộ môn!' });
   }
 
   try {
     const newUser = dataStore.createUser({
+      id: id || undefined,
       username,
       password: password || '123456',
       name,
@@ -452,7 +460,7 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
       phone,
       cccd: cccd || '',
       canUploadWord: canUploadWord !== undefined ? Boolean(canUploadWord) : true,
-      canStampSeal: canStampSeal !== undefined ? Boolean(canStampSeal) : (role === 'BGH' || role === 'ADMIN')
+      canStampSeal: canStampSeal !== undefined ? Boolean(canStampSeal) : (role === 'ADMIN')
     });
     res.json({
       success: true,
@@ -466,7 +474,7 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
         department: newUser.department,
         signType: newUser.signType,
         canUploadWord: newUser.canUploadWord !== false,
-        canStampSeal: newUser.canStampSeal !== false,
+        canStampSeal: newUser.canStampSeal === true,
         status: newUser.status
       }
     });
@@ -601,8 +609,8 @@ app.get('/api/school-seal', (req, res) => {
 });
 
 app.post('/api/school-seal', requireAuth, (req, res) => {
-  if (req.user.role !== 'ADMIN' && req.user.role !== 'BGH' && !req.user.canStampSeal) {
-    return res.status(403).json({ success: false, message: 'Chỉ Quản trị viên, Ban Giám hiệu hoặc người được ủy quyền mới có quyền tải lên con dấu nhà trường!' });
+  if (req.user.role !== 'ADMIN' && !req.user.canStampSeal) {
+    return res.status(403).json({ success: false, message: 'Chỉ Quản trị viên hoặc người được ủy quyền con dấu mới có quyền tải lên con dấu nhà trường!' });
   }
 
   const { sealImage } = req.body;

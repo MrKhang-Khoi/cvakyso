@@ -72,9 +72,9 @@ function initFirebaseRealtime() {
             return;
           }
 
-          // Tự động đồng bộ thông tin mới nhất từ Admin (Email, CCCD, Họ tên, Tổ, Phân quyền Word...) mà KHÔNG cần đăng xuất lại
+          // Tự động đồng bộ thông tin mới nhất từ Admin (Email, CCCD, Họ tên, Tổ, Phân quyền Word, Phân quyền Đóng dấu...) mà KHÔNG cần đăng xuất lại
           let hasUpdated = false;
-          const fields = ['email', 'officialEmail', 'cccd', 'fullName', 'name', 'department', 'departmentId', 'departmentName', 'role', 'roleTitle', 'signType', 'canUploadWord'];
+          const fields = ['email', 'officialEmail', 'cccd', 'fullName', 'name', 'department', 'departmentId', 'departmentName', 'role', 'roleTitle', 'signType', 'canUploadWord', 'canStampSeal'];
           fields.forEach(field => {
             if (me[field] !== undefined && me[field] !== appState.currentUser[field]) {
               appState.currentUser[field] = me[field];
@@ -84,7 +84,7 @@ function initFirebaseRealtime() {
 
           if (hasUpdated) {
             localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser));
-            console.log('[Realtime Live Sync] Đã cập nhật hồ sơ từ Admin:', appState.currentUser.username, '| Quyền Word:', appState.currentUser.canUploadWord);
+            console.log('[Realtime Live Sync] Đã cập nhật hồ sơ từ Admin:', appState.currentUser.username, '| Quyền Word:', appState.currentUser.canUploadWord, '| Quyền Đóng dấu:', appState.currentUser.canStampSeal);
           }
         }
       }
@@ -221,7 +221,8 @@ async function handleLogin(e) {
             departmentId: matched.departmentId || '',
             departmentName: matched.departmentName || matched.department || '',
             signType: matched.signType || ((matched.role === 'ADMIN' || matched.role === 'BGH' || matched.departmentId === 'dept_bgh') ? 'USB_TOKEN' : 'VGCA'),
-            canUploadWord: matched.canUploadWord !== false
+            canUploadWord: matched.canUploadWord !== false,
+            canStampSeal: (matched.canStampSeal !== undefined) ? Boolean(matched.canStampSeal) : (matched.role === 'ADMIN')
           };
         }
       }
@@ -311,8 +312,16 @@ function checkSession() {
               (u.username && u.username.toLowerCase() === curU) ||
               (curFull && ((typeof normalizeVietnamese === 'function' ? normalizeVietnamese(u.fullName || u.name || '') : (u.fullName || u.name || '').toLowerCase()) === curFull))
             ));
+            let sessionUpdated = false;
             if (matched && matched.canUploadWord !== undefined) {
               appState.currentUser.canUploadWord = Boolean(matched.canUploadWord);
+              sessionUpdated = true;
+            }
+            if (matched && matched.canStampSeal !== undefined) {
+              appState.currentUser.canStampSeal = Boolean(matched.canStampSeal);
+              sessionUpdated = true;
+            }
+            if (sessionUpdated) {
               try { localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser)); } catch {}
               if (typeof updateWordUploadUI === 'function') updateWordUploadUI();
             }
@@ -576,7 +585,7 @@ function renderTeachersTable() {
               ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200" title="Chưa được cấp quyền gửi file Word">🚫 Chặn Word</span>'
               : '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200" title="Được phép gửi file Word">📄 Word OK</span>'
             }
-            ${(u.canStampSeal || u.role === 'BGH' || u.role === 'ADMIN')
+            ${((u.canStampSeal !== undefined) ? Boolean(u.canStampSeal) : (u.role === 'ADMIN'))
               ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300 shadow-2xs" title="Được ủy quyền đóng dấu nhà trường"><span class="w-1.5 h-1.5 rounded-full bg-rose-600 inline-block mr-1"></span>Đóng dấu OK</span>'
               : ''
             }
@@ -850,9 +859,7 @@ async function scanUsbTokenForModalUser() {
           showToast(`✅ Đã xác thực đúng USB Token [${certSigner}] - Serial: ${certSerial}`, 'success');
           return;
         } else if (isRealOrgCert) {
-          const roleInput = document.getElementById('userRole');
-          const roleVal = (roleInput?.value || '').toUpperCase();
-          const isAuthorizedForSeal = Boolean(document.getElementById('userCanStampSeal')?.checked || roleVal === 'BGH' || roleVal === 'ADMIN');
+          const isAuthorizedForSeal = Boolean(document.getElementById('userCanStampSeal')?.checked);
 
           if (!isAuthorizedForSeal) {
             // CẢNH BÁO CHẶN: ĐÂY LÀ USB TOKEN CON DẤU NHÀ TRƯỜNG, KHÔNG TỰ TIỆN GÁN CHO TÀI KHOẢN CÁ NHÂN KHI CHƯA ĐƯỢC ỦY QUYỀN
@@ -959,7 +966,7 @@ function openModalEditUser(userId) {
     document.getElementById('userCanUploadWord').checked = (u.canUploadWord !== false);
   }
   if (document.getElementById('userCanStampSeal')) {
-    document.getElementById('userCanStampSeal').checked = (u.canStampSeal === true || u.role === 'BGH' || u.role === 'ADMIN');
+    document.getElementById('userCanStampSeal').checked = (u.canStampSeal !== undefined) ? Boolean(u.canStampSeal) : (u.role === 'ADMIN');
   }
   const alertBox = document.getElementById('bghUsbScanAlert');
   if (alertBox) { alertBox.classList.add('hidden'); alertBox.innerHTML = ''; }
@@ -1017,7 +1024,7 @@ async function handleSaveUser(e) {
   const email = document.getElementById('userEmail').value.trim();
   const phone = document.getElementById('userPhone').value.trim();
   const canUploadWord = document.getElementById('userCanUploadWord') ? document.getElementById('userCanUploadWord').checked : true;
-  const canStampSeal = document.getElementById('userCanStampSeal') ? document.getElementById('userCanStampSeal').checked : (role === 'BGH' || role === 'ADMIN');
+  const canStampSeal = document.getElementById('userCanStampSeal') ? document.getElementById('userCanStampSeal').checked : (role === 'ADMIN');
 
   // Validate CCCD: nếu nhập thì phải đúng 12 chữ số (hoặc 9 số CMND)
   if (cccd && !/^\d{9,12}$/.test(cccd)) {
@@ -1030,7 +1037,7 @@ async function handleSaveUser(e) {
   radios.forEach(r => { if (r.checked) signType = r.value; });
 
   const dept = appState.departments.find(d => d.id === departmentId);
-  const departmentName = dept ? dept.name : '';
+  const departmentName = dept ? dept.name : (role === 'BGH' || role === 'ADMIN' ? 'Ban Giám hiệu' : 'Tổ chuyên môn');
 
   try {
     const users = [...appState.users];
@@ -1096,13 +1103,16 @@ async function handleSaveUser(e) {
         }
 
         // Cập nhật Backend Server nếu có kết nối
-        if (appState.token || (typeof API_BASE !== 'undefined' && API_BASE)) {
+        if (!isStaticOrGitHub || appState.token || (typeof API_BASE !== 'undefined' && API_BASE)) {
           const uEp = API_BASE ? `${API_BASE}/api/admin/users/${id}` : `/api/admin/users/${id}`;
           fetch(uEp, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${appState.token || ''}`
+              'Authorization': `Bearer ${appState.token || ''}`,
+              'x-auth-token': appState.token || '',
+              'x-user-id': appState.currentUser?.id || 'admin',
+              'x-user-role': appState.currentUser?.role || 'ADMIN'
             },
             body: JSON.stringify(users[idx])
           }).catch(() => {});
@@ -1148,13 +1158,16 @@ async function handleSaveUser(e) {
       users.push(newUser);
 
       // Cập nhật Backend Server nếu có kết nối
-      if (appState.token || (typeof API_BASE !== 'undefined' && API_BASE)) {
+      if (!isStaticOrGitHub || appState.token || (typeof API_BASE !== 'undefined' && API_BASE)) {
         const uEp = API_BASE ? `${API_BASE}/api/admin/users` : `/api/admin/users`;
         fetch(uEp, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${appState.token || ''}`
+            'Authorization': `Bearer ${appState.token || ''}`,
+            'x-auth-token': appState.token || '',
+            'x-user-id': appState.currentUser?.id || 'admin',
+            'x-user-role': appState.currentUser?.role || 'ADMIN'
           },
           body: JSON.stringify(newUser)
         }).catch(() => {});
@@ -3515,8 +3528,8 @@ function openDocumentViewer(fileName, fileObject, enableSigning = false) {
   openModal('modalDocViewer');
 
   // Phân quyền hiển thị nút Đóng Dấu Nhà Trường:
-  // CHỈ tài khoản được phân quyền (canStampSeal === true) hoặc Ban Giám hiệu / Quản trị viên mới xuất hiện tính năng này
-  const canStamp = Boolean(currentUser?.canStampSeal || currentUser?.role === 'BGH' || currentUser?.role === 'ADMIN');
+  // CHỈ tài khoản được phân quyền (canStampSeal === true) hoặc Quản trị viên tối cao mới xuất hiện tính năng này
+  const canStamp = (currentUser?.canStampSeal !== undefined) ? Boolean(currentUser.canStampSeal) : (currentUser?.role === 'ADMIN');
   const btnSeal = document.getElementById('btnToggleSealPlacement');
   if (btnSeal) {
     if (canStamp) {
@@ -3982,7 +3995,7 @@ function toggleSignaturePlacementMode(forceState) {
 // Chế độ Đóng Dấu Nhà Trường bằng USB Token của trường (chuẩn Viettel vOffice/SMAS)
 function toggleSealPlacementMode(forceState) {
   const currentUser = appState.currentUser;
-  const canStamp = Boolean(currentUser?.canStampSeal || currentUser?.role === 'BGH' || currentUser?.role === 'ADMIN');
+  const canStamp = (currentUser?.canStampSeal !== undefined) ? Boolean(currentUser.canStampSeal) : (currentUser?.role === 'ADMIN');
   if (!canStamp) {
     showToast('⚠️ Thầy/Cô chưa được phân quyền đóng dấu con dấu nhà trường!', 'warning');
     return;
@@ -5241,7 +5254,7 @@ function openModalUploadSignature() {
   if (cb) cb.checked = true;
 
   const currentUser = appState.currentUser;
-  const canStamp = Boolean(currentUser?.canStampSeal || currentUser?.role === 'BGH' || currentUser?.role === 'ADMIN');
+  const canStamp = (currentUser?.canStampSeal !== undefined) ? Boolean(currentUser.canStampSeal) : (currentUser?.role === 'ADMIN');
   const selectorBox = document.getElementById('boxSignatureTargetSelector');
   if (selectorBox) {
     if (canStamp) {
