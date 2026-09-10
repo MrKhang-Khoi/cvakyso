@@ -764,17 +764,28 @@ app.get('/api/documents/pending', (req, res) => {
   });
 });
 
-// Lấy danh sách hồ sơ do người dùng hiện tại khởi tạo (Hồ sơ tôi đã gửi)
+// Lấy danh sách hồ sơ liên quan đến người dùng hiện tại (Hồ sơ tôi đã gửi / Đã tham gia ký / Hoàn tất)
 app.get('/api/documents/sent', (req, res) => {
   const headerId = req.headers['x-user-id'] || req.headers['x-user-username'] || (req.user && (req.user.id || req.user.username));
+  const headerUsername = req.headers['x-user-username'] || (req.user && req.user.username) || headerId;
+  const headerFullName = decodeURIComponent(req.headers['x-user-fullname'] || (req.user && req.user.fullName) || '');
   if (!headerId) {
     return res.status(401).json({ success: false, message: 'Chưa xác định người dùng.' });
   }
 
+  const normName = normalizeVietnamese(headerFullName);
   const allDocs = dataStore.getDocuments();
   const sentDocs = allDocs.filter(d => {
     if (!d) return false;
-    return d.creatorId === headerId || d.creatorUsername === headerId || d.authorId === headerId || d.authorUsername === headerId;
+    const isCreator = d.creatorId === headerId || d.creatorUsername === headerId || d.authorId === headerId || d.authorUsername === headerId ||
+                      d.creatorId === headerUsername || d.creatorUsername === headerUsername || d.authorId === headerUsername || d.authorUsername === headerUsername;
+    const isSigner = Array.isArray(d.signatures) && d.signatures.some(s => 
+      s.signerId === headerId || s.signerUsername === headerId ||
+      s.signerId === headerUsername || s.signerUsername === headerUsername ||
+      (normName && normalizeVietnamese(s.signerName) === normName)
+    );
+    const isAssigned = d.assignedTo === headerId || d.currentSignerId === headerId || d.assignedTo === headerUsername || d.currentSignerId === headerUsername;
+    return Boolean(isCreator || isSigner || isAssigned);
   });
 
   sentDocs.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
@@ -784,6 +795,96 @@ app.get('/api/documents/sent', (req, res) => {
     count: sentDocs.length,
     data: sentDocs
   });
+});
+
+// Lấy danh sách hồ sơ bị trả về
+app.get('/api/documents/returned', (req, res) => {
+  const headerId = req.headers['x-user-id'] || req.headers['x-user-username'] || (req.user && (req.user.id || req.user.username));
+  const headerUsername = req.headers['x-user-username'] || (req.user && req.user.username) || headerId;
+  if (!headerId) {
+    return res.status(401).json({ success: false, message: 'Chưa xác định người dùng.' });
+  }
+
+  const allDocs = dataStore.getDocuments();
+  const returnedDocs = allDocs.filter(d => {
+    if (!d || d.status !== 'RETURNED') return false;
+    const isCreator = d.creatorId === headerId || d.creatorUsername === headerId || d.authorId === headerId || d.authorUsername === headerId ||
+                      d.creatorId === headerUsername || d.creatorUsername === headerUsername;
+    return Boolean(isCreator);
+  });
+
+  returnedDocs.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+
+  res.json({
+    success: true,
+    count: returnedDocs.length,
+    data: returnedDocs
+  });
+});
+
+// Trả về hồ sơ / yêu cầu sửa lại (áp dụng khi GVB hoặc BGH từ chối duyệt)
+app.post('/api/documents/:id/reject', (req, res) => {
+  try {
+    const user = req.user || (req.headers['x-user-id'] ? {
+      id: req.headers['x-user-id'],
+      username: req.headers['x-user-username'] || req.headers['x-user-id'],
+      fullName: decodeURIComponent(req.headers['x-user-fullname'] || '') || req.headers['x-user-id'],
+      roleTitle: decodeURIComponent(req.headers['x-user-role'] || '') || 'Người duyệt'
+    } : req.body.currentUser);
+
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Chưa xác thực người dùng.' });
+    }
+
+    const { id } = req.params;
+    const { reason = '' } = req.body;
+    const trimmedReason = String(reason).trim();
+    if (!trimmedReason) {
+      return res.status(400).json({ success: false, message: 'Vui lòng nhập lý do trả về / yêu cầu sửa lại.' });
+    }
+
+    const doc = dataStore.getDocumentById(id);
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy hồ sơ.' });
+    }
+
+    const nowStr = new Date().toISOString();
+    doc.status = 'RETURNED';
+    doc.returnReason = trimmedReason;
+    doc.rejectReason = trimmedReason;
+    doc.returnedBy = user.id || user.username;
+    doc.returnedByName = user.fullName || user.username;
+    doc.returnedByRole = user.roleTitle || user.role || 'Người duyệt';
+    doc.returnedAt = nowStr;
+    doc.updatedAt = nowStr;
+    doc.assignedTo = null;
+    doc.currentSignerId = null;
+    doc.nextSignerId = null;
+
+    if (!Array.isArray(doc.history)) doc.history = [];
+    doc.history.push({
+      action: 'TRẢ_VỀ_YÊU_CẦU_SỬA',
+      actor: user.fullName || user.username,
+      reason: trimmedReason,
+      timestamp: nowStr
+    });
+
+    dataStore.updateDocument(id, doc);
+
+    res.json({
+      success: true,
+      message: 'Đã trả về hồ sơ thành công cho người gửi.',
+      data: {
+        id: doc.id,
+        status: doc.status,
+        returnReason: doc.returnReason,
+        returnedByName: doc.returnedByName
+      }
+    });
+  } catch (err) {
+    console.error('[server.js reject doc] Lỗi trả về hồ sơ:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // Chuẩn hóa chuỗi tiếng Việt không dấu để so khớp tên an toàn
@@ -1050,11 +1151,15 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
     const currentSignatures = Array.isArray(doc.signatures) ? doc.signatures : [];
     const currentHistory = Array.isArray(doc.history) ? doc.history : [];
 
+    const isBghSigner = Boolean(
+      (user.role === 'BGH' || user.role === 'ADMIN' || user.canStampSeal === true || user.departmentId === 'dept_bgh' || req.body.isSchoolSeal)
+    );
     const newSignature = {
       step: currentSignatures.length + 1,
       signerId: user.id || user.username,
       signerName: user.fullName || user.username,
-      signerRole: user.roleTitle || user.role || 'Giáo viên / Lãnh đạo',
+      signerRole: isBghSigner ? 'Ban Giám hiệu (Đã đóng dấu)' : (user.roleTitle || user.role || 'Giáo viên / Lãnh đạo'),
+      isSchoolSeal: isBghSigner,
       signedAt: nowStr,
       certSerial: signerCert?.serialNumber || '7C4C44A8671300AE',
       certIssuer: signerCert?.issuer || 'Ban Cơ yếu Chính phủ',
@@ -1068,6 +1173,7 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
       doc.status = 'COMPLETED';
       doc.completedAt = nowStr;
       doc.finalSigner = user.fullName || user.username;
+      doc.hasSchoolSeal = Boolean(isBghSigner || doc.hasSchoolSeal);
       doc.assignedTo = null;
       doc.currentSignerId = null;
       doc.nextSignerId = null;

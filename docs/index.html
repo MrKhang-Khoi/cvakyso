@@ -253,26 +253,8 @@
       </div>
     </header>
 
-    <!-- Banner Cảnh báo Hoàn thiện Thông tin Chữ ký số BGH -->
-    <div id="bannerAdminIncompleteConfig" class="hidden max-w-7xl w-full mx-auto px-4 sm:px-8 pt-4">
-      <div class="p-3.5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
-        <div class="flex items-center gap-2.5">
-          <span class="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-          </span>
-          <div>
-            <div class="text-xs font-bold text-amber-900" id="bannerAdminIncompleteTitle">Tài khoản Ban Giám hiệu chưa thiết lập Số Serial USB Token!</div>
-            <div class="text-[11px] text-amber-800" id="bannerAdminIncompleteDesc">Thầy/Cô cần thiết lập Số Serial USB Token Ban Cơ yếu để có thể ký số phê duyệt giáo án cấp trường.</div>
-          </div>
-        </div>
-        <button type="button" onclick="handleQuickFixBghSerial()" class="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-xs shrink-0 flex items-center gap-1.5 transition cursor-pointer">
-          <span>⚙️ Thiết lập Serial ngay</span>
-        </button>
-      </div>
-    </div>
-
     <!-- Main Container -->
-    <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-8 space-y-6">
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:px-8 space-y-6">
       <!-- Tabs Navigation -->
       <div class="flex items-center justify-between border-b border-slate-200 pb-3">
         <div class="flex items-center gap-2">
@@ -450,7 +432,7 @@
     <main class="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-8 space-y-6">
       <!-- Tabs Navigation Giáo viên -->
       <div class="flex items-center justify-between border-b border-slate-200 pb-3">
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
           <button id="tabBtnTeacherWorkspace" onclick="switchTeacherTab('workspace')" 
             class="px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all bg-brand-600 text-white shadow-sm shadow-brand-500/20 flex items-center gap-2">
             <span>✍️ Soạn & Ký văn bản</span>
@@ -464,6 +446,11 @@
             class="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center gap-2">
             <span>📤 Hồ sơ tôi đã gửi</span>
             <span id="badgeTeacherSentCount" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600">0</span>
+          </button>
+          <button id="tabBtnTeacherReturned" onclick="switchTeacherTab('returned')" 
+            class="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-rose-700 hover:bg-rose-50 flex items-center gap-2">
+            <span>↩️ Hồ sơ bị trả về</span>
+            <span id="badgeTeacherReturnedCount" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600">0</span>
           </button>
         </div>
       </div>
@@ -616,6 +603,33 @@
             <div class="py-12 text-center text-slate-400 text-xs">
               <svg class="w-10 h-10 mx-auto mb-2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
               <span>Đang tải danh sách hồ sơ đã gửi...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: HỒ SƠ BỊ TRẢ VỀ (CẦN CHỈNH SỬA / TRÌNH KÝ LẠI) -->
+      <div id="tabContentTeacherReturned" class="hidden space-y-4">
+        <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm p-5 sm:p-7 space-y-4">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div>
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm sm:text-base font-bold text-slate-900">Danh sách Báo cáo & Hồ sơ bị trả về</h3>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">Cần chỉnh sửa</span>
+              </div>
+              <p class="text-xs text-slate-500 mt-0.5">Các văn bản chưa được duyệt do sai sót. Thầy/Cô xem lý do, cập nhật lại tệp và gửi trình ký lại.</p>
+            </div>
+            <button type="button" onclick="loadTeacherReturnedDocuments(true)" class="p-2 text-slate-600 hover:text-brand-600 rounded-xl hover:bg-slate-50 border border-slate-200 flex items-center gap-1.5 text-xs font-semibold transition-all">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              <span>Làm mới</span>
+            </button>
+          </div>
+
+          <!-- Danh sách hồ sơ bị trả về -->
+          <div id="listTeacherReturnedContainer" class="space-y-3">
+            <div class="py-12 text-center text-slate-400 text-xs">
+              <svg class="w-10 h-10 mx-auto mb-2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              <span>Đang tải danh sách hồ sơ bị trả về...</span>
             </div>
           </div>
         </div>
@@ -969,6 +983,13 @@
             class="hidden px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer">
             <span class="w-2 h-2 rounded-full bg-rose-600 animate-pulse"></span>
             <span id="btnToggleSealText">🔴 Đóng Dấu Nhà Trường</span>
+          </button>
+
+          <!-- Nút Trả về trong Viewer (áp dụng khi ký hồ sơ chờ ký) -->
+          <button type="button" id="btnViewerRejectDoc" onclick="handleViewerRejectCurrentDoc()" 
+            class="hidden px-3.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer" title="Trả lại hồ sơ cho người gửi nếu có sai sót">
+            <svg class="w-4 h-4 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            <span>Trả về</span>
           </button>
 
           <!-- Nút Xác nhận Ký số ngay -->
@@ -1812,7 +1833,55 @@
     </div>
   </div>
 
+  <!-- ==================== MODAL: TRẢ VỀ / YÊU CẦU SỬA LẠI BÁO CÁO ==================== -->
+  <div id="modalRejectDocument" class="hidden fixed inset-0 z-[110] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 relative animate-in fade-in zoom-in-95 duration-150">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center font-bold">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          </div>
+          <div>
+            <h3 class="text-sm font-bold text-slate-900">Yêu cầu sửa lại / Trả về hồ sơ</h3>
+            <p class="text-[11px] text-slate-500">Chuyển trả lại người gửi kèm lý do sai sót</p>
+          </div>
+        </div>
+        <button type="button" onclick="closeModal('modalRejectDocument')" class="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="mt-4 space-y-3.5">
+        <div class="p-3 bg-slate-50 rounded-2xl border border-slate-200/80 text-xs">
+          <div class="font-bold text-slate-800 truncate" id="rejectDocTitleDisplay">Tên hồ sơ</div>
+          <div class="text-[11px] text-slate-500 mt-0.5">Người gửi: <strong id="rejectDocSenderDisplay">Nguyễn Văn A</strong> • Mã: <span id="rejectDocIdDisplay" class="font-mono text-indigo-600">...</span></div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1.5">Lý do trả về / Hướng dẫn chỉnh sửa <span class="text-rose-500">*</span></label>
+          <textarea id="textareaRejectReason" rows="3" required placeholder="Vd: Số liệu bảng thống kê tuần 12 chưa chuẩn, đề nghị bổ sung theo mẫu mới..." 
+            class="w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-rose-400 focus:outline-none"></textarea>
+          <div class="mt-1.5 flex flex-wrap gap-1">
+            <button type="button" onclick="quickFillRejectReason('Số liệu chưa chính xác, đề nghị rà soát và sửa lại.')" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] rounded-md font-medium">Sai số liệu</button>
+            <button type="button" onclick="quickFillRejectReason('Thiếu phần xác nhận / ký nháy chuyên môn.')" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] rounded-md font-medium">Thiếu ký nháy</button>
+            <button type="button" onclick="quickFillRejectReason('Văn bản chưa đúng thể thức ban hành theo quy định.')" class="px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] rounded-md font-medium">Sai thể thức</button>
+          </div>
+        </div>
+
+        <div class="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+          <button type="button" onclick="closeModal('modalRejectDocument')" class="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition">
+            Hủy bỏ
+          </button>
+          <button type="button" id="btnConfirmRejectDoc" onclick="handleConfirmRejectDocument()" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md shadow-rose-500/20 transition flex items-center gap-1.5 cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            <span>Xác nhận Trả về</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Client Application Logic -->
-  <script src="./js/app.js?v=2.8.5&t=20260910_2130"></script>
+  <script src="./js/app.js?v=2.8.6&t=20260910_2250"></script>
 </body>
 </html>
