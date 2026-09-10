@@ -871,7 +871,7 @@ namespace RealPdfSigner
                 {
                     float manualX;
                     float manualY;
-                    if (reqX.HasValue && reqX.Value > 0 && reqY.HasValue && reqY.Value > 0)
+                    if (reqX.HasValue && reqX.Value >= 0 && reqY.HasValue && reqY.Value >= 0)
                     {
                         manualX = Math.Max(5f, Math.Min(pW - w - 5f, reqX.Value));
                         manualY = Math.Max(5f, Math.Min(pH - h - 5f, reqY.Value));
@@ -891,7 +891,7 @@ namespace RealPdfSigner
                 }
 
                 // Nếu có tọa độ điểm tuyệt đối (reqX, reqY) mà không có reqXPercent -> tôn trọng tọa độ điểm
-                if (!reqXPercent.HasValue && reqX.HasValue && reqX.Value > 0 && reqY.HasValue && reqY.Value > 0)
+                if (!reqXPercent.HasValue && reqX.HasValue && reqX.Value >= 0 && reqY.HasValue && reqY.Value >= 0)
                 {
                     float safeX = Math.Max(10f, Math.Min(pW - w - 10f, reqX.Value));
                     float safeY = Math.Max(10f, Math.Min(pH - h - 10f, reqY.Value));

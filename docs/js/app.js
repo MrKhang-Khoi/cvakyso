@@ -3228,7 +3228,7 @@ function onSigTargetPageChange(val) {
   // Nếu đang render bằng PDF.js canvas, di chuyển con dấu đến trang đó và cuộn tới trang đó
   const pageWrappers = document.querySelectorAll('.pdf-page-wrapper');
   if (pageWrappers.length > 0) {
-    placeSignatureOnPage(targetP, currentStampPlacement === 'bottom-left' ? 'principal' : (currentStampPlacement === 'middle-right' ? 'leader' : 'teacher'));
+    placeSignatureOnPage(targetP, currentStampPlacement === 'bottom-left' ? 'principal' : (currentStampPlacement === 'middle-right' ? 'leader' : 'teacher'), true);
   } else {
     // Fallback iframe
     const pdfFrame = document.getElementById('viewerPdfFrame');
@@ -3245,7 +3245,7 @@ function onSigTargetPageInputChange(val) {
   currentStampPage = p;
   const pageWrappers = document.querySelectorAll('.pdf-page-wrapper');
   if (pageWrappers.length > 0) {
-    placeSignatureOnPage(p, currentStampPlacement === 'bottom-left' ? 'principal' : (currentStampPlacement === 'middle-right' ? 'leader' : 'teacher'));
+    placeSignatureOnPage(p, currentStampPlacement === 'bottom-left' ? 'principal' : (currentStampPlacement === 'middle-right' ? 'leader' : 'teacher'), true);
   } else {
     const pdfFrame = document.getElementById('viewerPdfFrame');
     if (pdfFrame && currentPdfBlobUrl) {
@@ -3615,7 +3615,39 @@ function getTeacherSignatureImage() {
   return null;
 }
 
-function placeSignatureOnPage(pageNum, role = 'teacher') {
+function getCurrentlyVisiblePageWrapper() {
+  const container = document.getElementById('viewerContentArea');
+  const pageWrappers = Array.from(document.querySelectorAll('.pdf-page-wrapper'));
+  if (!container || pageWrappers.length === 0) return null;
+
+  const containerRect = container.getBoundingClientRect();
+  const containerCenterY = containerRect.top + containerRect.height / 2;
+
+  // 1. Kiểm tra trang nào đang bao trọn tâm điểm khung nhìn
+  for (const w of pageWrappers) {
+    const r = w.getBoundingClientRect();
+    if (r.top <= containerCenterY && r.bottom >= containerCenterY) {
+      return w;
+    }
+  }
+
+  // 2. Fallback: Trang có diện tích hiển thị lớn nhất trên màn hình
+  let best = pageWrappers[0];
+  let maxH = -1;
+  for (const w of pageWrappers) {
+    const r = w.getBoundingClientRect();
+    const visTop = Math.max(containerRect.top, r.top);
+    const visBottom = Math.min(containerRect.bottom, r.bottom);
+    const h = Math.max(0, visBottom - visTop);
+    if (h > maxH) {
+      maxH = h;
+      best = w;
+    }
+  }
+  return best;
+}
+
+function placeSignatureOnPage(pageNum, role = 'teacher', shouldScroll = false) {
   const container = document.getElementById('viewerContentArea');
   const stamp = document.getElementById('draggableSignatureStamp');
   if (!container || !stamp) return;
@@ -3634,6 +3666,11 @@ function placeSignatureOnPage(pageNum, role = 'teacher') {
     const pageNumInt = parseInt(targetWrapper.getAttribute('data-page'), 10) || 1;
     currentStampPage = pageNumInt;
 
+    const pageSel = document.getElementById('sigTargetPageSelect');
+    if (pageSel && pageSel.value !== String(pageNumInt)) {
+      pageSel.value = String(pageNumInt);
+    }
+
     let relLeftPct = 0.745;
     let relTopPct = 0.68;
     if (role === 'principal') { relLeftPct = 0.18; relTopPct = 0.68; }
@@ -3651,8 +3688,11 @@ function placeSignatureOnPage(pageNum, role = 'teacher') {
     stamp.style.left = `${Math.max(10, stampLeft)}px`;
     stamp.style.top = `${Math.max(10, stampTop)}px`;
 
-    // Cuộn trang mục tiêu vào giữa khung nhìn
-    targetWrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // CHỈ CUỘN TRANG KHI NGƯỜI DÙNG CHỦ ĐỘNG CHỌN TRANG TỪ DROPDOWN (shouldScroll == true)
+    // TUYỆT ĐỐI KHÔNG TỰ Ý CUỘN KHI NGƯỜI DÙNG VỪA NHẤN ĐẶT CHỮ KÝ
+    if (shouldScroll) {
+      targetWrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
 
     updateStampPlacementFromPosition();
   } else {
@@ -3702,25 +3742,37 @@ function updateStampPlacementFromPosition() {
       const relX = stampRect.left - pageRect.left;
       const relY = stampRect.top - pageRect.top;
 
+      // CHUẨN XÁC ĐỊNH TỌA ĐỘ THEO VGCA SIGN TOOL (iText Rectangle Points 72 DPI):
+      // scaleX = pageRect.width / ptWidth
+      // scaleY = pageRect.height / ptHeight
+      // llx = relX / scaleX
+      // lly = ptHeight - ((relY + stampRect.height) / scaleY)
+      // w = stampRect.width / scaleX
+      // h = stampRect.height / scaleY
+      const scaleX = pageRect.width / ptWidth;
+      const scaleY = pageRect.height / ptHeight;
+
+      const wPt = Math.round((stampRect.width / scaleX) * 10) / 10;
+      const hPt = Math.round((stampRect.height / scaleY) * 10) / 10;
+
+      const llx = Math.max(0, Math.min(ptWidth - wPt, relX / scaleX));
+      const lly = Math.max(0, Math.min(ptHeight - hPt, ptHeight - ((relY + stampRect.height) / scaleY)));
+
       const xPct = Math.max(0, Math.min(100, Math.round((relX / pageRect.width) * 1000) / 10));
       const yPct = Math.max(0, Math.min(100, Math.round((relY / pageRect.height) * 1000) / 10));
 
-      const stampW = Math.round(160 * currentStampScale * 0.75);
-      const stampH = Math.round(80 * currentStampScale * 0.75);
-
-      const xPt = Math.max(5, Math.min(ptWidth - stampW - 5, (relX / pageRect.width) * ptWidth));
-      const yPt = Math.max(5, Math.min(ptHeight - stampH - 5, ptHeight - (((relY + stampRect.height) / pageRect.height) * ptHeight)));
-
       currentStampPage = pageNum;
       currentStampCoords = {
-        x: Math.round(xPt * 10) / 10,
-        y: Math.round(yPt * 10) / 10,
+        x: Math.round(llx * 10) / 10,
+        y: Math.round(lly * 10) / 10,
+        width: wPt,
+        height: hPt,
         xPercent: xPct,
         yPercent: yPct,
-        width: stampW,
-        height: stampH,
         page: pageNum,
         targetPage: pageNum,
+        pageWidth: ptWidth,
+        pageHeight: ptHeight,
         isManualDrag: true
       };
       window.currentStampCoords = currentStampCoords;
@@ -3797,7 +3849,11 @@ function toggleSignaturePlacementMode(forceState) {
     const roleStr = (userRole === 'BGH' || userRole === 'PRINCIPAL' || (currentUser?.fullName || '').includes('Liền')) ? 'principal'
       : ((userRole === 'LEADER' || userRole === 'TO_TRUONG' || (currentUser?.fullName || '').includes('Hằng')) ? 'leader' : 'teacher');
 
-    placeSignatureOnPage(currentStampPage || 'last', roleStr);
+    // Xác định trang người dùng đang xem trước mắt, đặt con dấu ngay tại trang đó, KHÔNG tự ý cuộn xuống trang cuối
+    const visibleWrapper = getCurrentlyVisiblePageWrapper();
+    const targetPage = visibleWrapper ? (parseInt(visibleWrapper.getAttribute('data-page'), 10) || 1) : (currentStampPage === 'last' ? (currentDocTotalPages || 1) : (currentStampPage || 1));
+
+    placeSignatureOnPage(targetPage, roleStr, false);
   } else {
     isSigPlacementActive = false;
     const bar = document.getElementById('viewerSigToolBar');
@@ -4288,6 +4344,18 @@ function handleViewerConfirmSignClick() {
     return;
   }
 
+  // 0.1. KIỂM TRA BẮT BUỘC: Thầy/Cô phải kích hoạt đặt vị trí con dấu trên văn bản trước khi ký
+  if (!isSigPlacementActive) {
+    toggleSignaturePlacementMode(true);
+    showToast('📍 Đã hiển thị con dấu chữ ký trên trang Thầy/Cô đang xem. Vui lòng kéo con dấu vào vị trí mong muốn trên văn bản, sau đó nhấn "Ký Số Ngay".', 'info', 6000);
+    const stamp = document.getElementById('draggableSignatureStamp');
+    if (stamp) {
+      stamp.classList.add('ring-4', 'ring-brand-500', 'ring-offset-2', 'animate-pulse');
+      setTimeout(() => stamp.classList.remove('ring-4', 'ring-brand-500', 'ring-offset-2', 'animate-pulse'), 2500);
+    }
+    return;
+  }
+
   // Kiểm tra điều kiện chọn người nhận nếu là Báo cáo
   if (currentChainedPendingDoc) {
     const isFinal = document.getElementById('cbViewerIsFinalSigner')?.checked;
@@ -4632,15 +4700,23 @@ async function executeLocalAgentSigning() {
     }
 
     const targetPage = session.page || currentStampPage || 'last';
-    // Tọa độ điểm chuẩn khổ A4 (595.28 x 841.89 pt)
-    const pW = 595.28;
-    const pH = 841.89;
     const isManualDrag = !!session.isManualDrag;
-    const stampW = Math.round(160 * (session.scale || 1.0) * 0.75);
-    const stampH = Math.round(80 * (session.scale || 1.0) * 0.75);
-    const xPt = Math.max(10, Math.min(pW - stampW - 10, ((session.xPercent || 74.5) / 100) * pW));
-    const yPt = Math.max(10, Math.min(pH - stampH - 10, pH - (((session.yPercent || 52.0) / 100) * pH) - stampH));
     const pageNum = (targetPage === 'last') ? (currentDocTotalPages > 0 ? currentDocTotalPages : 0) : (parseInt(targetPage, 10) || 1);
+
+    // Kế thừa chuẩn tọa độ điểm thực tế (VGCA Sign Tool) từ session hoặc currentStampCoords
+    let xPt = (typeof session.x === 'number' && session.x >= 0) ? session.x : (typeof currentStampCoords?.x === 'number' ? currentStampCoords.x : null);
+    let yPt = (typeof session.y === 'number' && session.y >= 0) ? session.y : (typeof currentStampCoords?.y === 'number' ? currentStampCoords.y : null);
+    let stampW = (typeof session.width === 'number' && session.width > 0) ? session.width : (typeof currentStampCoords?.width === 'number' ? currentStampCoords.width : Math.round(160 * (session.scale || 1.0) * 0.75));
+    let stampH = (typeof session.height === 'number' && session.height > 0) ? session.height : (typeof currentStampCoords?.height === 'number' ? currentStampCoords.height : Math.round(80 * (session.scale || 1.0) * 0.75));
+
+    // Nếu chưa có xPt/yPt thì mới fallback tính theo phần trăm trên kích thước trang thực tế
+    if (xPt === null || yPt === null) {
+      const pageWrapper = document.querySelector(`.pdf-page-wrapper[data-page="${pageNum}"]`) || document.querySelector('.pdf-page-wrapper');
+      const pW = pageWrapper ? (parseFloat(pageWrapper.getAttribute('data-page-width')) || 595.28) : 595.28;
+      const pH = pageWrapper ? (parseFloat(pageWrapper.getAttribute('data-page-height')) || 841.89) : 841.89;
+      if (xPt === null) xPt = Math.max(10, Math.min(pW - stampW - 10, ((session.xPercent || 74.5) / 100) * pW));
+      if (yPt === null) yPt = Math.max(10, Math.min(pH - stampH - 10, pH - (((session.yPercent || 52.0) / 100) * pH) - stampH));
+    }
 
     const currentUser = appState.currentUser;
     const userRole = (currentUser?.role || '').toUpperCase();
@@ -4659,19 +4735,17 @@ async function executeLocalAgentSigning() {
     }
 
     const signCoordObj = {
-      width: stampW,
-      height: stampH,
+      x: Math.round(xPt * 10) / 10,
+      y: Math.round(yPt * 10) / 10,
+      width: Math.round(stampW * 10) / 10,
+      height: Math.round(stampH * 10) / 10,
       page: pageNum,
       targetPage: pageNum,
-      scale: session.scale,
-      isManualDrag: isManualDrag
+      scale: session.scale || 1.0,
+      isManualDrag: isManualDrag,
+      xPercent: session.xPercent,
+      yPercent: session.yPercent
     };
-    if (isManualDrag) {
-      signCoordObj.x = Math.round(xPt * 10) / 10;
-      signCoordObj.y = Math.round(yPt * 10) / 10;
-      signCoordObj.xPercent = session.xPercent;
-      signCoordObj.yPercent = session.yPercent;
-    }
 
     const payload = {
       doc: {
@@ -4684,7 +4758,11 @@ async function executeLocalAgentSigning() {
       },
       page: pageNum,
       targetPage: pageNum,
-      scale: session.scale,
+      x: Math.round(xPt * 10) / 10,
+      y: Math.round(yPt * 10) / 10,
+      width: Math.round(stampW * 10) / 10,
+      height: Math.round(stampH * 10) / 10,
+      scale: session.scale || 1.0,
       isManualDrag: isManualDrag,
       signerRole: roleString,
       role: roleString,
@@ -4698,6 +4776,10 @@ async function executeLocalAgentSigning() {
       thumbprint: session.cert.thumbprint
     };
     if (isManualDrag) {
+      payload.x = Math.round(xPt * 10) / 10;
+      payload.y = Math.round(yPt * 10) / 10;
+      payload.width = Math.round(stampW * 10) / 10;
+      payload.height = Math.round(stampH * 10) / 10;
       payload.xPercent = session.xPercent;
       payload.yPercent = session.yPercent;
     }
