@@ -864,20 +864,23 @@ namespace RealPdfSigner
                 float w = reqW.HasValue && reqW.Value > 0 ? reqW.Value : 95f;
                 float h = reqH.HasValue && reqH.Value > 0 ? reqH.Value : 60f;
 
-                // CHỈ KHI NGƯỜI DÙNG CHỦ ĐỘNG KÉO THẢ CON DẤU (isManualDrag == true):
-                // Mới ưu tiên dùng tọa độ phần trăm / điểm do người dùng tự đặt
-                if (isManualDrag && reqXPercent.HasValue && reqYPercent.HasValue && reqXPercent.Value >= 0 && reqYPercent.Value >= 0)
-                {
-                    float safeX = Math.Max(10f, Math.Min(pW - w - 10f, (reqXPercent.Value / 100f) * pW));
-                    float safeY = Math.Max(10f, Math.Min(pH - h - 10f, pH - ((reqYPercent.Value / 100f) * pH) - h));
-                    return (targetPage, safeX, safeY, w, h);
-                }
-
-                if (isManualDrag && reqX.HasValue && reqX.Value > 0 && reqY.HasValue && reqY.Value > 0)
+                // Nếu có tọa độ điểm tuyệt đối (reqX, reqY) mà không có reqXPercent -> tôn trọng tọa độ điểm
+                if (!reqXPercent.HasValue && reqX.HasValue && reqX.Value > 0 && reqY.HasValue && reqY.Value > 0)
                 {
                     float safeX = Math.Max(10f, Math.Min(pW - w - 10f, reqX.Value));
                     float safeY = Math.Max(10f, Math.Min(pH - h - 10f, reqY.Value));
                     return (targetPage, safeX, safeY, w, h);
+                }
+
+                // Nếu người dùng kéo thả con dấu (reqXPercent), tự động nhận diện Cột Ký mục tiêu:
+                // - Cột 1 (< 35%): Ban Giám hiệu (Hiệu trưởng / Phó Hiệu trưởng)
+                // - Cột 2 (35% - 60%): Tổ trưởng chuyên môn
+                // - Cột 3 (> 60%): Giáo viên / Người lập kế hoạch
+                if (reqXPercent.HasValue && reqXPercent.Value > 0)
+                {
+                    if (reqXPercent.Value < 35f) role = "principal";
+                    else if (reqXPercent.Value <= 60f) role = "leader";
+                    else role = "teacher";
                 }
 
                 // Dò tìm vị trí neo trên trang văn bản bằng Smart Anchor
@@ -996,6 +999,12 @@ namespace RealPdfSigner
                     stampY = targetRoleY.Value - h - 15f;
                     float anchorX = targetRoleX ?? defaultX;
                     stampX = anchorX - (w * 0.15f);
+                }
+                else if (isManualDrag && reqXPercent.HasValue && reqYPercent.HasValue && reqXPercent.Value >= 0 && reqYPercent.Value >= 0)
+                {
+                    // Fallback khi hoàn toàn không tìm thấy text mỏ neo trên trang (ví dụ tài liệu scan dạng ảnh)
+                    stampX = Math.Max(10f, Math.Min(pW - w - 10f, (reqXPercent.Value / 100f) * pW));
+                    stampY = Math.Max(10f, Math.Min(pH - h - 10f, pH - ((reqYPercent.Value / 100f) * pH) - h));
                 }
 
                 stampX = Math.Max(10f, Math.Min(pW - w - 10f, stampX));

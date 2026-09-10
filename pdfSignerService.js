@@ -425,9 +425,17 @@ async function generateSignedPdf(doc) {
           let stampX = defaultX;
           let stampY = defaultY;
 
+          // Xác định vai trò mục tiêu theo vị trí kéo thả hoặc vai trò người ký
+          let targetRole = 'teacher';
+          if (doc.signCoordinates && typeof doc.signCoordinates.xPercent === 'number') {
+            if (doc.signCoordinates.xPercent < 35) targetRole = 'principal';
+            else if (doc.signCoordinates.xPercent <= 60) targetRole = 'leader';
+            else targetRole = 'teacher';
+          }
+
           // Tự động tìm neo vị trí chữ ký thông minh (Smart Pedagogical Anchor)
-          const teacherName = (teacherSignature && teacherSignature.signerName) || doc.author || 'Hà Văn Tý';
-          const smartAnchor = await findSmartSignatureAnchor(sourcePdfBuffer, teacherName, 'teacher');
+          const signerTargetName = (teacherSignature && teacherSignature.signerName) || doc.author || 'Hà Văn Tý';
+          const smartAnchor = await findSmartSignatureAnchor(sourcePdfBuffer, signerTargetName, targetRole);
 
           if (smartAnchor && smartAnchor.found) {
             stampX = smartAnchor.x;
@@ -439,10 +447,10 @@ async function generateSignedPdf(doc) {
           } else if (doc.signCoordinates && doc.signCoordinates.isManualDrag && typeof doc.signCoordinates.x === 'number' && typeof doc.signCoordinates.y === 'number') {
             stampX = doc.signCoordinates.x;
             stampY = doc.signCoordinates.y;
-          } else if (doc.signPlacement === 'bottom-left') {
+          } else if (doc.signPlacement === 'bottom-left' || targetRole === 'principal') {
             stampX = pW * 0.18;
             stampY = defaultY;
-          } else if (doc.signPlacement === 'middle-right') {
+          } else if (doc.signPlacement === 'middle-right' || targetRole === 'leader') {
             stampX = pW * 0.46;
             stampY = defaultY;
           }

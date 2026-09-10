@@ -3173,9 +3173,9 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
 }
 
 // ==================== XỬ LÝ KÝ SỐ & ĐỊNH VỊ CHỮ KÝ TRÊN PDF ====================
-let isSigPlacementActive = true;
+let isSigPlacementActive = false;
 let currentStampPlacement = 'bottom-right';
-let currentStampCoords = { xPercent: 74.5, yPercent: 52.0, isManualDrag: false };
+let currentStampCoords = { xPercent: 74.5, yPercent: 68.0, isManualDrag: false };
 let currentStampScale = 1.0;
 let currentStampPage = 'last';
 let currentDocTotalPages = 1;
@@ -3254,10 +3254,10 @@ async function handleTeacherSignAction() {
   if (chainedBar) chainedBar.classList.add('hidden');
 
   // Tệp đã là PDF hợp lệ -> Mở giao diện xem trước & định vị chữ ký số kế thừa từ phiên bản trước
-  openDocumentViewer(teacherSelectedFile.name, teacherSelectedFile, true);
+  openDocumentViewer(teacherSelectedFile.name, teacherSelectedFile, false);
 }
 
-function openDocumentViewer(fileName, fileObject, enableSigning = true) {
+function openDocumentViewer(fileName, fileObject, enableSigning = false) {
   const modal = document.getElementById('modalDocViewer');
   const titleEl = document.getElementById('viewerDocTitle');
   const metaEl = document.getElementById('viewerDocMeta');
@@ -3518,12 +3518,11 @@ function toggleSignaturePlacementMode(forceState) {
     isSigPlacementActive = false;
     const bar = document.getElementById('viewerSigToolBar');
     const stamp = document.getElementById('draggableSignatureStamp');
-    const btnConfirm = document.getElementById('btnViewerConfirmSign');
     const btnText = document.getElementById('btnToggleSignatureText');
 
     if (bar) bar.classList.add('hidden');
     if (stamp) stamp.classList.add('hidden');
-    if (btnConfirm) btnConfirm.classList.add('hidden');
+    // Luôn giữ nút Ký Số Ngay để người dùng có thể ký nhanh bằng Smart Anchor
     if (btnText) btnText.textContent = 'Đặt Chữ Ký Số';
   }
 }
@@ -3533,19 +3532,19 @@ function snapSignatureTo(role) {
   const container = document.getElementById('viewerContentArea');
   if (!stamp || !container) return;
 
-  let leftPct = 74.5, topPct = 52.0;
+  let leftPct = 74.5, topPct = 68.0;
 
   if (role === 'teacher') {
     leftPct = 74.5;
-    topPct = 52.0;
+    topPct = 68.0;
     currentStampPlacement = 'bottom-right';
   } else if (role === 'leader') {
     leftPct = 47.5;
-    topPct = 52.0;
+    topPct = 68.0;
     currentStampPlacement = 'middle-right';
   } else if (role === 'principal') {
     leftPct = 21.5;
-    topPct = 52.0;
+    topPct = 68.0;
     currentStampPlacement = 'bottom-left';
   }
 
@@ -4353,8 +4352,19 @@ async function executeLocalAgentSigning() {
 
     const currentUser = appState.currentUser;
     const userRole = (currentUser?.role || '').toUpperCase();
-    const roleString = (userRole === 'BGH' || userRole === 'PRINCIPAL' || (currentUser?.fullName || '').includes('Liền')) ? 'principal'
-      : ((userRole === 'LEADER' || userRole === 'TO_TRUONG' || (currentUser?.fullName || '').includes('Hằng')) ? 'leader' : 'teacher');
+    let roleString = 'teacher';
+    if (session.xPercent < 35) {
+      roleString = 'principal';
+    } else if (session.xPercent <= 60) {
+      roleString = 'leader';
+    } else {
+      roleString = 'teacher';
+    }
+
+    if (!isManualDrag) {
+      roleString = (userRole === 'BGH' || userRole === 'PRINCIPAL' || (currentUser?.fullName || '').includes('Liền')) ? 'principal'
+        : ((userRole === 'LEADER' || userRole === 'TO_TRUONG' || (currentUser?.fullName || '').includes('Hằng')) ? 'leader' : 'teacher');
+    }
 
     const signCoordObj = {
       width: stampW,
