@@ -774,13 +774,19 @@ async function scanUsbTokenForModalUser() {
       const data = await res.json();
       let cert = data.certInfo;
 
-      // Nếu certInfo chưa gán nhưng có danh sách availableCerts, tìm cert khớp CCCD nhất
+      // Nếu certInfo chưa gán nhưng có danh sách availableCerts, ưu tiên lọc các USB Token phần cứng
       if (!cert && data.availableCerts && data.availableCerts.length > 0) {
-        const found = data.availableCerts.find(c => {
+        const hwList = data.availableCerts.filter(c => c.isHardware !== false);
+        const candidates = hwList.length > 0 ? hwList : data.availableCerts;
+        const found = candidates.find(c => {
           const cCccd = (c.cccd || '').trim();
           return cCccd && (cCccd.includes(inputCccd) || inputCccd.includes(cCccd));
+        }) || candidates.find(c => {
+          const cName = removeVietnameseTones(c.signerName || '').toLowerCase();
+          const eName = removeVietnameseTones(expectedSigner).toLowerCase();
+          return eName && (cName.includes(eName) || eName.includes(cName));
         });
-        cert = found || data.availableCerts[0];
+        cert = found || candidates[0];
       }
 
       if (cert && cert.serialNumber) {
@@ -792,7 +798,7 @@ async function scanUsbTokenForModalUser() {
         // 1. Phân biệt chính xác Con dấu cơ quan vs Chứng thư cá nhân:
         // Chỉ coi là Con dấu cơ quan khi Tên chủ thể (CN) là trường học / cơ quan, không phải tên cá nhân
         const normSigner = removeVietnameseTones(certSigner).toLowerCase();
-        const isRealOrgCert = (normSigner.startsWith('truong ') || normSigner.includes('thcs ') || normSigner.includes('ubnd ') || normSigner.includes('van thu ')) && !normSigner.includes('ty') && !normSigner.includes('lien') && !normSigner.includes('lam');
+        const isRealOrgCert = (normSigner.startsWith('truong ') || normSigner.includes('thcs ') || normSigner.includes('ubnd ') || normSigner.includes('van thu ')) && !normSigner.includes('ty') && !normSigner.includes('lien') && !normSigner.includes('lam') && !normSigner.includes('hien');
 
         // 2. Đối soát CCCD (nếu có trên cert hoặc trong Subject)
         const hasCccdInSubj = inputCccd && certSubj.includes(inputCccd);

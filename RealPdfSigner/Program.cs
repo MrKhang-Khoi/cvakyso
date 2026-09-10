@@ -1142,7 +1142,8 @@ namespace RealPdfSigner
                     if (friendlyName.Contains("bit4id") || friendlyName.Contains("tokenme") || friendlyName.Contains("safenet") ||
                         friendlyName.Contains("epass") || friendlyName.Contains("feitian") || friendlyName.Contains("etoken") ||
                         subjectLower.Contains("bit4id") || subjectLower.Contains("tokenme") ||
-                        issuer.Contains("bit4id") || issuer.Contains("tokenme"))
+                        issuer.Contains("bit4id") || issuer.Contains("tokenme") ||
+                        IsHardwareTokenCert(cert))
                         continue;
 
                     bool isGovCa = issuer.Contains("ban c") || issuer.Contains("vgca") || issuer.Contains("nhà nước") ||
@@ -1235,22 +1236,54 @@ namespace RealPdfSigner
             return null;
         }
 
-        public static X509Certificate2? FindHardwareTokenCertificate(string? expectedSerial = null)
+        public static bool IsHardwareTokenCert(X509Certificate2? cert)
+        {
+            if (cert == null || !cert.HasPrivateKey) return false;
+
+            // 1. Phân biệt phần cứng (USB Token) vs Virtual CSP (Ký số từ xa VGCA):
+            // Virtual CSP VGCA dùng thuật toán ECC / ECDSA (OID: 1.2.840.10045.2.1)
+            string pubKeyOid = cert.PublicKey?.Oid?.Value ?? "";
+            if (pubKeyOid == "1.2.840.10045.2.1")
+            {
+                return false; // Virtual CSP / Remote Signing, không phải phần cứng USB Token
+            }
+
+            // 2. Kiểm tra Issuer thuộc các CA được công nhận (Ban Cơ yếu Chính phủ, CA phục vụ các cơ quan Nhà nước, Viettel, VNPT...)
+            string iss = (cert.Issuer ?? "").ToLowerInvariant();
+            string subj = (cert.Subject ?? "").ToLowerInvariant();
+            bool isGovCa = iss.Contains("ban c") || iss.Contains("vgca") || iss.Contains("nhà nước") ||
+                           iss.Contains("nha nuoc") || subj.Contains(".gov.vn") || iss.Contains("ca phuc vu") ||
+                           iss.Contains("viettel") || iss.Contains("vnpt");
+            if (!isGovCa) return false;
+
+            // 3. USB Token phần cứng dùng thuật toán RSA (OID: 1.2.840.113549.1.1.1)
+            if (pubKeyOid == "1.2.840.113549.1.1.1")
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        public static X509Certificate2? FindHardwareTokenCertificate(string? expectedSerial = null, string? expectedSigner = null, string? expectedCccd = null)
         {
             try
             {
                 using var store = new X509Store(StoreName.My, StoreLocation.CurrentUser);
                 store.Open(OpenFlags.ReadOnly);
 
-                string cleanExpected = (expectedSerial ?? "").Replace(" ", "").Replace(":", "").Trim();
+                string cleanExpectedSerial = (expectedSerial ?? "").Replace(" ", "").Replace(":", "").Trim();
+                string cleanExpectedSigner = (expectedSigner ?? "").Trim();
+                string cleanExpectedCccd = (expectedCccd ?? "").Trim();
 
-                // 1. Tìm theo số Serial chỉ định (ghim con dấu trường của BGH: 7AF2DF52182653D3)
-                if (!string.IsNullOrWhiteSpace(cleanExpected))
+                // 1. Tìm theo số Serial chỉ định (ví dụ con dấu BGH hoặc serial đã lưu):
+                if (!string.IsNullOrWhiteSpace(cleanExpectedSerial))
                 {
                     foreach (var cert in store.Certificates)
                     {
+                        if (!cert.HasPrivateKey) continue;
                         string cleanCertSerial = cert.SerialNumber.Replace(" ", "").Replace(":", "").Trim();
-                        if (cleanCertSerial.Equals(cleanExpected, StringComparison.OrdinalIgnoreCase))
+                        if (cleanCertSerial.Equals(cleanExpectedSerial, StringComparison.OrdinalIgnoreCase))
                         {
                             return cert;
                         }
@@ -1258,24 +1291,68 @@ namespace RealPdfSigner
                     return null;
                 }
 
-                // 2. Tìm chứng thư của cơ quan / nhà trường hoặc thiết bị phần cứng Bit4id / Safenet / MST
+                // 2. Lấy danh sách tất cả các chứng thư USB Token phần cứng thật
+                var hwCerts = new List<X509Certificate2>();
                 foreach (var cert in store.Certificates)
                 {
-                    string subject = cert.Subject ?? "";
-                    string friendlyName = (cert.FriendlyName ?? "").ToLowerInvariant();
-                    string issuer = (cert.Issuer ?? "").ToLowerInvariant();
+                    if (IsHardwareTokenCert(cert))
+                    {
+                        hwCerts.Add(cert);
+                    }
+                }
 
-                    bool isHw = friendlyName.Contains("bit4id") || friendlyName.Contains("tokenme") ||
-                                friendlyName.Contains("safenet") || friendlyName.Contains("epass") ||
-                                subject.Contains("MST:") || subject.Contains("CHU VAN AN") ||
-                                subject.Contains("Chu Văn An") || subject.StartsWith("CN=TRƯỜNG", StringComparison.OrdinalIgnoreCase) ||
-                                issuer.Contains("bit4id") || issuer.Contains("tokenme");
+                if (hwCerts.Count == 0)
+                {
+                    return null;
+                }
 
-                    if (isHw)
+                // 3. Nếu có expectedCccd: Ưu tiên tìm cert phần cứng có CCCD khớp
+                if (!string.IsNullOrEmpty(cleanExpectedCccd))
+                {
+                    foreach (var cert in hwCerts)
+                    {
+                        string certCccd = ExtractCccdOrUid(cert.Subject);
+                        if ((!string.IsNullOrEmpty(certCccd) && (certCccd.Contains(cleanExpectedCccd) || cleanExpectedCccd.Contains(certCccd)))
+                            || cert.Subject.Contains(cleanExpectedCccd))
+                        {
+                            return cert;
+                        }
+                    }
+                }
+
+                // 4. Nếu có expectedSigner: Ưu tiên tìm cert phần cứng có tên/email khớp
+                if (!string.IsNullOrEmpty(cleanExpectedSigner))
+                {
+                    string normExpected = RemoveDiacritics(cleanExpectedSigner).ToLowerInvariant().Trim();
+                    foreach (var cert in hwCerts)
+                    {
+                        string cn = ExtractCn(cert.Subject);
+                        string normCn = RemoveDiacritics(cn).ToLowerInvariant().Trim();
+                        string email = ExtractEmail(cert.Subject).ToLowerInvariant();
+
+                        if ((!string.IsNullOrEmpty(normCn) && (normCn.Contains(normExpected) || normExpected.Contains(normCn)))
+                            || (!string.IsNullOrEmpty(email) && email.Contains(normExpected))
+                            || cert.Subject.ToLowerInvariant().Contains(normExpected))
+                        {
+                            return cert;
+                        }
+                    }
+                }
+
+                // 5. Nếu không truyền người ký cụ thể hoặc tìm cho BGH: Ưu tiên con dấu cơ quan
+                foreach (var cert in hwCerts)
+                {
+                    string cn = ExtractCn(cert.Subject).ToLowerInvariant();
+                    string subj = cert.Subject.ToLowerInvariant();
+                    if (cn.StartsWith("trường") || cn.StartsWith("truong") || cn.Contains("thcs") || cn.Contains("ubnd") || subj.Contains("mst:"))
                     {
                         return cert;
                     }
                 }
+
+                // 6. Trả về chứng thư phần cứng hợp lệ còn hạn xa nhất
+                hwCerts.Sort((a, b) => b.NotAfter.CompareTo(a.NotAfter));
+                return hwCerts[0];
             }
             catch { }
             return null;
@@ -1292,17 +1369,17 @@ namespace RealPdfSigner
             if (signMode.Equals("HARDWARE", StringComparison.OrdinalIgnoreCase) || signMode.Equals("USB_TOKEN", StringComparison.OrdinalIgnoreCase) || signMode.Equals("BGH", StringComparison.OrdinalIgnoreCase))
             {
                 // BAN GIÁM HIỆU / KÝ PHẦN CỨNG: TUYỆT ĐỐI KHÔNG FALLBACK SANG VIRTUAL CSP!
-                return FindHardwareTokenCertificate(expectedSerial);
+                return FindHardwareTokenCertificate(expectedSerial, expectedSigner, expectedCccd);
             }
 
             // Nếu chỉ định số Serial
             if (!string.IsNullOrWhiteSpace(expectedSerial))
             {
-                return FindHardwareTokenCertificate(expectedSerial) ?? FindVgcaPersonalCertificate(expectedSigner ?? expectedSerial, expectedCccd);
+                return FindHardwareTokenCertificate(expectedSerial, expectedSigner, expectedCccd) ?? FindVgcaPersonalCertificate(expectedSigner ?? expectedSerial, expectedCccd);
             }
 
             // AUTO mode
-            return FindVgcaPersonalCertificate(expectedSigner, expectedCccd) ?? FindHardwareTokenCertificate();
+            return FindVgcaPersonalCertificate(expectedSigner, expectedCccd) ?? FindHardwareTokenCertificate(null, expectedSigner, expectedCccd);
         }
 
         public static void SignWithBouncyCastle(string inputPdf, string outputPdf, X509Certificate2? realCert, string reason, string location, int targetPage = 0, float rectX = -1f, float rectY = -1f, float rectW = 90f, float rectH = 60f, byte[]? visualSignImageBytes = null)
@@ -2730,7 +2807,9 @@ namespace RealPdfSigner
                             thumbprint = cert.Thumbprint,
                             serialNumber = cert.SerialNumber,
                             hasPrivateKey = cert.HasPrivateKey,
-                            signerName = ExtractCn(cert.Subject)
+                            signerName = ExtractCn(cert.Subject),
+                            isHardware = IsHardwareTokenCert(cert),
+                            keyAlgorithm = cert.PublicKey?.Oid?.FriendlyName ?? cert.PublicKey?.Oid?.Value ?? ""
                         } : null
                     });
                 }
@@ -2792,10 +2871,16 @@ namespace RealPdfSigner
                     string? expectedEmail = req.QueryString["email"];
                     string? expectedCccd = req.QueryString["cccd"] ?? req.QueryString["uid"];
 
-                    bool isTeacherOrVgca = signMode.Equals("PERSONAL", StringComparison.OrdinalIgnoreCase)
-                                         || signMode.Equals("VGCA", StringComparison.OrdinalIgnoreCase)
-                                         || signMode.Equals("TEACHER", StringComparison.OrdinalIgnoreCase)
-                                         || (!string.IsNullOrEmpty(role) && !role.Equals("ADMIN", StringComparison.OrdinalIgnoreCase) && !role.Equals("BGH", StringComparison.OrdinalIgnoreCase));
+                    bool isHardwareMode = signMode.Equals("HARDWARE", StringComparison.OrdinalIgnoreCase)
+                                       || signMode.Equals("USB_TOKEN", StringComparison.OrdinalIgnoreCase)
+                                       || signMode.Equals("BGH", StringComparison.OrdinalIgnoreCase);
+
+                    bool isTeacherOrVgca = !isHardwareMode && (
+                        signMode.Equals("PERSONAL", StringComparison.OrdinalIgnoreCase)
+                        || signMode.Equals("VGCA", StringComparison.OrdinalIgnoreCase)
+                        || signMode.Equals("TEACHER", StringComparison.OrdinalIgnoreCase)
+                        || (!string.IsNullOrEmpty(role) && !role.Equals("ADMIN", StringComparison.OrdinalIgnoreCase) && !role.Equals("BGH", StringComparison.OrdinalIgnoreCase))
+                    );
 
                     if (isTeacherOrVgca && signMode.Equals("AUTO", StringComparison.OrdinalIgnoreCase))
                     {
@@ -2826,6 +2911,7 @@ namespace RealPdfSigner
                                            issL.Contains("ca phuc vu") || subjL.Contains(".gov.vn");
                             if (!isGovCa) continue;
 
+                            bool isHw = IsHardwareTokenCert(c);
                             availableCerts.Add(new
                             {
                                 serialNumber = c.SerialNumber,
@@ -2836,6 +2922,8 @@ namespace RealPdfSigner
                                 subject      = c.Subject,
                                 issuer       = c.Issuer,
                                 notAfter     = c.NotAfter.ToString("yyyy-MM-dd HH:mm:ss"),
+                                isHardware   = isHw,
+                                keyAlgorithm = c.PublicKey?.Oid?.FriendlyName ?? c.PublicKey?.Oid?.Value ?? ""
                             });
                         }
                     }
@@ -2905,8 +2993,10 @@ namespace RealPdfSigner
                             cspHealthy = false;
                             hasCspError = true;
                             cspErrorMessage = !string.IsNullOrWhiteSpace(checkSerial)
-                                ? $"Không tìm thấy USB Token khớp với số Serial [{checkSerial}] của Ban Giám hiệu! Vui lòng cắm đúng USB Token."
-                                : "Chưa cắm USB Token Ban Giám hiệu hoặc chưa nhập PIN mở khóa trong Bit4id PKI Manager.";
+                                ? $"Không tìm thấy USB Token khớp với số Serial [{checkSerial}]! Vui lòng cắm đúng USB Token."
+                                : (!string.IsNullOrWhiteSpace(expectedSigner)
+                                    ? $"Không tìm thấy USB Token của [{expectedSigner}]. Vui lòng cắm đúng USB Token."
+                                    : "Chưa cắm USB Token phần cứng hoặc chưa nhập PIN mở khóa trong Bit4id PKI Manager.");
                         }
                     }
 
@@ -2944,7 +3034,9 @@ namespace RealPdfSigner
                         subject      = cert.Subject,
                         issuer       = cert.Issuer,
                         notAfter     = cert.NotAfter.ToString("yyyy-MM-dd HH:mm:ss"),
-                        hasPrivateKey = cert.HasPrivateKey
+                        hasPrivateKey = cert.HasPrivateKey,
+                        isHardware   = IsHardwareTokenCert(cert),
+                        keyAlgorithm = cert.PublicKey?.Oid?.FriendlyName ?? cert.PublicKey?.Oid?.Value ?? ""
                     } : null;
 
                     var statusData = new
