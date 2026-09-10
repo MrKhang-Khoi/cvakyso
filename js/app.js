@@ -1102,10 +1102,9 @@ async function handleSaveUser(e) {
           }
         }
 
-        // Cập nhật Backend Server nếu có kết nối
-        if (!isStaticOrGitHub || appState.token || (typeof API_BASE !== 'undefined' && API_BASE)) {
-          const uEp = API_BASE ? `${API_BASE}/api/admin/users/${id}` : `/api/admin/users/${id}`;
-          fetch(uEp, {
+        // Cập nhật Backend Server nếu chạy máy chủ cục bộ
+        if (!isStaticOrGitHub) {
+          fetch(`/api/admin/users/${id}`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -1157,10 +1156,9 @@ async function handleSaveUser(e) {
       };
       users.push(newUser);
 
-      // Cập nhật Backend Server nếu có kết nối
-      if (!isStaticOrGitHub || appState.token || (typeof API_BASE !== 'undefined' && API_BASE)) {
-        const uEp = API_BASE ? `${API_BASE}/api/admin/users` : `/api/admin/users`;
-        fetch(uEp, {
+      // Cập nhật Backend Server nếu chạy máy chủ cục bộ
+      if (!isStaticOrGitHub) {
+        fetch('/api/admin/users', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
