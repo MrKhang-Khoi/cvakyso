@@ -763,6 +763,8 @@ async function scanUsbTokenForModalUser() {
   showToast('🔍 Đang kết nối EduSign Agent để quét thiết bị USB Token...', 'info');
 
   try {
+    const usernameInput = document.getElementById('userUsername');
+    const inputUsername = (usernameInput?.value || '').trim().toLowerCase();
     const expectedSigner = nameInput?.value?.trim() || '';
     const queryUrl = `http://127.0.0.1:18888/api/check-vgca-status?mode=HARDWARE&cccd=${encodeURIComponent(inputCccd)}&signer=${encodeURIComponent(expectedSigner)}&_t=${Date.now()}`;
     const res = await fetch(queryUrl, {
@@ -784,72 +786,57 @@ async function scanUsbTokenForModalUser() {
       if (cert && cert.serialNumber) {
         const certCccd = (cert.cccd || '').trim();
         const certSerial = (cert.serialNumber || '').trim().toUpperCase();
-        const certSigner = cert.signerName || 'Không xác định';
+        const certSigner = (cert.signerName || '').trim() || 'Không xác định';
+        const certSubj = (cert.subject || '').trim();
 
-        // ĐỐI SOÁT CHÉO: BẮT BUỘC KHỚP CCCD (HOẶC CON DẤU TRƯỜNG PHÁP NHÂN)
-        if (certCccd) {
-          const isCccdMatch = certCccd === inputCccd || certCccd.includes(inputCccd) || inputCccd.includes(certCccd);
-          if (isCccdMatch) {
-            if (serialInp) serialInp.value = certSerial;
-            if (emailInput && !emailInput.value && cert.email) emailInput.value = cert.email;
-            if (alertBox) {
-              alertBox.className = 'p-3 rounded-xl text-xs border bg-emerald-50 border-emerald-300 text-emerald-900 flex items-start gap-2';
-              alertBox.innerHTML = `<span>✅</span><div><strong class="text-emerald-800 block mb-0.5">XÁC THỰC THÀNH CÔNG</strong>Đã nhận diện USB Token <strong>[${certSigner}]</strong> khớp đúng số CCCD <strong>${inputCccd}</strong>.<br>Số Serial: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-purple-700">${certSerial}</code> đã tự động điền.</div>`;
-              alertBox.classList.remove('hidden');
-            }
-            showToast(`✅ Đã xác thực đúng USB Token [${certSigner}] - Serial: ${certSerial}`, 'success');
-            return;
-          } else {
-            // CẮM NHẦM USB TOKEN CỦA NGƯỜI KHÁC!
-            if (serialInp) serialInp.value = '';
-            if (alertBox) {
-              alertBox.className = 'p-3 rounded-xl text-xs border bg-rose-50 border-rose-300 text-rose-900 flex items-start gap-2';
-              alertBox.innerHTML = `<span>🚫</span><div><strong class="text-rose-700 block mb-0.5">CẢNH BÁO: CẮM NHẦM USB TOKEN CỦA NGƯỜI KHÁC!</strong>USB Token đang cắm có CCCD là <strong>[${certCccd}]</strong> (Chủ sở hữu: <strong>${certSigner}</strong>), <span class="text-rose-700 font-bold underline">HOÀN TOÀN KHÔNG KHỚP</span> với số CCCD <strong>[${inputCccd}]</strong> của tài khoản đang sửa!<br><br>Hệ thống đã <strong>TỪ CHỐI</strong> cập nhật số Serial này để ngăn chặn sai sót định danh. Vui lòng rút ra và cắm đúng USB Token của Thầy/Cô.</div>`;
-              alertBox.classList.remove('hidden');
-            }
-            showToast(`⚠️ CẢNH BÁO: USB Token đang cắm thuộc về [${certSigner}] (CCCD: ${certCccd}), không khớp với tài khoản!`, 'error');
-            return;
+        // 1. Phân biệt chính xác Con dấu cơ quan vs Chứng thư cá nhân:
+        // Chỉ coi là Con dấu cơ quan khi Tên chủ thể (CN) là trường học / cơ quan, không phải tên cá nhân
+        const normSigner = removeVietnameseTones(certSigner).toLowerCase();
+        const isRealOrgCert = (normSigner.startsWith('truong ') || normSigner.includes('thcs ') || normSigner.includes('ubnd ') || normSigner.includes('van thu ')) && !normSigner.includes('ty') && !normSigner.includes('lien') && !normSigner.includes('lam');
+
+        // 2. Đối soát CCCD (nếu có trên cert hoặc trong Subject)
+        const hasCccdInSubj = inputCccd && certSubj.includes(inputCccd);
+        const isCccdMatch = (certCccd && (certCccd === inputCccd || certCccd.includes(inputCccd) || inputCccd.includes(certCccd))) || hasCccdInSubj;
+
+        // 3. Đối soát Họ và tên & Tên đăng nhập
+        const normInputName = removeVietnameseTones(expectedSigner).toLowerCase();
+        const normCertName = removeVietnameseTones(certSigner).toLowerCase();
+        const normUsernamePart = inputUsername.replace(/^cva\./, '').replace(/[^a-z0-9]/g, '');
+
+        // Kiểm tra khớp tên cá nhân
+        const isNameMatch = (normInputName && (normCertName.includes(normInputName) || normInputName.includes(normCertName))) ||
+                            (normUsernamePart && normUsernamePart.length >= 2 && normCertName.includes(normUsernamePart));
+
+        if (isCccdMatch || isNameMatch) {
+          if (serialInp) serialInp.value = certSerial;
+          if (emailInput && !emailInput.value && cert.email) emailInput.value = cert.email;
+          if (alertBox) {
+            alertBox.className = 'p-3 rounded-xl text-xs border bg-emerald-50 border-emerald-300 text-emerald-900 flex items-start gap-2';
+            alertBox.innerHTML = `<span>✅</span><div><strong class="text-emerald-800 block mb-0.5">XÁC THỰC THÀNH CÔNG</strong>Đã nhận diện đúng USB Token <strong>[${certSigner}]</strong> của tài khoản <strong>${expectedSigner || inputUsername}</strong>.<br>Số Serial: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-purple-700">${certSerial}</code> đã tự động điền.</div>`;
+            alertBox.classList.remove('hidden');
           }
+          showToast(`✅ Đã xác thực đúng USB Token [${certSigner}] - Serial: ${certSerial}`, 'success');
+          return;
+        } else if (isRealOrgCert) {
+          if (serialInp) serialInp.value = certSerial;
+          if (alertBox) {
+            alertBox.className = 'p-3 rounded-xl text-xs border bg-emerald-50 border-emerald-300 text-emerald-900 flex items-start gap-2';
+            alertBox.innerHTML = `<span>✅</span><div><strong class="text-emerald-800 block mb-0.5">XÁC THỰC CON DẤU CƠ QUAN</strong>Đã nhận diện USB Token Con dấu cơ quan <strong>[${certSigner}]</strong>.<br>Số Serial: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-purple-700">${certSerial}</code> đã tự động điền.</div>`;
+            alertBox.classList.remove('hidden');
+          }
+          showToast(`✅ Đã nhận diện USB Token Con dấu cơ quan [${certSigner}] - Serial: ${certSerial}`, 'success');
+          return;
         } else {
-          // Token không chứa trường CCCD (ví dụ Con dấu cơ quan nhà trường hoặc CA đặc thù)
-          const subj = (cert.subject || '').toLowerCase();
-          const isOrgCert = subj.includes('trường') || subj.includes('truong') || subj.includes('mst:');
-          if (isOrgCert) {
-            if (serialInp) serialInp.value = certSerial;
-            if (alertBox) {
-              alertBox.className = 'p-3 rounded-xl text-xs border bg-emerald-50 border-emerald-300 text-emerald-900 flex items-start gap-2';
-              alertBox.innerHTML = `<span>✅</span><div><strong class="text-emerald-800 block mb-0.5">XÁC THỰC CON DẤU CƠ QUAN</strong>Đã nhận diện USB Token Con dấu cơ quan <strong>[${certSigner}]</strong>.<br>Số Serial: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-purple-700">${certSerial}</code> đã tự động điền.</div>`;
-              alertBox.classList.remove('hidden');
-            }
-            showToast(`✅ Đã nhận diện USB Token Con dấu cơ quan [${certSigner}] - Serial: ${certSerial}`, 'success');
-            return;
+          // CẮM NHẦM USB TOKEN CỦA NGƯỜI KHÁC!
+          if (serialInp) serialInp.value = '';
+          const displayTarget = expectedSigner ? `[${expectedSigner}]` : (inputUsername ? `[${inputUsername}]` : '');
+          if (alertBox) {
+            alertBox.className = 'p-3 rounded-xl text-xs border bg-rose-50 border-rose-300 text-rose-900 flex items-start gap-2';
+            alertBox.innerHTML = `<span>🚫</span><div><strong class="text-rose-700 block mb-0.5">CẢNH BÁO: CẮM NHẦM USB TOKEN CỦA NGƯỜI KHÁC!</strong>USB Token đang cắm trên máy thuộc về Thầy/Cô <strong>[${certSigner}]</strong>.<br><br>Thông tin này <span class="text-rose-700 font-bold underline">HOÀN TOÀN KHÔNG KHỚP</span> với tài khoản ${displayTarget} (Số CCCD: <strong>${inputCccd}</strong>)!<br><br>Hệ thống đã <strong>TỪ CHỐI</strong> cập nhật số Serial này để ngăn chặn sai sót định danh pháp lý. Vui lòng rút ra và cắm đúng USB Token của Thầy/Cô.</div>`;
+            alertBox.classList.remove('hidden');
           }
-
-          // Đối soát theo Họ và tên không dấu
-          const normInputName = removeVietnameseTones(expectedSigner).toLowerCase();
-          const normCertName = removeVietnameseTones(certSigner).toLowerCase();
-          const isNameMatch = normInputName && normCertName && (normCertName.includes(normInputName) || normInputName.includes(normCertName));
-
-          if (isNameMatch) {
-            if (serialInp) serialInp.value = certSerial;
-            if (emailInput && !emailInput.value && cert.email) emailInput.value = cert.email;
-            if (alertBox) {
-              alertBox.className = 'p-3 rounded-xl text-xs border bg-emerald-50 border-emerald-300 text-emerald-900 flex items-start gap-2';
-              alertBox.innerHTML = `<span>✅</span><div><strong class="text-emerald-800 block mb-0.5">XÁC THỰC THÀNH CÔNG</strong>Đã nhận diện USB Token theo họ tên <strong>[${certSigner}]</strong>.<br>Số Serial: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-purple-700">${certSerial}</code> đã tự động điền.</div>`;
-              alertBox.classList.remove('hidden');
-            }
-            showToast(`✅ Đã xác thực USB Token theo tên [${certSigner}] - Serial: ${certSerial}`, 'success');
-            return;
-          } else {
-            if (serialInp) serialInp.value = '';
-            if (alertBox) {
-              alertBox.className = 'p-3 rounded-xl text-xs border bg-amber-50 border-amber-300 text-amber-900 flex items-start gap-2';
-              alertBox.innerHTML = `<span>⚠️</span><div><strong class="text-amber-800 block mb-0.5">KHÔNG KHỚP HỌ TÊN</strong>USB Token đang cắm <strong>[${certSigner}]</strong> không khớp với họ tên tài khoản <strong>[${expectedSigner}]</strong>. Vui lòng kiểm tra lại thiết bị.</div>`;
-              alertBox.classList.remove('hidden');
-            }
-            showToast(`⚠️ USB Token đang cắm [${certSigner}] không khớp với họ tên tài khoản [${expectedSigner}]. Vui lòng kiểm tra lại thiết bị.`, 'warning');
-            return;
-          }
+          showToast(`⚠️ CẢNH BÁO: USB Token đang cắm là của [${certSigner}], không khớp với tài khoản!`, 'error');
+          return;
         }
       }
     }
@@ -4346,13 +4333,22 @@ function handleViewerConfirmSignClick() {
 
   // 0.1. KIỂM TRA BẮT BUỘC: Thầy/Cô phải kích hoạt đặt vị trí con dấu trên văn bản trước khi ký
   if (!isSigPlacementActive) {
-    toggleSignaturePlacementMode(true);
-    showToast('📍 Đã hiển thị con dấu chữ ký trên trang Thầy/Cô đang xem. Vui lòng kéo con dấu vào vị trí mong muốn trên văn bản, sau đó nhấn "Ký Số Ngay".', 'info', 6000);
-    const stamp = document.getElementById('draggableSignatureStamp');
-    if (stamp) {
-      stamp.classList.add('ring-4', 'ring-brand-500', 'ring-offset-2', 'animate-pulse');
-      setTimeout(() => stamp.classList.remove('ring-4', 'ring-brand-500', 'ring-offset-2', 'animate-pulse'), 2500);
-    }
+    showModalAlert(
+      'Chưa đặt vị trí chữ ký số',
+      `Thầy/Cô chưa định vị vị trí chữ ký trên văn bản!<br><br>Vui lòng nhấn nút <strong>"Đặt Chữ Ký Số"</strong> trên thanh công cụ và kéo con dấu vào đúng vị trí cần ký trước khi nhấn <strong>"Ký Số Ngay"</strong>.`,
+      'warning',
+      {
+        confirmText: '📍 Đặt chữ ký ngay',
+        onConfirm: () => {
+          toggleSignaturePlacementMode(true);
+          const stamp = document.getElementById('draggableSignatureStamp');
+          if (stamp) {
+            stamp.classList.add('ring-4', 'ring-brand-500', 'ring-offset-2', 'animate-pulse');
+            setTimeout(() => stamp.classList.remove('ring-4', 'ring-brand-500', 'ring-offset-2', 'animate-pulse'), 3000);
+          }
+        }
+      }
+    );
     return;
   }
 
