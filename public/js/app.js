@@ -222,7 +222,7 @@ async function handleLogin(e) {
             departmentName: matched.departmentName || matched.department || '',
             signType: matched.signType || ((matched.role === 'ADMIN' || matched.role === 'BGH' || matched.departmentId === 'dept_bgh') ? 'USB_TOKEN' : 'VGCA'),
             canUploadWord: matched.canUploadWord !== false,
-            canStampSeal: (matched.role === 'ADMIN' || matched.role === 'BGH') ? true : Boolean(matched.canStampSeal)
+            canStampSeal: (matched.role === 'ADMIN') ? false : Boolean(matched.canStampSeal)
           };
         }
       }
@@ -318,7 +318,7 @@ function checkSession() {
               sessionUpdated = true;
             }
             if (matched) {
-              appState.currentUser.canStampSeal = (appState.currentUser.role === 'ADMIN' || appState.currentUser.role === 'BGH') ? true : Boolean(matched.canStampSeal);
+              appState.currentUser.canStampSeal = (appState.currentUser.role === 'ADMIN') ? false : Boolean(matched.canStampSeal);
               sessionUpdated = true;
             }
             if (sessionUpdated) {
@@ -738,17 +738,30 @@ function updateDepartmentSelectOptions() {
 function updateBghBoxVisibility() {
   const roleEl = document.getElementById('userRole');
   const boxBgh = document.getElementById('boxBghUsbTokenConfig');
-  if (!boxBgh) return;
+  const boxSeal = document.getElementById('boxUserCanStampSeal');
+  if (!boxBgh && !boxSeal) return;
+
   const role = roleEl ? roleEl.value : 'TEACHER';
   let signType = 'VGCA';
   const radios = document.getElementsByName('userSignType');
   radios.forEach(r => { if (r.checked) signType = r.value; });
 
-  const isBghOrUsb = (role === 'BGH' || role === 'ADMIN' || signType === 'USB_TOKEN');
-  if (isBghOrUsb) {
-    boxBgh.classList.remove('hidden');
-  } else {
-    boxBgh.classList.add('hidden');
+  if (role === 'ADMIN') {
+    if (boxBgh) boxBgh.classList.add('hidden');
+    if (boxSeal) boxSeal.classList.add('hidden');
+    if (document.getElementById('userCanStampSeal')) document.getElementById('userCanStampSeal').checked = false;
+    return;
+  }
+
+  if (boxSeal) boxSeal.classList.remove('hidden');
+
+  const isBghOrUsb = (role === 'BGH' || signType === 'USB_TOKEN');
+  if (boxBgh) {
+    if (isBghOrUsb) {
+      boxBgh.classList.remove('hidden');
+    } else {
+      boxBgh.classList.add('hidden');
+    }
   }
 }
 
@@ -758,157 +771,184 @@ async function scanUsbTokenForModalUser() {
   const nameInput = document.getElementById('userFullName');
   const emailInput = document.getElementById('userEmail');
   const alertBox = document.getElementById('bghUsbScanAlert');
+  const usernameInput = document.getElementById('userUsername');
 
   if (alertBox) {
     alertBox.classList.add('hidden');
     alertBox.innerHTML = '';
   }
 
-  const inputCccd = (cccdInput?.value || '').trim();
-  if (!inputCccd) {
-    if (cccdInput) {
-      cccdInput.focus();
-      cccdInput.classList.add('ring-2', 'ring-rose-500');
-      setTimeout(() => cccdInput.classList.remove('ring-2', 'ring-rose-500'), 3000);
-    }
-    if (alertBox) {
-      alertBox.className = 'p-3 rounded-xl text-xs border bg-amber-50 border-amber-300 text-amber-900 flex items-start gap-2';
-      alertBox.innerHTML = '<span>⚠️</span><div><strong class="block mb-0.5 text-amber-800">CẦN NHẬP SỐ CCCD</strong>Vui lòng nhập Số CCCD (12 số) ở ô bên dưới trước khi bấm quét để hệ thống đối soát chống cắm nhầm thiết bị!</div>';
-      alertBox.classList.remove('hidden');
-    }
-    showToast('⚠️ Vui lòng nhập Số CCCD (12 số) trước khi quét USB Token!', 'warning');
-    return;
-  }
+  const targetName = (nameInput?.value || '').trim();
+  const targetCccd = (cccdInput?.value || '').trim();
+  const targetUsername = (usernameInput?.value || '').trim().toLowerCase();
 
-  if (!/^\d{9,12}$/.test(inputCccd)) {
-    if (cccdInput) {
-      cccdInput.focus();
-      cccdInput.classList.add('ring-2', 'ring-rose-500');
-      setTimeout(() => cccdInput.classList.remove('ring-2', 'ring-rose-500'), 3000);
-    }
-    if (alertBox) {
-      alertBox.className = 'p-3 rounded-xl text-xs border bg-rose-50 border-rose-300 text-rose-900 flex items-start gap-2';
-      alertBox.innerHTML = '<span>⚠️</span><div><strong class="block mb-0.5 text-rose-800">SỐ CCCD KHÔNG HỢP LỆ</strong>Vui lòng nhập đúng 12 chữ số trước khi quét.</div>';
-      alertBox.classList.remove('hidden');
-    }
-    showToast('⚠️ Số CCCD không hợp lệ! Vui lòng nhập đúng 12 chữ số.', 'error');
-    return;
-  }
-
-  showToast('🔍 Đang kết nối EduSign Agent để quét thiết bị USB Token...', 'info');
+  showToast('🔍 Đang kết nối EduSign Agent để quét USB Token đang cắm...', 'info');
 
   try {
-    const usernameInput = document.getElementById('userUsername');
-    const inputUsername = (usernameInput?.value || '').trim().toLowerCase();
-    const expectedSigner = nameInput?.value?.trim() || '';
-    const queryUrl = `http://127.0.0.1:18888/api/check-vgca-status?mode=HARDWARE&cccd=${encodeURIComponent(inputCccd)}&signer=${encodeURIComponent(expectedSigner)}&_t=${Date.now()}`;
+    // Gọi Agent đọc thiết bị thực tế đang cắm trên cổng USB (không filter theo thông tin form)
+    const queryUrl = `http://127.0.0.1:18888/api/check-vgca-status?mode=HARDWARE&_t=${Date.now()}`;
     const res = await fetch(queryUrl, {
-      signal: AbortSignal.timeout(3500)
+      signal: AbortSignal.timeout(4000)
     });
-    if (res.ok) {
-      const data = await res.json();
-      let cert = data.certInfo;
+    if (!res.ok) throw new Error('Không thể kết nối EduSign Agent');
 
-      // Nếu certInfo chưa gán nhưng có danh sách availableCerts, ưu tiên lọc các USB Token phần cứng
-      if (!cert && data.availableCerts && data.availableCerts.length > 0) {
-        const hwList = data.availableCerts.filter(c => c.isHardware !== false);
-        const candidates = hwList.length > 0 ? hwList : data.availableCerts;
-        const found = candidates.find(c => {
-          const cCccd = (c.cccd || '').trim();
-          return cCccd && (cCccd.includes(inputCccd) || inputCccd.includes(cCccd));
-        }) || candidates.find(c => {
-          const cName = removeVietnameseTones(c.signerName || '').toLowerCase();
-          const eName = removeVietnameseTones(expectedSigner).toLowerCase();
-          return eName && (cName.includes(eName) || eName.includes(cName));
-        });
-        cert = found || candidates[0];
+    const data = await res.json();
+    const certs = data.availableCerts || (data.certInfo ? [data.certInfo] : []);
+
+    if (certs.length === 0) {
+      const msg = 'Không tìm thấy thiết bị USB Token nào đang cắm trên máy tính! Vui lòng cắm USB Token vào cổng USB và thử lại.';
+      if (alertBox) {
+        alertBox.className = 'p-3 rounded-xl text-xs border bg-amber-50 border-amber-300 text-amber-900 flex items-start gap-2';
+        alertBox.innerHTML = `<span>⚠️</span><div><strong class="block mb-0.5 text-amber-800">KHÔNG TÌM THẤY THIẾT BỊ</strong>${msg}</div>`;
+        alertBox.classList.remove('hidden');
       }
+      showModalAlert('KHÔNG TÌM THẤY THIẾT BỊ', msg, 'warning');
+      showToast('⚠️ ' + msg, 'warning');
+      return;
+    }
 
-      if (cert && cert.serialNumber) {
-        const certCccd = (cert.cccd || '').trim();
-        const certSerial = (cert.serialNumber || '').trim().toUpperCase();
-        const certSigner = (cert.signerName || '').trim() || 'Không xác định';
-        const certSubj = (cert.subject || '').trim();
+    // Lấy chứng thư thực tế đầu tiên từ phần cứng
+    const hwList = certs.filter(c => c.isHardware !== false);
+    const actualCert = hwList.length > 0 ? hwList[0] : certs[0];
 
-        // 1. Phân biệt chính xác Con dấu cơ quan vs Chứng thư cá nhân:
-        // Chỉ coi là Con dấu cơ quan khi Tên chủ thể (CN) là trường học / cơ quan, không phải tên cá nhân
-        const normSigner = removeVietnameseTones(certSigner).toLowerCase();
-        const isRealOrgCert = (normSigner.startsWith('truong ') || normSigner.includes('thcs ') || normSigner.includes('ubnd ') || normSigner.includes('van thu ')) && !normSigner.includes('ty') && !normSigner.includes('lien') && !normSigner.includes('lam') && !normSigner.includes('hien');
+    const actualSigner = (actualCert.signerName || '').trim() || 'Không xác định';
+    const actualCccd = (actualCert.cccd || '').trim();
+    const actualSerial = (actualCert.serialNumber || '').trim().toUpperCase();
+    const actualSubj = (actualCert.subject || '').trim();
 
-        // 2. Đối soát CCCD (nếu có trên cert hoặc trong Subject)
-        const hasCccdInSubj = inputCccd && certSubj.includes(inputCccd);
-        const isCccdMatch = (certCccd && (certCccd === inputCccd || certCccd.includes(inputCccd) || inputCccd.includes(certCccd))) || hasCccdInSubj;
+    // 1. Kiểm tra xem có phải Con dấu cơ quan (Nhà trường) không:
+    const normSigner = removeVietnameseTones(actualSigner).toLowerCase();
+    const isRealOrgCert = (normSigner.startsWith('truong ') || normSigner.includes('thcs ') || normSigner.includes('ubnd ') || normSigner.includes('van thu ')) ||
+                          /(?:mst|2\.5\.4\.97|tax)[:=\s]*[0-9]{10}/i.test(actualSubj);
 
-        // 3. Đối soát Họ và tên & Tên đăng nhập
-        const normInputName = removeVietnameseTones(expectedSigner).toLowerCase();
-        const normCertName = removeVietnameseTones(certSigner).toLowerCase();
-        const normUsernamePart = inputUsername.replace(/^cva\./, '').replace(/[^a-z0-9]/g, '');
-
-        // Kiểm tra khớp tên cá nhân
-        const isNameMatch = (normInputName && (normCertName.includes(normInputName) || normInputName.includes(normCertName))) ||
-                            (normUsernamePart && normUsernamePart.length >= 2 && normCertName.includes(normUsernamePart));
-
-        if (isCccdMatch || isNameMatch) {
-          if (serialInp) serialInp.value = certSerial;
-          if (emailInput && !emailInput.value && cert.email) emailInput.value = cert.email;
-          if (alertBox) {
-            alertBox.className = 'p-3 rounded-xl text-xs border bg-emerald-50 border-emerald-300 text-emerald-900 flex items-start gap-2';
-            alertBox.innerHTML = `<span>✅</span><div><strong class="text-emerald-800 block mb-0.5">XÁC THỰC THÀNH CÔNG</strong>Đã nhận diện đúng USB Token <strong>[${certSigner}]</strong> của tài khoản <strong>${expectedSigner || inputUsername}</strong>.<br>Số Serial: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-purple-700">${certSerial}</code> đã tự động điền.</div>`;
-            alertBox.classList.remove('hidden');
-          }
-          showToast(`✅ Đã xác thực đúng USB Token [${certSigner}] - Serial: ${certSerial}`, 'success');
-          return;
-        } else if (isRealOrgCert) {
-          const isAuthorizedForSeal = Boolean(document.getElementById('userCanStampSeal')?.checked);
-
-          if (!isAuthorizedForSeal) {
-            // CẢNH BÁO CHẶN: ĐÂY LÀ USB TOKEN CON DẤU NHÀ TRƯỜNG, KHÔNG TỰ TIỆN GÁN CHO TÀI KHOẢN CÁ NHÂN KHI CHƯA ĐƯỢC ỦY QUYỀN
-            if (serialInp) serialInp.value = '';
-            if (alertBox) {
-              alertBox.className = 'p-3.5 rounded-xl text-xs border bg-amber-50 border-amber-300 text-amber-950 flex items-start gap-2.5';
-              alertBox.innerHTML = `<span>⚠️</span><div><strong class="text-amber-800 block mb-1 text-[13px]">PHÁT HIỆN USB TOKEN CON DẤU NHÀ TRƯỜNG</strong>Thiết bị đang cắm là USB Token Con dấu cơ quan: <strong>[${certSigner}]</strong> (Số Serial: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-amber-200 text-purple-700 font-mono">${certSerial}</code>).<br><br>Đây là <strong>Con dấu pháp nhân cơ quan</strong> của nhà trường, KHÔNG PHẢI chữ ký số cá nhân của Thầy/Cô <strong>[${expectedSigner || inputUsername}]</strong>.<br><br>👉 Nếu Thầy/Cô được giao quản lý con dấu hoặc phụ trách Văn thư đóng dấu thay mặt trường, Quản trị viên vui lòng tích chọn mục <strong>"🔴 Ủy quyền Đóng dấu nhà trường"</strong> ở phần Phân quyền bên dưới rồi bấm quét lại!</div>`;
-              alertBox.classList.remove('hidden');
-            }
-            showToast(`⚠️ Đây là USB Token Con dấu cơ quan [${certSigner}], vui lòng tích chọn 'Ủy quyền Đóng dấu nhà trường' để cấp quyền!`, 'warning');
-            return;
-          } else {
-            // TÀI KHOẢN ĐÃ ĐƯỢC ỦY QUYỀN ĐÓNG DẤU
-            if (serialInp) serialInp.value = certSerial;
-            if (alertBox) {
-              alertBox.className = 'p-3.5 rounded-xl text-xs border bg-emerald-50 border-emerald-300 text-emerald-950 flex items-start gap-2.5';
-              alertBox.innerHTML = `<span>✅</span><div><strong class="text-emerald-800 block mb-1 text-[13px]">XÁC THỰC CON DẤU CƠ QUAN ĐƯỢC ỦY QUYỀN</strong>Đã nhận diện USB Token Con dấu cơ quan: <strong>[${certSigner}]</strong>.<br>Tài khoản <strong>${expectedSigner || inputUsername}</strong> đã được ủy quyền đóng dấu nhà trường.<br>Số Serial con dấu: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-purple-700 font-mono">${certSerial}</code> đã tự động liên kết thành công.</div>`;
-              alertBox.classList.remove('hidden');
-            }
-            showToast(`✅ Đã liên kết USB Token Con dấu cơ quan [${certSigner}] cho tài khoản được ủy quyền!`, 'success');
-            return;
-          }
-        } else {
-          // CẮM NHẦM USB TOKEN CỦA NGƯỜI KHÁC!
-          if (serialInp) serialInp.value = '';
-          const displayTarget = expectedSigner ? `[${expectedSigner}]` : (inputUsername ? `[${inputUsername}]` : '');
-          if (alertBox) {
-            alertBox.className = 'p-3 rounded-xl text-xs border bg-rose-50 border-rose-300 text-rose-900 flex items-start gap-2';
-            alertBox.innerHTML = `<span>🚫</span><div><strong class="text-rose-700 block mb-0.5">CẢNH BÁO: CẮM NHẦM USB TOKEN CỦA NGƯỜI KHÁC!</strong>USB Token đang cắm trên máy thuộc về Thầy/Cô <strong>[${certSigner}]</strong>.<br><br>Thông tin này <span class="text-rose-700 font-bold underline">HOÀN TOÀN KHÔNG KHỚP</span> với tài khoản ${displayTarget} (Số CCCD: <strong>${inputCccd}</strong>)!<br><br>Hệ thống đã <strong>TỪ CHỐI</strong> cập nhật số Serial này để ngăn chặn sai sót định danh pháp lý. Vui lòng rút ra và cắm đúng USB Token của Thầy/Cô.</div>`;
-            alertBox.classList.remove('hidden');
-          }
-          showToast(`⚠️ CẢNH BÁO: USB Token đang cắm là của [${certSigner}], không khớp với tài khoản!`, 'error');
-          return;
+    if (isRealOrgCert) {
+      const isAuthorizedForSeal = Boolean(document.getElementById('userCanStampSeal')?.checked);
+      if (!isAuthorizedForSeal) {
+        if (serialInp) serialInp.value = '';
+        const msgHtml = `
+          <div class="space-y-2 text-left">
+            <p class="text-amber-800 font-bold text-[13px]">⚠️ PHÁT HIỆN USB TOKEN CON DẤU NHÀ TRƯỜNG</p>
+            <div class="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1 text-xs text-amber-950">
+              <div>• Thiết bị đang cắm: <strong>Con dấu pháp nhân cơ quan</strong></div>
+              <div>• Tên cơ quan: <strong>${actualSigner}</strong></div>
+              <div>• Số Serial: <code class="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-amber-200 text-purple-700">${actualSerial}</code></div>
+            </div>
+            <p class="text-xs text-slate-700">
+              Đây là <strong>Con dấu pháp nhân của Nhà trường</strong>, KHÔNG PHẢI chữ ký cá nhân của Thầy/Cô <strong>[${targetName || targetUsername}]</strong>.
+            </p>
+            <p class="text-xs font-semibold text-purple-700">
+              👉 Nếu Thầy/Cô này được giao phụ trách Văn thư hoặc đóng dấu thay mặt trường, Quản trị viên vui lòng tích chọn mục <strong>"🔴 Ủy quyền Đóng dấu nhà trường"</strong> ở bên dưới rồi quét lại!
+            </p>
+          </div>
+        `;
+        if (alertBox) {
+          alertBox.className = 'p-3.5 rounded-xl text-xs border bg-amber-50 border-amber-300 text-amber-950 block';
+          alertBox.innerHTML = msgHtml;
+          alertBox.classList.remove('hidden');
         }
+        showModalAlert('PHÁT HIỆN TOKEN CON DẤU NHÀ TRƯỜNG', msgHtml, 'warning');
+        showToast(`⚠️ Đây là USB Token Con dấu cơ quan [${actualSigner}], cần cấp quyền đóng dấu trước!`, 'warning');
+        return;
+      } else {
+        if (serialInp) serialInp.value = actualSerial;
+        const msgSuccess = `
+          <span>✅</span>
+          <div>
+            <strong class="text-emerald-800 block mb-1 text-[13px]">XÁC THỰC CON DẤU CƠ QUAN ĐƯỢC ỦY QUYỀN</strong>
+            Đã nhận diện USB Token Con dấu cơ quan: <strong>[${actualSigner}]</strong>.<br>
+            Tài khoản <strong>${targetName || targetUsername}</strong> đã được ủy quyền đóng dấu nhà trường.<br>
+            Số Serial con dấu: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-purple-700 font-mono">${actualSerial}</code> đã tự động liên kết thành công.
+          </div>
+        `;
+        if (alertBox) {
+          alertBox.className = 'p-3.5 rounded-xl text-xs border bg-emerald-50 border-emerald-300 text-emerald-950 flex items-start gap-2.5';
+          alertBox.innerHTML = msgSuccess;
+          alertBox.classList.remove('hidden');
+        }
+        showToast(`✅ Đã liên kết USB Token Con dấu cơ quan [${actualSigner}] cho tài khoản được ủy quyền!`, 'success');
+        return;
       }
     }
-    if (alertBox) {
-      alertBox.className = 'p-3 rounded-xl text-xs border bg-amber-50 border-amber-300 text-amber-900 flex items-start gap-2';
-      alertBox.innerHTML = '<span>⚠️</span><div><strong class="text-amber-800 block mb-0.5">KHÔNG TÌM THẤY THIẾT BỊ</strong>Không tìm thấy USB Token Ban Cơ yếu đang cắm trên máy. Vui lòng cắm USB Token vào cổng USB và thử lại.</div>';
-      alertBox.classList.remove('hidden');
+
+    // 2. Token đang cắm là TOKEN CÁ NHÂN:
+    // So sánh người sở hữu thực sự của Token vs Tài khoản đang sửa trên Web
+    const normTargetName = removeVietnameseTones(targetName).toLowerCase();
+    const normActualName = removeVietnameseTones(actualSigner).toLowerCase();
+    const normUsernamePart = targetUsername.replace(/^cva\./, '').replace(/[^a-z0-9]/g, '');
+
+    const isCccdMatch = actualCccd && targetCccd && (actualCccd === targetCccd || actualCccd.includes(targetCccd) || targetCccd.includes(actualCccd));
+    const isNameMatch = normTargetName && normActualName && (normActualName.includes(normTargetName) || normTargetName.includes(normActualName));
+    const isUsernameMatch = normUsernamePart && normUsernamePart.length >= 2 && normActualName.includes(normUsernamePart);
+
+    if (isCccdMatch || isNameMatch || isUsernameMatch) {
+      // Khớp đúng chủ sở hữu
+      if (serialInp) serialInp.value = actualSerial;
+      if (emailInput && !emailInput.value && actualCert.email) emailInput.value = actualCert.email;
+      if (cccdInput && !cccdInput.value && actualCccd) cccdInput.value = actualCccd;
+
+      const successHtml = `
+        <span>✅</span>
+        <div>
+          <strong class="text-emerald-800 block mb-0.5">XÁC THỰC THÀNH CÔNG ĐÚNG CHỦ SỞ HỮU</strong>
+          Đã nhận diện đúng USB Token <strong>[${actualSigner}]</strong> của Thầy/Cô <strong>${targetName || targetUsername}</strong>.<br>
+          • Số CCCD: <strong>${actualCccd || targetCccd || 'Đã khớp'}</strong><br>
+          • Số Serial: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-purple-700 font-mono">${actualSerial}</code> đã tự động điền.
+        </div>
+      `;
+      if (alertBox) {
+        alertBox.className = 'p-3 rounded-xl text-xs border bg-emerald-50 border-emerald-300 text-emerald-900 flex items-start gap-2';
+        alertBox.innerHTML = successHtml;
+        alertBox.classList.remove('hidden');
+      }
+      showToast(`✅ Đã xác thực đúng USB Token [${actualSigner}] - Serial: ${actualSerial}`, 'success');
+      return;
+    } else {
+      // CẮM NHẦM USB TOKEN CỦA NGƯỜI KHÁC! (VẤN ĐỀ HÌNH 3 ĐÃ ĐƯỢC GIẢI QUYẾT)
+      if (serialInp) serialInp.value = '';
+
+      const mismatchHtml = `
+        <div class="space-y-2 text-left">
+          <p class="text-rose-700 font-bold text-[13px]">🚫 CẢNH BÁO: CẮM NHẦM USB TOKEN CỦA NGƯỜI KHÁC!</p>
+          <div class="p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-1.5 text-xs text-rose-950">
+            <div>• <strong>USB Token thực tế đang cắm trên máy:</strong> <span class="text-rose-700 font-bold">[${actualSigner}]</span></div>
+            <div>• Số CCCD trên Token: <strong>${actualCccd || 'Không xác định'}</strong></div>
+            <div>• Số Serial Token: <code class="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-rose-200 text-purple-700">${actualSerial}</code></div>
+            <div class="border-t border-rose-200 pt-1.5 mt-1.5">• <strong>Tài khoản Thầy/Cô đang sửa:</strong> <span class="font-bold text-slate-800">[${targetName || targetUsername}]</span> (CCCD: <strong>${targetCccd || 'Chưa nhập'}</strong>)</div>
+          </div>
+          <p class="text-xs text-slate-700 leading-relaxed">
+            Hệ thống phát hiện thông tin trên USB Token <span class="text-rose-600 font-bold underline">HOÀN TOÀN KHÔNG TRÙNG KHỚP</span> với tài khoản đang chỉnh sửa!
+          </p>
+          <p class="text-xs font-semibold text-rose-700">
+            👉 Hệ thống đã <strong>TỪ CHỐI</strong> gán số Serial này để tránh sai sót định danh pháp lý. Vui lòng rút USB ra và cắm đúng USB Token của Thầy/Cô <strong>[${targetName || targetUsername}]</strong>!
+          </p>
+        </div>
+      `;
+
+      if (alertBox) {
+        alertBox.className = 'p-3.5 rounded-xl text-xs border bg-rose-50 border-rose-300 text-rose-950 block';
+        alertBox.innerHTML = mismatchHtml;
+        alertBox.classList.remove('hidden');
+      }
+
+      showModalAlert('CẢNH BÁO CẮM NHẦM THIẾT BỊ', mismatchHtml, 'error');
+      showToast(`⛔ USB Token đang cắm là của [${actualSigner}], không khớp với tài khoản [${targetName || targetUsername}]!`, 'error');
+      return;
     }
-    showToast('⚠️ Không tìm thấy USB Token Ban Cơ yếu đang cắm. Vui lòng cắm USB Token vào máy và thử lại.', 'warning');
   } catch (err) {
+    const errHtml = `
+      <span>⚠️</span>
+      <div>
+        <strong class="text-rose-800 block mb-0.5">CHƯA KHỞI CHẠY EDUSIGN AGENT</strong>
+        Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng khởi động phần mềm <strong>EduSign_Agent.exe</strong> trên máy tính.
+      </div>
+    `;
     if (alertBox) {
       alertBox.className = 'p-3 rounded-xl text-xs border bg-rose-50 border-rose-300 text-rose-900 flex items-start gap-2';
-      alertBox.innerHTML = '<span>⚠️</span><div><strong class="text-rose-800 block mb-0.5">CHƯA KHỞI CHẠY EDUSIGN AGENT</strong>Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng khởi động phần mềm <strong>EduSign_Agent.exe</strong> trên máy tính.</div>';
+      alertBox.innerHTML = errHtml;
       alertBox.classList.remove('hidden');
     }
-    showToast('⚠️ Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng mở EduSign_Agent.exe để quét thiết bị.', 'warning');
+    showModalAlert('CHƯA KHỞI CHẠY EDUSIGN AGENT', 'Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng khởi động phần mềm EduSign_Agent.exe trên máy tính để quét thiết bị.', 'warning');
+    showToast('⚠️ Không thể kết nối tới EduSign Agent (cổng 18888).', 'warning');
   }
 }
 
@@ -965,8 +1005,14 @@ function openModalEditUser(userId) {
   if (document.getElementById('userCanUploadWord')) {
     document.getElementById('userCanUploadWord').checked = (u.canUploadWord !== false);
   }
+  const isAdm = (u.role === 'ADMIN' || u.id === 'admin');
+  const boxSeal = document.getElementById('boxUserCanStampSeal');
+  if (boxSeal) {
+    if (isAdm) boxSeal.classList.add('hidden');
+    else boxSeal.classList.remove('hidden');
+  }
   if (document.getElementById('userCanStampSeal')) {
-    document.getElementById('userCanStampSeal').checked = (u.role === 'ADMIN' || u.role === 'BGH') ? true : Boolean(u.canStampSeal);
+    document.getElementById('userCanStampSeal').checked = isAdm ? false : Boolean(u.canStampSeal);
   }
   const alertBox = document.getElementById('bghUsbScanAlert');
   if (alertBox) { alertBox.classList.add('hidden'); alertBox.innerHTML = ''; }
@@ -1024,7 +1070,7 @@ async function handleSaveUser(e) {
   const email = document.getElementById('userEmail').value.trim();
   const phone = document.getElementById('userPhone').value.trim();
   const canUploadWord = document.getElementById('userCanUploadWord') ? document.getElementById('userCanUploadWord').checked : true;
-  const canStampSeal = (role === 'ADMIN' || role === 'BGH') ? true : Boolean(document.getElementById('userCanStampSeal')?.checked);
+  const canStampSeal = (role === 'ADMIN' || id === 'admin') ? false : Boolean(document.getElementById('userCanStampSeal')?.checked);
 
   // Validate CCCD: nếu nhập thì phải đúng 12 chữ số (hoặc 9 số CMND)
   if (cccd && !/^\d{9,12}$/.test(cccd)) {
@@ -5888,6 +5934,35 @@ async function openModalBghConfig() {
     alertEl.textContent = '';
   }
 
+  // 1. Hiển thị đúng hình ảnh con dấu nhà trường đã tải lên
+  const sealImg = document.getElementById('imgBghConfigSeal');
+  const sealStatus = document.getElementById('bghConfigSealStatus');
+  const sealBadge = document.getElementById('bghConfigSealBadge');
+
+  let currentSeal = localStorage.getItem('edusign_school_seal');
+  if (currentSeal && sealImg) {
+    sealImg.src = currentSeal;
+    if (sealStatus) sealStatus.textContent = 'Đã tải lên con dấu tùy chỉnh của Nhà trường (PNG trong suốt)';
+    if (sealBadge) {
+      sealBadge.className = 'px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full';
+      sealBadge.textContent = 'Đã tải lên';
+    }
+  } else if (firebaseDb) {
+    firebaseDb.ref('signatures/school_seal').once('value').then(snap => {
+      const val = snap.val();
+      if (val && val.signatureData && sealImg) {
+        sealImg.src = val.signatureData;
+        localStorage.setItem('edusign_school_seal', val.signatureData);
+        if (sealStatus) sealStatus.textContent = 'Đã tải lên con dấu tùy chỉnh của Nhà trường (PNG trong suốt)';
+        if (sealBadge) {
+          sealBadge.className = 'px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full';
+          sealBadge.textContent = 'Đã tải lên';
+        }
+      }
+    }).catch(() => {});
+  }
+
+  // 2. Nạp cấu hình Chữ ký số Nhà trường từ Firebase / Backend
   try {
     let configData = null;
     try {
@@ -5907,26 +5982,37 @@ async function openModalBghConfig() {
     } catch (fetchErr) {}
 
     if (!configData && firebaseDb) {
-      const snap = await firebaseDb.ref('configs/bgh_signing_config').once('value');
+      const snap = await firebaseDb.ref('configs/school_signing_config').once('value');
       configData = snap.val();
+      if (!configData) {
+        const bghSnap = await firebaseDb.ref('configs/bgh_signing_config').once('value');
+        configData = bghSnap.val();
+      }
     }
 
     if (configData) {
       if (document.getElementById('inputBghCertOwner')) {
-        document.getElementById('inputBghCertOwner').value = configData.certOwner || appState.currentUser?.fullName || appState.currentUser?.name || '';
+        document.getElementById('inputBghCertOwner').value = configData.certOwner || 'Thầy/Cô Hiệu trưởng';
       }
       if (document.getElementById('inputBghCccd')) {
-        document.getElementById('inputBghCccd').value = configData.cccd || appState.currentUser?.cccd || '042084002100';
+        document.getElementById('inputBghCccd').value = configData.cccd || '042084002100';
       }
       if (document.getElementById('inputBghSerial')) {
         document.getElementById('inputBghSerial').value = configData.serialNumber || '';
       }
+      if (document.getElementById('inputBghTaxCode')) {
+        document.getElementById('inputBghTaxCode').value = configData.taxCode || '4300325412';
+      }
       if (document.getElementById('inputBghSchool')) {
         document.getElementById('inputBghSchool').value = configData.school || 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN';
       }
+    } else {
+      if (document.getElementById('inputBghTaxCode') && !document.getElementById('inputBghTaxCode').value) {
+        document.getElementById('inputBghTaxCode').value = '4300325412';
+      }
     }
   } catch (e) {
-    console.warn('Lỗi lấy cấu hình BGH:', e);
+    console.warn('Lỗi lấy cấu hình Chữ ký Nhà trường:', e);
   }
 
   openModal('modalBghConfig');
@@ -5936,6 +6022,8 @@ async function scanBghUsbTokenFromAgent() {
   const cccdInput = document.getElementById('inputBghCccd');
   const serialInput = document.getElementById('inputBghSerial');
   const ownerInput = document.getElementById('inputBghCertOwner');
+  const taxCodeInput = document.getElementById('inputBghTaxCode');
+  const schoolInput = document.getElementById('inputBghSchool');
   const alertEl = document.getElementById('bghConfigAlert');
 
   if (alertEl) {
@@ -5943,131 +6031,174 @@ async function scanBghUsbTokenFromAgent() {
     alertEl.innerHTML = '';
   }
 
-  const inputCccd = (cccdInput?.value || '').trim();
-  if (!inputCccd) {
-    if (cccdInput) {
-      cccdInput.focus();
-      cccdInput.classList.add('ring-2', 'ring-rose-500');
-      setTimeout(() => cccdInput.classList.remove('ring-2', 'ring-rose-500'), 3000);
-    }
-    if (alertEl) {
-      alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-amber-50 text-amber-800 border border-amber-300 block';
-      alertEl.innerHTML = '<strong>⚠️ CẦN NHẬP SỐ CCCD:</strong> Vui lòng nhập Số CCCD (12 số) của Ban Giám hiệu trước khi quét để đối soát chống cắm nhầm thiết bị!';
-    }
-    showToast('⚠️ Vui lòng nhập Số CCCD Lãnh đạo trước khi quét USB Token!', 'warning');
-    return;
-  }
-
-  if (!validateCccd12Digits(inputCccd)) {
-    if (cccdInput) {
-      cccdInput.focus();
-      cccdInput.classList.add('ring-2', 'ring-rose-500');
-      setTimeout(() => cccdInput.classList.remove('ring-2', 'ring-rose-500'), 3000);
-    }
-    if (alertEl) {
-      alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-rose-50 text-rose-800 border border-rose-300 block';
-      alertEl.innerHTML = '<strong>⚠️ SỐ CCCD KHÔNG HỢP LỆ:</strong> Số CCCD phải đủ đúng 12 chữ số theo thẻ Căn cước công dân gắn chip!';
-    }
-    showToast('⚠️ Số CCCD không hợp lệ! Vui lòng nhập đúng 12 chữ số.', 'error');
-    return;
-  }
-
-  showToast('🔍 Đang kết nối EduSign Agent để quét thiết bị USB Token...', 'info');
+  showToast('🔍 Đang kết nối EduSign Agent để quét USB Token Nhà trường...', 'info');
 
   try {
-    const expectedSigner = ownerInput?.value?.trim() || '';
-    const queryUrl = `http://127.0.0.1:18888/api/check-vgca-status?mode=HARDWARE&cccd=${encodeURIComponent(inputCccd)}&signer=${encodeURIComponent(expectedSigner)}&_t=${Date.now()}`;
+    const queryUrl = `http://127.0.0.1:18888/api/check-vgca-status?mode=HARDWARE&_t=${Date.now()}`;
     const res = await fetch(queryUrl, {
-      signal: AbortSignal.timeout(3500)
+      signal: AbortSignal.timeout(4000)
     });
-    if (res.ok) {
-      const data = await res.json();
-      let cert = data.certInfo;
-      if (!cert && data.availableCerts && data.availableCerts.length > 0) {
-        const found = data.availableCerts.find(c => {
-          const cCccd = (c.cccd || '').trim();
-          return cCccd && (cCccd.includes(inputCccd) || inputCccd.includes(cCccd));
-        });
-        cert = found || data.availableCerts[0];
+    if (!res.ok) throw new Error('Không thể kết nối EduSign Agent');
+
+    const data = await res.json();
+    const certs = data.availableCerts || (data.certInfo ? [data.certInfo] : []);
+
+    if (certs.length === 0) {
+      const msg = 'Không tìm thấy USB Token nào đang cắm trên máy tính! Vui lòng cắm USB Token của Nhà trường vào cổng USB và thử lại.';
+      if (alertEl) {
+        alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-amber-50 text-amber-800 border border-amber-300 block';
+        alertEl.innerHTML = `<strong>⚠️ KHÔNG TÌM THẤY THIẾT BỊ:</strong> ${msg}`;
       }
+      showModalAlert('KHÔNG TÌM THẤY THIẾT BỊ', msg, 'warning');
+      showToast('⚠️ ' + msg, 'warning');
+      return;
+    }
 
-      if (cert && cert.serialNumber) {
-        const certCccd = (cert.cccd || '').trim();
-        const certSerial = (cert.serialNumber || '').trim().toUpperCase();
-        const certSigner = cert.signerName || 'Không xác định';
+    // Phân tích danh sách chứng thư: tìm chứng thư của Nhà trường (tổ chức)
+    let orgCert = null;
+    let personalCert = null;
 
-        // Đối chiếu CCCD nếu chứng thư có chứa CCCD
-        if (certCccd && certCccd !== inputCccd && !certCccd.includes(inputCccd) && !inputCccd.includes(certCccd)) {
-          if (alertEl) {
-            alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-rose-50 text-rose-800 border border-rose-300 block';
-            alertEl.innerHTML = `<strong>⛔ CẢNH BÁO LỆCH ĐỊNH DANH CCCD:</strong><br>• CCCD nhập: <strong>${inputCccd}</strong><br>• CCCD trong USB Token: <strong>${certCccd}</strong> (${certSigner})<br>Hệ thống không tự ý điền số Serial này để tránh nhầm lẫn thiết bị của Lãnh đạo khác!`;
-          }
-          showToast(`⛔ USB Token [${certSigner}] có CCCD ${certCccd} không khớp với ${inputCccd}!`, 'error');
-          return;
-        }
+    for (const c of certs) {
+      const subj = (c.subject || '') + ' ' + (c.signerName || '') + ' ' + (c.issuer || '');
+      const signer = c.signerName || '';
+      const normSigner = removeVietnameseTones(signer).toLowerCase();
+      const normSubj = removeVietnameseTones(subj).toLowerCase();
 
-        if (serialInput) serialInput.value = certSerial;
-        if (ownerInput && (!ownerInput.value || ownerInput.value === 'Ngô Thị Liền' || ownerInput.value === 'admin')) {
-          ownerInput.value = certSigner;
-        }
+      // Kiểm tra có Mã số thuế tổ chức
+      const hasTaxCode = /(?:mst|2\.5\.4\.97|tax|m\.s\.t)[:=\s]*([0-9]{10}(?:-[0-9]{3})?)/i.test(subj) || Boolean(c.taxCode || c.mst);
+      // Tên chủ thể (CN) phải là cơ quan/trường học, không phải tên cá nhân giáo viên
+      const isOrgName = (normSigner.startsWith('truong ') || normSigner.includes('thcs chu van an') || normSigner.includes('trung hoc co so') || normSigner.startsWith('ubnd ')) &&
+                        !normSigner.includes('ty') && !normSigner.includes('lien') && !normSigner.includes('lam') && !normSigner.includes('hien');
 
-        if (alertEl) {
-          alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-emerald-50 text-emerald-800 border border-emerald-300 block';
-          alertEl.innerHTML = `<strong>✅ ĐÃ QUÉT & ĐỐI SOÁT KHỚP THÀNH CÔNG:</strong><br>• Chủ sở hữu: <strong>${certSigner}</strong><br>• CCCD: <strong>${certCccd || inputCccd}</strong><br>• Số Serial: <strong>${certSerial}</strong>`;
-        }
-        showToast(`✅ Đã nhận diện USB Token [${certSigner}] - Serial: ${certSerial}`, 'success');
-        return;
+      if (hasTaxCode || isOrgName) {
+        orgCert = c;
+        break;
+      } else {
+        personalCert = c;
       }
     }
+
+    // NẾU CHỈ CẮM TOKEN CÁ NHÂN: BÁO LỖI NGAY VÀ TỪ CHỐI (THEO YÊU CẦU HÌNH 2)
+    if (!orgCert) {
+      const wrongSigner = personalCert?.signerName || 'Cá nhân';
+      const wrongCccd = personalCert?.cccd || 'Không có';
+      const wrongSerial = personalCert?.serialNumber || '';
+
+      const alertHtml = `
+        <div class="space-y-2 text-left">
+          <p class="text-rose-700 font-bold text-[13px]">⛔ PHÁT HIỆN CẮM SAI LOẠI THIẾT BỊ:</p>
+          <div class="p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-1 text-xs text-rose-900">
+            <div>• Thiết bị đang cắm: <strong>Chứng thư số cá nhân</strong></div>
+            <div>• Chủ sở hữu: <strong class="text-rose-700">${wrongSigner}</strong></div>
+            <div>• Số CCCD: <strong>${wrongCccd}</strong></div>
+            <div>• Số Serial: <code class="font-mono bg-white px-1.5 py-0.5 rounded border border-rose-200 text-purple-700 font-bold">${wrongSerial}</code></div>
+          </div>
+          <p class="text-xs text-slate-700">
+            Đây <span class="text-rose-600 font-bold underline">KHÔNG PHẢI là Con dấu điện tử (Chứng thư số pháp nhân) của Nhà trường</span>!<br>
+            Theo quy định, con dấu của Nhà trường phải là Token tổ chức có <strong>Mã số thuế (MST)</strong> và tên pháp nhân Nhà trường.
+          </p>
+          <p class="text-xs font-semibold text-purple-700">
+            👉 Vui lòng rút USB cá nhân ra và cắm đúng <strong>USB Token Con dấu Nhà trường</strong> rồi bấm Quét lại!
+          </p>
+        </div>
+      `;
+
+      if (alertEl) {
+        alertEl.className = 'p-3.5 rounded-xl text-xs font-medium bg-rose-50 text-rose-900 border border-rose-300 block';
+        alertEl.innerHTML = alertHtml;
+      }
+
+      showModalAlert('CẮM SAI THIẾT BỊ CON DẤU NHÀ TRƯỜNG', alertHtml, 'error');
+      showToast(`⛔ USB Token đang cắm là của cá nhân [${wrongSigner}], không phải Con dấu Nhà trường!`, 'error');
+      return;
+    }
+
+    // ĐÃ TÌM THẤY ĐÚNG TOKEN NHÀ TRƯỜNG: TRÍCH XUẤT SERIAL VÀ MÃ SỐ THUẾ CHUẨN XÁC
+    const subj = (orgCert.subject || '') + ' ' + (orgCert.signerName || '');
+    let extractedMst = orgCert.taxCode || orgCert.mst || '';
+    if (!extractedMst) {
+      const matchMst = subj.match(/(?:mst|2\.5\.4\.97|tax|m\.s\.t)[:=\s]*([0-9]{10}(?:-[0-9]{3})?)/i);
+      if (matchMst) extractedMst = matchMst[1];
+    }
+    if (!extractedMst) extractedMst = '4300325412'; // Fallback MST THCS Chu Văn An nếu subject ko có
+
+    const certSerial = (orgCert.serialNumber || '').trim().toUpperCase();
+    const certOrgName = orgCert.signerName || 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN';
+
+    if (serialInput) serialInput.value = certSerial;
+    if (taxCodeInput) taxCodeInput.value = extractedMst;
+    if (schoolInput) schoolInput.value = certOrgName;
+
+    const successHtml = `
+      <div class="space-y-1.5 text-left">
+        <div class="text-emerald-800 font-bold flex items-center gap-1.5 text-[13px]">
+          <span>✅</span>
+          <span>ĐÃ NHẬN DIỆN CHÍNH XÁC CHỨNG THƯ SỐ NHÀ TRƯỜNG</span>
+        </div>
+        <div class="p-2.5 bg-white rounded-xl border border-emerald-200 text-xs space-y-1 text-slate-800">
+          <div>• Cơ quan / Nhà trường: <strong>${certOrgName}</strong></div>
+          <div>• Mã số thuế (MST): <strong class="text-purple-700 font-mono font-bold">${extractedMst}</strong></div>
+          <div>• Số Serial Token: <code class="font-mono font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">${certSerial}</code></div>
+          <div>• Nhà cung cấp (CA): <strong>${orgCert.issuer || 'Ban Cơ yếu Chính phủ / Viettel-CA'}</strong></div>
+        </div>
+        <p class="text-[11px] text-emerald-700 font-medium">
+          Thông tin Số Serial và Mã số thuế đã được tự động điền vào cấu hình. Hãy bấm <strong>"Lưu cấu hình Chữ ký Nhà trường"</strong> bên dưới để hoàn tất.
+        </p>
+      </div>
+    `;
+
     if (alertEl) {
-      alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-amber-50 text-amber-800 border border-amber-300 block';
-      alertEl.innerHTML = '<strong>⚠️ CHƯA NHẬN DIỆN ĐƯỢC TOKEN:</strong> Chưa tìm thấy USB Token Ban Cơ yếu đang cắm. Vui lòng kiểm tra cáp nối/USB và thử lại.';
+      alertEl.className = 'p-3.5 rounded-xl text-xs font-medium bg-emerald-50 text-emerald-900 border border-emerald-300 block';
+      alertEl.innerHTML = successHtml;
     }
-    showToast('⚠️ Chưa tìm thấy USB Token đang cắm trên máy. Thầy/Cô vui lòng cắm USB Token Ban Cơ yếu và thử lại.', 'warning');
+
+    showToast(`✅ Đã nhận diện đúng USB Token Con dấu Nhà trường (MST: ${extractedMst})`, 'success');
   } catch (err) {
+    const errHtml = `
+      <strong>⚠️ KHÔNG THỂ KẾT NỐI EDUSIGN AGENT:</strong><br>
+      Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng kiểm tra ứng dụng <strong>EduSign_Agent.exe</strong> đã được khởi chạy trên máy tính.
+    `;
     if (alertEl) {
       alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-rose-50 text-rose-800 border border-rose-300 block';
-      alertEl.innerHTML = '<strong>❌ LỖI KẾT NỐI AGENT:</strong> Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng khởi động EduSign_Agent.exe.';
+      alertEl.innerHTML = errHtml;
     }
-    showToast('⚠️ Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng khởi động EduSign_Agent.exe trước khi quét.', 'warning');
+    showModalAlert('CHƯA KHỞI CHẠY EDUSIGN AGENT', 'Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng khởi động EduSign_Agent.exe trên máy tính để quét thiết bị.', 'warning');
+    showToast('⚠️ Không thể kết nối tới EduSign Agent (cổng 18888).', 'error');
   }
 }
 
 async function handleSaveBghConfig(event) {
   event.preventDefault();
   const cccd = document.getElementById('inputBghCccd')?.value.trim() || '042084002100';
-  const certOwner = document.getElementById('inputBghCertOwner')?.value.trim();
-  const serialNumber = document.getElementById('inputBghSerial')?.value.trim();
+  const certOwner = document.getElementById('inputBghCertOwner')?.value.trim() || 'Thầy/Cô Hiệu trưởng';
+  const serialNumber = (document.getElementById('inputBghSerial')?.value || '').trim().toUpperCase();
+  const taxCode = (document.getElementById('inputBghTaxCode')?.value || '').trim() || '4300325412';
   const school = document.getElementById('inputBghSchool')?.value.trim() || 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN';
   const alertEl = document.getElementById('bghConfigAlert');
   const btn = document.getElementById('btnSaveBghConfig');
 
   if (!serialNumber) {
-    showToast('Vui lòng nhập hoặc quét số Serial của USB Token Ban Giám hiệu!', 'warning');
+    showToast('⚠️ Vui lòng nhập hoặc quét số Serial của USB Token Con dấu Nhà trường!', 'warning');
     return;
   }
 
   try {
     if (btn) btn.disabled = true;
 
+    const payload = {
+      signType: 'USB_TOKEN',
+      cccd,
+      certOwner,
+      serialNumber,
+      taxCode,
+      school,
+      updatedAt: new Date().toISOString()
+    };
+
     // Lưu vào Firebase RTDB trực tiếp
     if (firebaseDb) {
-      await firebaseDb.ref('configs/bgh_signing_config').set({
-        signType: 'USB_TOKEN',
-        cccd,
-        certOwner,
-        serialNumber,
-        school,
-        updatedAt: new Date().toISOString()
-      });
-    }
-
-    // Cập nhật currentUser nếu đang là BGH
-    if (appState.currentUser && (appState.currentUser.role === 'ADMIN' || appState.currentUser.role === 'BGH')) {
-      appState.currentUser.certSerial = serialNumber;
-      appState.currentUser.cccd = cccd;
-      try { localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser)); } catch (e) {}
-      checkUserAccountIntegrity(appState.currentUser);
+      await firebaseDb.ref('configs/bgh_signing_config').set(payload);
+      await firebaseDb.ref('configs/school_signing_config').set(payload);
     }
 
     if (!isStaticOrGitHub || API_BASE) {
@@ -6081,22 +6212,16 @@ async function handleSaveBghConfig(event) {
           'x-user-id': appState.currentUser?.id || '',
           'x-user-role': appState.currentUser?.role || ''
         },
-        body: JSON.stringify({
-          signType: 'USB_TOKEN',
-          cccd,
-          certOwner,
-          serialNumber,
-          school
-        })
+        body: JSON.stringify(payload)
       }).catch(() => {});
     }
 
     if (alertEl) {
-      alertEl.textContent = '✅ Đã lưu và kích hoạt cấu hình Chữ ký số USB Token Ban Giám hiệu thành công!';
-      alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 block';
+      alertEl.innerHTML = '✅ Đã lưu và kích hoạt cấu hình Chữ ký &amp; Con dấu Nhà trường thành công!';
+      alertEl.className = 'p-3 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 block';
     }
-    showToast('✅ Đã lưu cấu hình Chữ ký số Ban Giám hiệu thành công!', 'success');
-    setTimeout(() => closeModal('modalBghConfig'), 1500);
+    showToast('✅ Đã lưu cấu hình Chữ ký & Con dấu Nhà trường thành công!', 'success');
+    setTimeout(() => closeModal('modalBghConfig'), 1200);
   } catch (err) {
     if (alertEl) {
       alertEl.textContent = `❌ ${err.message}`;

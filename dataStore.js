@@ -258,7 +258,7 @@ function createUser(userData) {
     school: 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN',
     phone: userData.phone ? userData.phone.trim() : '',
     canUploadWord: userData.canUploadWord !== undefined ? Boolean(userData.canUploadWord) : true,
-    canStampSeal: userData.canStampSeal !== undefined ? Boolean(userData.canStampSeal) : (userData.role === 'ADMIN'),
+    canStampSeal: (userData.role === 'ADMIN') ? false : (userData.canStampSeal !== undefined ? Boolean(userData.canStampSeal) : false),
     signatureImage: null,
     createdAt: new Date().toISOString()
   };

@@ -104,7 +104,7 @@
 <body class="h-full font-sans text-slate-800 antialiased flex flex-col min-h-screen">
 
   <!-- ==================== TOAST NOTIFICATIONS ==================== -->
-  <div id="toastContainer" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-sm w-full px-3"></div>
+  <div id="toastContainer" class="fixed top-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none max-w-sm w-full px-3"></div>
 
   <!-- ==================== 1. GIAO DIỆN ĐĂNG NHẬP ==================== -->
   <div id="viewLogin" class="flex-1 flex flex-col justify-center items-center px-4 py-8 relative overflow-hidden bg-gradient-to-br from-slate-100 via-blue-50/40 to-indigo-50/50">
@@ -215,7 +215,7 @@
             <div class="py-1">
               <button onclick="openModalBghConfig(); closeSettingsDropdowns();" class="w-full text-left px-4 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-semibold text-brand-700">
                 <svg class="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
-                <span>Cấu hình Chữ ký số BGH</span>
+                <span>Cấu hình Chữ ký của nhà trường</span>
               </button>
               <button onclick="openModalDownloadAgent(); closeSettingsDropdowns();" class="w-full text-left px-4 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 font-medium">
                 <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -737,16 +737,18 @@
               <span class="text-[11px] text-slate-500 block">Nếu tắt, giáo viên chỉ được phép tải lên file PDF đã chuyển đổi sẵn trên máy tính</span>
             </div>
           </label>
-          <label class="flex items-center gap-3 p-2.5 rounded-xl bg-white border border-rose-200 text-xs font-medium cursor-pointer hover:bg-rose-50/50 transition-colors">
-            <input type="checkbox" id="userCanStampSeal" class="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-slate-300">
-            <div class="flex-1">
-              <span class="font-bold text-rose-700 block flex items-center gap-1.5">
-                <span>🔴 Ủy quyền Đóng dấu nhà trường</span>
-                <span class="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold">Văn thư / Giáo viên phụ trách</span>
-              </span>
-              <span class="text-[11px] text-slate-500 block">Cho phép tài khoản này sử dụng USB Token con dấu điện tử của trường để đóng dấu đỏ pháp nhân lên tệp PDF.</span>
-            </div>
-          </label>
+          <div id="boxUserCanStampSeal">
+            <label class="flex items-center gap-3 p-2.5 rounded-xl bg-white border border-rose-200 text-xs font-medium cursor-pointer hover:bg-rose-50/50 transition-colors">
+              <input type="checkbox" id="userCanStampSeal" class="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-slate-300">
+              <div class="flex-1">
+                <span class="font-bold text-rose-700 block flex items-center gap-1.5">
+                  <span>🔴 Ủy quyền Đóng dấu nhà trường</span>
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold">Văn thư / Giáo viên phụ trách</span>
+                </span>
+                <span class="text-[11px] text-slate-500 block">Cho phép tài khoản này sử dụng USB Token con dấu điện tử của trường để đóng dấu đỏ pháp nhân lên tệp PDF.</span>
+              </div>
+            </label>
+          </div>
         </div>
 
         <div class="flex justify-end gap-2 pt-4 border-t border-slate-100">
@@ -874,8 +876,8 @@
 
   <!-- ==================== 4. HỆ THỐNG HỘP THOẠI MODAL ĐỒNG NHẤT ==================== -->
   
-  <!-- Hộp thoại Thông báo (Alert Dialog - Thay thế alert() trình duyệt, ưu tiên hiển thị cao nhất z-[100]) -->
-  <div id="modalUnifiedAlert" class="hidden fixed inset-0 z-[100] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+  <!-- Hộp thoại Thông báo (Alert Dialog - Thay thế alert() trình duyệt, ưu tiên hiển thị cao nhất z-[110]) -->
+  <div id="modalUnifiedAlert" class="hidden fixed inset-0 z-[110] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
     <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200/80 text-center space-y-4 my-auto">
       <div id="alertIconContainer" class="mx-auto w-12 h-12 rounded-2xl flex items-center justify-center bg-brand-50 text-brand-600">
         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -895,8 +897,8 @@
     </div>
   </div>
 
-  <!-- Hộp thoại Xác nhận (Confirm Dialog - Thay thế confirm() trình duyệt, ưu tiên hiển thị cao nhất z-[100]) -->
-  <div id="modalUnifiedConfirm" class="hidden fixed inset-0 z-[100] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+  <!-- Hộp thoại Xác nhận (Confirm Dialog - Thay thế confirm() trình duyệt, ưu tiên hiển thị cao nhất z-[110]) -->
+  <div id="modalUnifiedConfirm" class="hidden fixed inset-0 z-[110] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
     <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200/80 text-center space-y-4 my-auto">
       <div id="confirmIconContainer" class="mx-auto w-12 h-12 rounded-2xl flex items-center justify-center bg-amber-50 text-amber-600">
         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
@@ -1693,7 +1695,7 @@
     </div>
   </div>
 
-  <!-- ==================== MODAL CẤU HÌNH CHỮ KÝ SỐ BAN GIÁM HIỆU ==================== -->
+  <!-- ==================== MODAL CẤU HÌNH CHỮ KÝ CỦA NHÀ TRƯỜNG ==================== -->
   <div id="modalBghConfig" class="hidden fixed inset-0 z-[90] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
     <div class="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-7 shadow-2xl border border-slate-200/80 space-y-5 animate-in fade-in zoom-in duration-200">
       <!-- Header -->
@@ -1703,8 +1705,8 @@
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
           </div>
           <div>
-            <h3 class="text-base font-bold text-slate-900 leading-tight">Cấu hình Chữ ký số Ban Giám hiệu</h3>
-            <p class="text-xs text-slate-500 mt-0.5">Chuẩn Học bạ số Bộ GD&ĐT • Khóa cứng USB Token & Con dấu</p>
+            <h3 class="text-base font-bold text-slate-900 leading-tight">Cấu hình Chữ ký của nhà trường</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Chứng thư số pháp nhân Nhà trường • Khóa cứng USB Token &amp; Con dấu điện tử</p>
           </div>
         </div>
         <button type="button" onclick="closeModal('modalBghConfig')" class="p-2 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-100 transition cursor-pointer">
@@ -1716,44 +1718,52 @@
       <form id="formBghConfig" onsubmit="handleSaveBghConfig(event)" class="space-y-4">
         <!-- Phương thức ký số -->
         <div>
-          <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">1. Phương thức Ký số Lãnh đạo</label>
+          <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">1. Phương thức Ký số Pháp nhân Nhà trường</label>
           <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
             <div class="flex items-center gap-2.5">
               <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-              <span class="text-xs font-bold text-slate-800">PAdES LTV (VGCA Hardware USB Token)</span>
+              <span class="text-xs font-bold text-slate-800">PAdES LTV (VGCA / CA Hợp chuẩn - USB Token phần cứng)</span>
             </div>
             <span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full">Bắt buộc phần cứng</span>
           </div>
-          <p class="text-[11px] text-slate-500 mt-1">Theo quy định Bộ GD&ĐT, Ban Giám hiệu bắt buộc phê duyệt và đóng dấu bằng thiết bị USB Token phần cứng.</p>
+          <p class="text-[11px] text-slate-500 mt-1">Theo quy định Bộ GD&ĐT, Con dấu điện tử của trường bắt buộc sử dụng thiết bị USB Token phần cứng của tổ chức.</p>
+        </div>
+
+        <!-- Cơ quan & Mã số thuế (MST) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">2. Cơ quan / Nhà trường</label>
+            <input type="text" id="inputBghSchool" required readonly value="TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN"
+              class="w-full px-3.5 py-2.5 text-xs bg-slate-100 border border-slate-200 text-slate-700 rounded-xl font-bold">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">3. Mã số thuế (MST) Nhà trường <span class="text-rose-500">*</span></label>
+            <input type="text" id="inputBghTaxCode" required placeholder="Ví dụ: 4300325412"
+              class="w-full px-3.5 py-2.5 text-xs font-mono font-bold bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none text-purple-900">
+          </div>
         </div>
 
         <!-- Thông tin Người đại diện / Hiệu trưởng & CCCD -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">2. Họ tên Lãnh đạo (Hiệu trưởng)</label>
-            <input type="text" id="inputBghCertOwner" required placeholder="Họ và tên Lãnh đạo"
+            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">4. Người đại diện pháp luật (Hiệu trưởng)</label>
+            <input type="text" id="inputBghCertOwner" required placeholder="Họ và tên Hiệu trưởng"
               class="w-full px-3.5 py-2.5 text-xs bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none font-medium">
           </div>
           <div>
-            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">3. Số CCCD Lãnh đạo (12 số)</label>
-            <input type="text" id="inputBghCccd" required maxlength="12" placeholder="Ví dụ: 042084002100"
+            <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">5. Số CCCD Lãnh đạo (12 số)</label>
+            <input type="text" id="inputBghCccd" maxlength="12" placeholder="Ví dụ: 042084002100"
               class="w-full px-3.5 py-2.5 text-xs font-mono font-bold bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none">
           </div>
         </div>
 
-        <div>
-          <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">4. Cơ quan / Đơn vị</label>
-          <input type="text" id="inputBghSchool" required readonly value="TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN"
-            class="w-full px-3.5 py-2.5 text-xs bg-slate-100 border border-slate-200 text-slate-600 rounded-xl font-medium">
-        </div>
-
-        <!-- Số Serial USB Token Ban Cơ yếu (Quan trọng nhất) -->
+        <!-- Số Serial USB Token Con dấu Nhà trường -->
         <div>
           <div class="flex items-center justify-between mb-1.5">
             <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-              5. Số Serial USB Token Ban Cơ yếu
+              6. Số Serial USB Token Con dấu Nhà trường <span class="text-rose-500">*</span>
             </label>
-            <button type="button" onclick="scanBghUsbTokenFromAgent()" class="text-[11px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 cursor-pointer">
+            <button type="button" onclick="scanBghUsbTokenFromAgent()" class="text-[11px] font-bold text-purple-600 hover:text-purple-800 flex items-center gap-1 cursor-pointer bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-lg border border-purple-200 transition">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
               <span>🔍 Quét tự động từ USB Token đang cắm</span>
             </button>
@@ -1763,20 +1773,26 @@
               class="w-full px-3.5 py-2.5 font-mono text-xs bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:outline-none font-bold uppercase tracking-wider">
           </div>
           <p class="text-[11px] text-slate-500 mt-1">
-            Số Serial này sẽ được khóa cứng vào hệ thống. EduSign Agent sẽ từ chối phê duyệt nếu phát hiện cắm sai USB Token.
+            Số Serial và Mã số thuế này sẽ được đối soát khóa cứng. EduSign Agent sẽ từ chối phê duyệt đóng dấu nếu cắm sai thiết bị hoặc cắm nhầm Token cá nhân giáo viên.
           </p>
         </div>
 
         <!-- Con dấu đỏ điện tử nhà trường -->
         <div class="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
           <div class="flex items-center gap-3">
-            <img src="./school_seal.png" alt="Con dấu đỏ" class="w-12 h-12 object-contain rounded-lg border border-slate-200 bg-white p-1 shadow-2xs">
+            <img id="imgBghConfigSeal" src="./school_seal.png" alt="Con dấu đỏ Nhà trường" class="w-14 h-14 object-contain rounded-xl border border-slate-200 bg-white p-1 shadow-xs">
             <div>
-              <div class="text-xs font-bold text-slate-800">Con dấu đỏ điện tử nhà trường</div>
-              <div class="text-[11px] text-slate-500">Đã tích hợp sẵn sàng và tự động đóng dấu khi BGH phê duyệt</div>
+              <div class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <span>Con dấu đỏ điện tử Nhà trường</span>
+                <span id="bghConfigSealBadge" class="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded-full">Sẵn sàng</span>
+              </div>
+              <div id="bghConfigSealStatus" class="text-[11px] text-slate-500 mt-0.5">Hình ảnh con dấu chính thức dùng để đóng dấu pháp nhân lên Học bạ số &amp; Giáo án</div>
             </div>
           </div>
-          <span class="px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold rounded-xl">Đã kích hoạt</span>
+          <button type="button" onclick="closeModal('modalBghConfig'); openModalUploadSignature('SCHOOL_SEAL');" class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold rounded-xl text-xs transition cursor-pointer flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+            <span>Đổi con dấu</span>
+          </button>
         </div>
 
         <div id="bghConfigAlert" class="hidden p-3 rounded-xl text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"></div>
@@ -1789,7 +1805,7 @@
           <button type="submit" id="btnSaveBghConfig"
             class="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-bold rounded-xl text-xs shadow-md shadow-purple-500/20 transition flex items-center gap-1.5 cursor-pointer">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-            <span>Lưu cấu hình Ban Giám hiệu</span>
+            <span>Lưu cấu hình Chữ ký Nhà trường</span>
           </button>
         </div>
       </form>

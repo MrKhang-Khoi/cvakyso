@@ -245,7 +245,7 @@ function getCurrentUser(req) {
     if (!user && userUsername) user = dataStore.getUserByUsername(userUsername);
     if (user) return user;
     if (userId === 'admin' || userUsername === 'admin' || userRole === 'ADMIN') {
-      return { id: 'admin', username: 'admin', role: 'ADMIN', name: 'Quản trị viên', status: 'ACTIVE', canStampSeal: true };
+      return { id: 'admin', username: 'admin', role: 'ADMIN', name: 'Quản trị viên', status: 'ACTIVE', canStampSeal: false };
     }
     return {
       id: userId || `user_${userUsername}`,
@@ -257,7 +257,7 @@ function getCurrentUser(req) {
     };
   }
   if (userRole === 'ADMIN') {
-    return { id: 'admin', username: 'admin', role: 'ADMIN', name: 'Quản trị viên', status: 'ACTIVE', canStampSeal: true };
+    return { id: 'admin', username: 'admin', role: 'ADMIN', name: 'Quản trị viên', status: 'ACTIVE', canStampSeal: false };
   }
   return null;
 }
@@ -324,7 +324,7 @@ app.post('/api/auth/login', (req, res) => {
       email: user.email,
       phone: user.phone,
       canUploadWord: user.canUploadWord !== false,
-      canStampSeal: user.canStampSeal !== undefined ? Boolean(user.canStampSeal) : (user.role === 'ADMIN'),
+      canStampSeal: (user.role === 'ADMIN') ? false : (user.canStampSeal !== undefined ? Boolean(user.canStampSeal) : false),
       school: user.school,
       signatureImage: user.signatureImage
     }
@@ -351,7 +351,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
       email: user.email,
       phone: user.phone,
       canUploadWord: user.canUploadWord !== false,
-      canStampSeal: user.canStampSeal !== undefined ? Boolean(user.canStampSeal) : (user.role === 'ADMIN'),
+      canStampSeal: (user.role === 'ADMIN') ? false : (user.canStampSeal !== undefined ? Boolean(user.canStampSeal) : false),
       school: user.school,
       signatureImage: user.signatureImage
     }
@@ -470,7 +470,7 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
       phone,
       cccd: cccd || '',
       canUploadWord: canUploadWord !== undefined ? Boolean(canUploadWord) : true,
-      canStampSeal: canStampSeal !== undefined ? Boolean(canStampSeal) : (role === 'ADMIN')
+      canStampSeal: (role === 'ADMIN') ? false : (canStampSeal !== undefined ? Boolean(canStampSeal) : false)
     });
     res.json({
       success: true,
