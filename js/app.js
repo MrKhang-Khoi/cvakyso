@@ -5282,11 +5282,15 @@ function switchUploadSignatureTarget(target) {
   const previewImg = document.getElementById('userSigPreviewImg');
   const emptyBox = document.getElementById('userSigPreviewEmpty');
   const btnDel = document.getElementById('btnDeleteCurrentSig');
+  const btnDelText = document.getElementById('btnDeleteCurrentSigText');
+  const labelPreview = document.getElementById('labelPreviewSignature');
 
   const finput = document.getElementById('inputSignatureImageFile');
   if (finput) finput.value = '';
 
   if (target === 'SCHOOL_SEAL') {
+    if (btnDelText) btnDelText.textContent = 'Xóa con dấu';
+    if (labelPreview) labelPreview.textContent = 'Xem trước con dấu nhà trường:';
     if (tabPersonal) {
       tabPersonal.className = 'py-2 px-3 rounded-xl text-slate-600 hover:text-brand-700 flex items-center justify-center gap-1.5 transition cursor-pointer font-semibold';
     }
@@ -5352,6 +5356,8 @@ function switchUploadSignatureTarget(target) {
     }
 
   } else {
+    if (btnDelText) btnDelText.textContent = 'Xóa mẫu chữ ký';
+    if (labelPreview) labelPreview.textContent = 'Xem trước chữ ký bóc tách nền:';
     if (tabPersonal) {
       tabPersonal.className = 'py-2 px-3 rounded-xl bg-white shadow-xs text-brand-700 flex items-center justify-center gap-1.5 transition cursor-pointer font-extrabold';
     }

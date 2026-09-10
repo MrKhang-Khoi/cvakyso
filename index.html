@@ -1176,10 +1176,10 @@
         <!-- Khung xem trước Chữ ký trên nền caro trong suốt -->
         <div>
           <div class="flex items-center justify-between mb-1.5">
-            <label class="font-bold text-slate-700 text-xs">Xem trước chữ ký bóc tách nền:</label>
+            <label id="labelPreviewSignature" class="font-bold text-slate-700 text-xs">Xem trước chữ ký bóc tách nền:</label>
             <button type="button" id="btnDeleteCurrentSig" onclick="handleDeleteCurrentSignature()" class="hidden text-[11px] font-bold text-red-600 hover:text-red-700 flex items-center gap-1">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-              <span>Xóa mẫu chữ ký</span>
+              <span id="btnDeleteCurrentSigText">Xóa mẫu chữ ký</span>
             </button>
           </div>
           <div class="checkerboard-bg p-4 rounded-2xl border border-slate-200 flex items-center justify-center min-h-[110px]">
@@ -1797,6 +1797,6 @@
   </div>
 
   <!-- Client Application Logic -->
-  <script src="./js/app.js?v=2.8.4&t=20260910_2125"></script>
+  <script src="./js/app.js?v=2.8.5&t=20260910_2130"></script>
 </body>
 </html>
