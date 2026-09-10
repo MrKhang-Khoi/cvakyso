@@ -864,6 +864,32 @@ namespace RealPdfSigner
                 float w = reqW.HasValue && reqW.Value > 0 ? reqW.Value : 95f;
                 float h = reqH.HasValue && reqH.Value > 0 ? reqH.Value : 60f;
 
+                // Nếu người dùng kéo thả con dấu thủ công (isManualDrag == true),
+                // TÔN TRỌNG TUYỆT ĐỐI tọa độ kéo thả (reqX, reqY) hoặc (reqXPercent, reqYPercent) trên đúng trang targetPage,
+                // không cho thuật toán mỏ neo chữ (Smart Anchor) đè lên hoặc ép vị trí về chân trang.
+                if (isManualDrag)
+                {
+                    float manualX;
+                    float manualY;
+                    if (reqX.HasValue && reqX.Value > 0 && reqY.HasValue && reqY.Value > 0)
+                    {
+                        manualX = Math.Max(5f, Math.Min(pW - w - 5f, reqX.Value));
+                        manualY = Math.Max(5f, Math.Min(pH - h - 5f, reqY.Value));
+                    }
+                    else if (reqXPercent.HasValue && reqYPercent.HasValue)
+                    {
+                        manualX = Math.Max(5f, Math.Min(pW - w - 5f, (reqXPercent.Value / 100f) * pW));
+                        manualY = Math.Max(5f, Math.Min(pH - h - 5f, pH - ((reqYPercent.Value / 100f) * pH) - h));
+                    }
+                    else
+                    {
+                        manualX = Math.Max(5f, Math.Min(pW - w - 5f, reqX.GetValueOrDefault(pW * 0.74f)));
+                        manualY = Math.Max(5f, Math.Min(pH - h - 5f, reqY.GetValueOrDefault(120f)));
+                    }
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 🎯 Chế độ kéo thả thủ công (isManualDrag=true): Trang {targetPage}, X={manualX:F1}, Y={manualY:F1}, W={w:F1}, H={h:F1}");
+                    return (targetPage, manualX, manualY, w, h);
+                }
+
                 // Nếu có tọa độ điểm tuyệt đối (reqX, reqY) mà không có reqXPercent -> tôn trọng tọa độ điểm
                 if (!reqXPercent.HasValue && reqX.HasValue && reqX.Value > 0 && reqY.HasValue && reqY.Value > 0)
                 {
@@ -3149,6 +3175,24 @@ namespace RealPdfSigner
                     if (root.TryGetProperty("isManualDrag", out var imdRoot)) isManualDrag = imdRoot.GetBoolean();
                     if (root.TryGetProperty("page", out var rPage)) reqPage = rPage.GetInt32();
                     else if (root.TryGetProperty("targetPage", out var rTPage)) reqPage = rTPage.GetInt32();
+
+                    if (root.TryGetProperty("x", out var rxRoot)) reqX = (float)rxRoot.GetDouble();
+                    if (root.TryGetProperty("y", out var ryRoot)) reqY = (float)ryRoot.GetDouble();
+                    if (root.TryGetProperty("width", out var rwRoot)) reqW = (float)rwRoot.GetDouble();
+                    if (root.TryGetProperty("height", out var rhRoot)) reqH = (float)rhRoot.GetDouble();
+
+                    if (root.TryGetProperty("signCoordinates", out var scRootObj))
+                    {
+                        if (scRootObj.TryGetProperty("x", out var scX)) reqX = (float)scX.GetDouble();
+                        if (scRootObj.TryGetProperty("y", out var scY)) reqY = (float)scY.GetDouble();
+                        if (scRootObj.TryGetProperty("width", out var scW)) reqW = (float)scW.GetDouble();
+                        if (scRootObj.TryGetProperty("height", out var scH)) reqH = (float)scH.GetDouble();
+                        if (!reqPage.HasValue && scRootObj.TryGetProperty("page", out var scP)) reqPage = scP.GetInt32();
+                        if (!reqPage.HasValue && scRootObj.TryGetProperty("targetPage", out var scTP)) reqPage = scTP.GetInt32();
+                        if (scRootObj.TryGetProperty("xPercent", out var scXp)) reqXPercent = (float)scXp.GetDouble();
+                        if (scRootObj.TryGetProperty("yPercent", out var scYp)) reqYPercent = (float)scYp.GetDouble();
+                        if (scRootObj.TryGetProperty("isManualDrag", out var scImd)) isManualDrag = scImd.GetBoolean();
+                    }
 
                     if (root.TryGetProperty("xPercent", out var rXp)) reqXPercent = (float)rXp.GetDouble();
                     if (root.TryGetProperty("yPercent", out var rYp)) reqYPercent = (float)rYp.GetDouble();

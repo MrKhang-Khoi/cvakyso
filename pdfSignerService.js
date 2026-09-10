@@ -433,26 +433,32 @@ async function generateSignedPdf(doc) {
             else targetRole = 'teacher';
           }
 
-          // Tự động tìm neo vị trí chữ ký thông minh (Smart Pedagogical Anchor)
-          const signerTargetName = (teacherSignature && teacherSignature.signerName) || doc.author || 'Hà Văn Tý';
-          const smartAnchor = await findSmartSignatureAnchor(sourcePdfBuffer, signerTargetName, targetRole);
+          // Nếu người dùng kéo thả thủ công (isManualDrag == true),
+          // TÔN TRỌNG TUYỆT ĐỐI tọa độ kéo thả (x, y) hoặc (xPercent, yPercent)
+          if (doc.signCoordinates && doc.signCoordinates.isManualDrag) {
+            if (typeof doc.signCoordinates.x === 'number' && typeof doc.signCoordinates.y === 'number') {
+              stampX = doc.signCoordinates.x;
+              stampY = doc.signCoordinates.y;
+            } else if (typeof doc.signCoordinates.xPercent === 'number' && typeof doc.signCoordinates.yPercent === 'number') {
+              stampX = (doc.signCoordinates.xPercent / 100) * pW;
+              stampY = pH - ((doc.signCoordinates.yPercent / 100) * pH) - stampHeight;
+            }
+            console.log(`[pdfSignerService] 🎯 Chế độ kéo thả thủ công (isManualDrag): Trang ${targetPageNum}, X=${stampX}, Y=${stampY}`);
+          } else {
+            // Tự động tìm neo vị trí chữ ký thông minh (Smart Pedagogical Anchor) cho ký tự động
+            const signerTargetName = (teacherSignature && teacherSignature.signerName) || doc.author || 'Hà Văn Tý';
+            const smartAnchor = await findSmartSignatureAnchor(sourcePdfBuffer, signerTargetName, targetRole);
 
-          if (smartAnchor && smartAnchor.found) {
-            stampX = smartAnchor.x;
-            stampY = smartAnchor.y;
-          } else if (doc.signCoordinates && doc.signCoordinates.isManualDrag && typeof doc.signCoordinates.xPercent === 'number' && typeof doc.signCoordinates.yPercent === 'number') {
-            stampX = (doc.signCoordinates.xPercent / 100) * pW;
-            const safeYPercent = doc.signCoordinates.yPercent < 40 ? (isLandscape ? 52 : 82) : doc.signCoordinates.yPercent;
-            stampY = (1 - (safeYPercent / 100)) * pH;
-          } else if (doc.signCoordinates && doc.signCoordinates.isManualDrag && typeof doc.signCoordinates.x === 'number' && typeof doc.signCoordinates.y === 'number') {
-            stampX = doc.signCoordinates.x;
-            stampY = doc.signCoordinates.y;
-          } else if (doc.signPlacement === 'bottom-left' || targetRole === 'principal') {
-            stampX = pW * 0.18;
-            stampY = defaultY;
-          } else if (doc.signPlacement === 'middle-right' || targetRole === 'leader') {
-            stampX = pW * 0.46;
-            stampY = defaultY;
+            if (smartAnchor && smartAnchor.found) {
+              stampX = smartAnchor.x;
+              stampY = smartAnchor.y;
+            } else if (doc.signPlacement === 'bottom-left' || targetRole === 'principal') {
+              stampX = pW * 0.18;
+              stampY = defaultY;
+            } else if (doc.signPlacement === 'middle-right' || targetRole === 'leader') {
+              stampX = pW * 0.46;
+              stampY = defaultY;
+            }
           }
 
           // Tự động kiểm tra biên an toàn (tránh văng khỏi trang PDF)

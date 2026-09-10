@@ -1287,6 +1287,12 @@ function closeModal(id) {
     currentChainedPendingDoc = null;
     const chainedBar = document.getElementById('viewerChainedSignBar');
     if (chainedBar) chainedBar.classList.add('hidden');
+    const container = document.getElementById('viewerPdfPagesContainer');
+    if (container) container.innerHTML = '';
+    currentPdfDocument = null;
+    currentViewingPdfBytes = null;
+    isSigPlacementActive = false;
+    toggleSignaturePlacementMode(false);
   }
 }
 
@@ -2769,7 +2775,7 @@ async function openPendingDocumentToSign(docId) {
     currentChainedPendingDoc = doc || { id: docId, title: 'Báo cáo chuyên môn' };
 
     // Mở Viewer
-    openDocumentViewer(doc?.title || 'Báo cáo chuyên môn', pdfBlob, true);
+    openDocumentViewer(doc?.title || 'Báo cáo chuyên môn', pdfBlob, false);
 
     // Bật thanh điều khiển ký liên hoàn
     const chainedBar = document.getElementById('viewerChainedSignBar');
@@ -3176,6 +3182,8 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
 let isSigPlacementActive = false;
 let currentStampPlacement = 'bottom-right';
 let currentStampCoords = { xPercent: 74.5, yPercent: 68.0, isManualDrag: false };
+window.currentStampCoords = currentStampCoords;
+window.getCurrentStampCoords = () => currentStampCoords;
 let currentStampScale = 1.0;
 let currentStampPage = 'last';
 let currentDocTotalPages = 1;
@@ -3203,34 +3211,48 @@ async function detectPdfTotalPages(fileObject) {
 
 function onSigTargetPageChange(val) {
   const pageInput = document.getElementById('sigTargetPageInput');
-  const pdfFrame = document.getElementById('viewerPdfFrame');
+  let targetP = val;
   if (val === 'custom') {
     if (pageInput) {
       pageInput.classList.remove('hidden');
       pageInput.focus();
     }
-    currentStampPage = parseInt(pageInput?.value, 10) || 1;
+    targetP = parseInt(pageInput?.value, 10) || 1;
   } else {
     if (pageInput) pageInput.classList.add('hidden');
-    currentStampPage = (val === 'last') ? 'last' : (parseInt(val, 10) || 1);
+    targetP = (val === 'last') ? 'last' : (parseInt(val, 10) || 1);
   }
 
-  // Tự động cuộn khung PDF đến trang mong muốn
-  if (pdfFrame && currentPdfBlobUrl) {
-    const pNum = (currentStampPage === 'last') ? (currentDocTotalPages > 0 ? currentDocTotalPages : 9999) : currentStampPage;
-    pdfFrame.src = currentPdfBlobUrl + `#page=${pNum}&view=FitH&toolbar=1&navpanes=0`;
+  currentStampPage = targetP;
+
+  // Nếu đang render bằng PDF.js canvas, di chuyển con dấu đến trang đó và cuộn tới trang đó
+  const pageWrappers = document.querySelectorAll('.pdf-page-wrapper');
+  if (pageWrappers.length > 0) {
+    placeSignatureOnPage(targetP, currentStampPlacement === 'bottom-left' ? 'principal' : (currentStampPlacement === 'middle-right' ? 'leader' : 'teacher'));
+  } else {
+    // Fallback iframe
+    const pdfFrame = document.getElementById('viewerPdfFrame');
+    if (pdfFrame && currentPdfBlobUrl) {
+      const pNum = (targetP === 'last') ? (currentDocTotalPages > 0 ? currentDocTotalPages : 9999) : targetP;
+      pdfFrame.src = currentPdfBlobUrl + `#page=${pNum}&view=FitH&toolbar=1&navpanes=0`;
+    }
+    updateStampCoordsDisplay();
   }
-  updateStampCoordsDisplay();
 }
 
 function onSigTargetPageInputChange(val) {
   const p = Math.max(1, parseInt(val, 10) || 1);
   currentStampPage = p;
-  const pdfFrame = document.getElementById('viewerPdfFrame');
-  if (pdfFrame && currentPdfBlobUrl) {
-    pdfFrame.src = currentPdfBlobUrl + `#page=${p}&view=FitH&toolbar=1&navpanes=0`;
+  const pageWrappers = document.querySelectorAll('.pdf-page-wrapper');
+  if (pageWrappers.length > 0) {
+    placeSignatureOnPage(p, currentStampPlacement === 'bottom-left' ? 'principal' : (currentStampPlacement === 'middle-right' ? 'leader' : 'teacher'));
+  } else {
+    const pdfFrame = document.getElementById('viewerPdfFrame');
+    if (pdfFrame && currentPdfBlobUrl) {
+      pdfFrame.src = currentPdfBlobUrl + `#page=${p}&view=FitH&toolbar=1&navpanes=0`;
+    }
+    updateStampCoordsDisplay();
   }
-  updateStampCoordsDisplay();
 }
 
 async function handleTeacherSignAction() {
@@ -3257,13 +3279,112 @@ async function handleTeacherSignAction() {
   openDocumentViewer(teacherSelectedFile.name, teacherSelectedFile, false);
 }
 
+async function renderPdfPagesWithPdfJs(fileObject) {
+  const container = document.getElementById('viewerPdfPagesContainer');
+  const pdfFrame = document.getElementById('viewerPdfFrame');
+  const spinner = document.getElementById('viewerLoadingSpinner');
+  if (!container) return false;
+
+  if (!window.pdfjsLib) {
+    console.warn('[PDF.js] Thư viện window.pdfjsLib chưa sẵn sàng, dùng iframe fallback.');
+    if (pdfFrame) pdfFrame.classList.remove('hidden');
+    container.classList.add('hidden');
+    return false;
+  }
+
+  try {
+    if (spinner) spinner.classList.remove('hidden');
+    container.innerHTML = '';
+
+    let arrayBuffer;
+    if (fileObject instanceof ArrayBuffer) {
+      arrayBuffer = fileObject;
+    } else if (fileObject instanceof Blob) {
+      arrayBuffer = await fileObject.arrayBuffer();
+    } else if (fileObject && typeof fileObject.arrayBuffer === 'function') {
+      arrayBuffer = await fileObject.arrayBuffer();
+    } else if (typeof fileObject === 'string' && fileObject.startsWith('data:')) {
+      const clean = fileObject.replace(/^data:[^;]+;base64,/, '');
+      const binaryStr = atob(clean);
+      const len = binaryStr.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) bytes[i] = binaryStr.charCodeAt(i);
+      arrayBuffer = bytes.buffer;
+    } else {
+      throw new Error('Định dạng fileObject không hỗ trợ ArrayBuffer');
+    }
+
+    currentViewingPdfBytes = arrayBuffer;
+
+    const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer.slice(0) });
+    const pdfDoc = await loadingTask.promise;
+    currentPdfDocument = pdfDoc;
+    currentDocTotalPages = pdfDoc.numPages;
+
+    if (pdfFrame) pdfFrame.classList.add('hidden');
+    container.classList.remove('hidden');
+
+    const viewerArea = document.getElementById('viewerContentArea');
+    const availableWidth = Math.max(340, (viewerArea ? viewerArea.clientWidth : 800) - 64);
+
+    for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+      const page = await pdfDoc.getPage(pageNum);
+      const unscaledViewport = page.getViewport({ scale: 1.0 });
+      const ptWidth = unscaledViewport.width;
+      const ptHeight = unscaledViewport.height;
+
+      const displayScale = Math.min(2.0, Math.max(1.0, (availableWidth / ptWidth)));
+      const viewport = page.getViewport({ scale: displayScale });
+
+      const pageWrapper = document.createElement('div');
+      pageWrapper.className = 'pdf-page-wrapper relative bg-white shadow-md rounded-xl overflow-hidden border border-slate-200 transition-all';
+      pageWrapper.setAttribute('data-page', String(pageNum));
+      pageWrapper.setAttribute('data-page-width', String(ptWidth));
+      pageWrapper.setAttribute('data-page-height', String(ptHeight));
+      pageWrapper.style.width = `${Math.round(viewport.width)}px`;
+      pageWrapper.style.height = `${Math.round(viewport.height)}px`;
+      pageWrapper.style.maxWidth = '100%';
+
+      const canvas = document.createElement('canvas');
+      canvas.className = 'w-full h-full block';
+      canvas.width = Math.round(viewport.width);
+      canvas.height = Math.round(viewport.height);
+
+      const ctx = canvas.getContext('2d');
+      const renderContext = {
+        canvasContext: ctx,
+        viewport: viewport
+      };
+
+      await page.render(renderContext).promise;
+
+      const pageBadge = document.createElement('div');
+      pageBadge.className = 'absolute bottom-2.5 right-3 px-2.5 py-1 bg-slate-900/70 text-white rounded-lg text-[11px] font-bold pointer-events-none backdrop-blur-xs select-none';
+      pageBadge.textContent = `Trang ${pageNum} / ${pdfDoc.numPages}`;
+
+      pageWrapper.appendChild(canvas);
+      pageWrapper.appendChild(pageBadge);
+      container.appendChild(pageWrapper);
+    }
+
+    if (spinner) spinner.classList.add('hidden');
+    return true;
+  } catch (err) {
+    console.warn('[PDF.js] Không thể render bằng Canvas, chuyển về iframe fallback:', err.message);
+    if (pdfFrame) pdfFrame.classList.remove('hidden');
+    container.classList.add('hidden');
+    if (spinner) spinner.classList.add('hidden');
+    return false;
+  }
+}
+
 function openDocumentViewer(fileName, fileObject, enableSigning = false) {
   const modal = document.getElementById('modalDocViewer');
   const titleEl = document.getElementById('viewerDocTitle');
   const metaEl = document.getElementById('viewerDocMeta');
   const pdfFrame = document.getElementById('viewerPdfFrame');
   const spinner = document.getElementById('viewerLoadingSpinner');
-  if (!modal || !pdfFrame) return;
+  if (!modal) return;
 
   currentViewingFileName = fileName || 'Văn bản';
   if (titleEl) titleEl.textContent = currentViewingFileName;
@@ -3286,16 +3407,11 @@ function openDocumentViewer(fileName, fileObject, enableSigning = false) {
   if (fileObject) {
     const blob = (fileObject instanceof Blob) ? fileObject : new Blob([fileObject], { type: 'application/pdf' });
     currentPdfBlobUrl = URL.createObjectURL(blob);
-    // Tự động mở đúng trang cuối cho người ký duyệt
-    pdfFrame.src = currentPdfBlobUrl + '#page=9999&view=FitH&toolbar=1&navpanes=0';
+    if (pdfFrame) {
+      pdfFrame.src = currentPdfBlobUrl + '#page=9999&view=FitH&toolbar=1&navpanes=0';
+      pdfFrame.onload = () => { if (spinner) spinner.classList.add('hidden'); };
+    }
   }
-
-  pdfFrame.onload = () => {
-    if (spinner) spinner.classList.add('hidden');
-  };
-  setTimeout(() => {
-    if (spinner) spinner.classList.add('hidden');
-  }, 800);
 
   // Cập nhật thông tin người ký trên con dấu
   const currentUser = appState.currentUser;
@@ -3326,25 +3442,15 @@ function openDocumentViewer(fileName, fileObject, enableSigning = false) {
 
   openModal('modalDocViewer');
 
-  const userRole = (currentUser?.role || '').toUpperCase();
-  const isBgh = userRole === 'BGH' || userRole === 'PRINCIPAL' || (currentUser?.fullName || '').includes('Liền');
-  const isLeader = userRole === 'LEADER' || userRole === 'TO_TRUONG' || (currentUser?.fullName || '').includes('Hằng');
+  // TUYỆT ĐỐI KHÔNG tự động hiện con dấu khi người dùng chỉ bấm mở xem văn bản
+  isSigPlacementActive = false;
+  toggleSignaturePlacementMode(false);
+  setSignatureScale(1.0);
+  initDraggableSignature();
 
-  // Khởi tạo vị trí ký chuẩn theo vai trò:
-  // - BGH (Phó Hiệu trưởng / Hiệu trưởng): Cột trái (DUYỆT BAN GIÁM HIỆU)
-  // - Tổ trưởng: Cột giữa (DUYỆT TỔ CHUYÊN MÔN)
-  // - Giáo viên: Cột phải (GIÁO VIÊN)
-  if (isBgh) {
-    snapSignatureTo('principal');
-  } else if (isLeader) {
-    snapSignatureTo('leader');
-  } else {
-    snapSignatureTo('teacher');
-  }
-
-  // Tự động phân tích số trang của PDF và cập nhật dropdown
-  detectPdfTotalPages(fileObject).then(totalPages => {
-    currentDocTotalPages = totalPages;
+  // Tự động phân tích và render PDF.js đa trang
+  renderPdfPagesWithPdfJs(fileObject).then(() => {
+    const totalPages = currentDocTotalPages || 1;
     const pageSel = document.getElementById('sigTargetPageSelect');
     if (pageSel) {
       if (totalPages > 1) {
@@ -3362,21 +3468,37 @@ function openDocumentViewer(fileName, fileObject, enableSigning = false) {
       }
       pageSel.value = 'last';
     }
+  }).catch(() => {
+    detectPdfTotalPages(fileObject).then(totalPages => {
+      currentDocTotalPages = totalPages;
+      const pageSel = document.getElementById('sigTargetPageSelect');
+      if (pageSel) {
+        if (totalPages > 1) {
+          pageSel.innerHTML = `
+            <option value="last">Trang cuối (${totalPages}/${totalPages} - Nơi ký duyệt)</option>
+            <option value="1">Trang 1 / ${totalPages} (Trang đầu)</option>
+            ${Array.from({length: totalPages - 2}, (_, i) => `<option value="${i + 2}">Trang ${i + 2} / ${totalPages}</option>`).join('')}
+            <option value="custom">Trang cụ thể...</option>
+          `;
+        } else {
+          pageSel.innerHTML = `
+            <option value="last">Trang 1 (Trang duy nhất)</option>
+            <option value="1">Trang 1</option>
+          `;
+        }
+        pageSel.value = 'last';
+      }
+    });
   });
 
   const pageInp = document.getElementById('sigTargetPageInput');
   if (pageInp) { pageInp.value = '1'; pageInp.classList.add('hidden'); }
-  toggleSignaturePlacementMode(enableSigning);
-  setSignatureScale(1.0);
-  initDraggableSignature();
 }
 
 let currentPdfZoom = 'FitH';
 let isViewerFullscreen = false;
 
 function setPdfViewerZoom(zoomMode) {
-  const pdfFrame = document.getElementById('viewerPdfFrame');
-  if (!pdfFrame || !currentPdfBlobUrl) return;
   currentPdfZoom = zoomMode;
 
   const buttons = ['btnZoomFitH', 'btnZoom100', 'btnZoom125', 'btnZoom150'];
@@ -3390,17 +3512,36 @@ function setPdfViewerZoom(zoomMode) {
     }
   });
 
-  let hash = '#page=1&view=FitH&toolbar=1&navpanes=0';
-  if (zoomMode === 'FitH') {
-    hash = '#page=1&view=FitH&toolbar=1&navpanes=0';
-  } else if (zoomMode === '100') {
-    hash = '#page=1&zoom=100&toolbar=1&navpanes=0';
-  } else if (zoomMode === '125') {
-    hash = '#page=1&zoom=125&toolbar=1&navpanes=0';
-  } else if (zoomMode === '150') {
-    hash = '#page=1&zoom=150&toolbar=1&navpanes=0';
+  const pageWrappers = document.querySelectorAll('.pdf-page-wrapper');
+  if (pageWrappers.length > 0) {
+    const viewerArea = document.getElementById('viewerContentArea');
+    const availableWidth = Math.max(340, (viewerArea ? viewerArea.clientWidth : 800) - 64);
+    let scaleMultiplier = 1.0;
+    if (zoomMode === '100') scaleMultiplier = 1.0;
+    else if (zoomMode === '125') scaleMultiplier = 1.25;
+    else if (zoomMode === '150') scaleMultiplier = 1.5;
+    else if (zoomMode === 'FitH') scaleMultiplier = 1.0;
+
+    pageWrappers.forEach(wrapper => {
+      const ptW = parseFloat(wrapper.getAttribute('data-page-width')) || 595.28;
+      const ptH = parseFloat(wrapper.getAttribute('data-page-height')) || 841.89;
+      let targetW = availableWidth * scaleMultiplier;
+      if (zoomMode !== 'FitH') {
+        targetW = (ptW * 1.333) * scaleMultiplier;
+      }
+      const targetH = (targetW / ptW) * ptH;
+      wrapper.style.width = `${Math.round(targetW)}px`;
+      wrapper.style.height = `${Math.round(targetH)}px`;
+    });
+    return;
   }
 
+  const pdfFrame = document.getElementById('viewerPdfFrame');
+  if (!pdfFrame || !currentPdfBlobUrl) return;
+  let hash = '#page=1&view=FitH&toolbar=1&navpanes=0';
+  if (zoomMode === '100') hash = '#page=1&zoom=100&toolbar=1&navpanes=0';
+  else if (zoomMode === '125') hash = '#page=1&zoom=125&toolbar=1&navpanes=0';
+  else if (zoomMode === '150') hash = '#page=1&zoom=150&toolbar=1&navpanes=0';
   pdfFrame.src = currentPdfBlobUrl + hash;
 }
 
@@ -3474,11 +3615,147 @@ function getTeacherSignatureImage() {
   return null;
 }
 
+function placeSignatureOnPage(pageNum, role = 'teacher') {
+  const container = document.getElementById('viewerContentArea');
+  const stamp = document.getElementById('draggableSignatureStamp');
+  if (!container || !stamp) return;
+
+  const pageWrappers = Array.from(document.querySelectorAll('.pdf-page-wrapper'));
+  let targetWrapper = null;
+  if (pageWrappers.length > 0) {
+    if (pageNum === 'last') {
+      targetWrapper = pageWrappers[pageWrappers.length - 1];
+    } else {
+      targetWrapper = pageWrappers.find(w => w.getAttribute('data-page') === String(pageNum)) || pageWrappers[0];
+    }
+  }
+
+  if (targetWrapper) {
+    const pageNumInt = parseInt(targetWrapper.getAttribute('data-page'), 10) || 1;
+    currentStampPage = pageNumInt;
+
+    let relLeftPct = 0.745;
+    let relTopPct = 0.68;
+    if (role === 'principal') { relLeftPct = 0.18; relTopPct = 0.68; }
+    else if (role === 'leader') { relLeftPct = 0.46; relTopPct = 0.68; }
+
+    const targetWrapperRect = targetWrapper.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+
+    const wrapperOffsetTop = (targetWrapperRect.top - containerRect.top) + container.scrollTop;
+    const wrapperOffsetLeft = (targetWrapperRect.left - containerRect.left) + container.scrollLeft;
+
+    const stampLeft = wrapperOffsetLeft + (targetWrapper.offsetWidth * relLeftPct) - (stamp.offsetWidth * 0.5);
+    const stampTop = wrapperOffsetTop + (targetWrapper.offsetHeight * relTopPct) - (stamp.offsetHeight * 0.5);
+
+    stamp.style.left = `${Math.max(10, stampLeft)}px`;
+    stamp.style.top = `${Math.max(10, stampTop)}px`;
+
+    // Cuộn trang mục tiêu vào giữa khung nhìn
+    targetWrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    updateStampPlacementFromPosition();
+  } else {
+    snapSignatureTo(role);
+  }
+}
+
+function updateStampPlacementFromPosition() {
+  const stamp = document.getElementById('draggableSignatureStamp');
+  const container = document.getElementById('viewerContentArea');
+  if (!stamp || !container) return;
+
+  const stampRect = stamp.getBoundingClientRect();
+  const stampCenterX = stampRect.left + stampRect.width / 2;
+  const stampCenterY = stampRect.top + stampRect.height / 2;
+
+  const pageWrappers = Array.from(document.querySelectorAll('.pdf-page-wrapper'));
+
+  if (pageWrappers.length > 0) {
+    let targetWrapper = null;
+    for (const wrapper of pageWrappers) {
+      const r = wrapper.getBoundingClientRect();
+      if (stampCenterY >= r.top && stampCenterY <= r.bottom) {
+        targetWrapper = wrapper;
+        break;
+      }
+    }
+
+    if (!targetWrapper) {
+      let minDist = Infinity;
+      for (const wrapper of pageWrappers) {
+        const r = wrapper.getBoundingClientRect();
+        const dist = Math.abs(stampCenterY - (r.top + r.height / 2));
+        if (dist < minDist) {
+          minDist = dist;
+          targetWrapper = wrapper;
+        }
+      }
+    }
+
+    if (targetWrapper) {
+      const pageNum = parseInt(targetWrapper.getAttribute('data-page'), 10) || 1;
+      const ptWidth = parseFloat(targetWrapper.getAttribute('data-page-width')) || 595.28;
+      const ptHeight = parseFloat(targetWrapper.getAttribute('data-page-height')) || 841.89;
+      const pageRect = targetWrapper.getBoundingClientRect();
+
+      const relX = stampRect.left - pageRect.left;
+      const relY = stampRect.top - pageRect.top;
+
+      const xPct = Math.max(0, Math.min(100, Math.round((relX / pageRect.width) * 1000) / 10));
+      const yPct = Math.max(0, Math.min(100, Math.round((relY / pageRect.height) * 1000) / 10));
+
+      const stampW = Math.round(160 * currentStampScale * 0.75);
+      const stampH = Math.round(80 * currentStampScale * 0.75);
+
+      const xPt = Math.max(5, Math.min(ptWidth - stampW - 5, (relX / pageRect.width) * ptWidth));
+      const yPt = Math.max(5, Math.min(ptHeight - stampH - 5, ptHeight - (((relY + stampRect.height) / pageRect.height) * ptHeight)));
+
+      currentStampPage = pageNum;
+      currentStampCoords = {
+        x: Math.round(xPt * 10) / 10,
+        y: Math.round(yPt * 10) / 10,
+        xPercent: xPct,
+        yPercent: yPct,
+        width: stampW,
+        height: stampH,
+        page: pageNum,
+        targetPage: pageNum,
+        isManualDrag: true
+      };
+      window.currentStampCoords = currentStampCoords;
+
+      const pageSel = document.getElementById('sigTargetPageSelect');
+      if (pageSel && pageSel.value !== String(pageNum)) {
+        pageSel.value = String(pageNum);
+      }
+
+      if (xPct > 55) currentStampPlacement = 'bottom-right';
+      else if (xPct > 32) currentStampPlacement = 'middle-right';
+      else currentStampPlacement = 'bottom-left';
+
+      updateStampCoordsDisplay();
+      return;
+    }
+  }
+
+  // Fallback iframe:
+  const xPct = Math.round((stamp.offsetLeft / container.clientWidth) * 1000) / 10;
+  const yPct = Math.round((stamp.offsetTop / container.clientHeight) * 1000) / 10;
+  currentStampCoords = {
+    xPercent: xPct,
+    yPercent: yPct,
+    page: currentStampPage || 1,
+    isManualDrag: true
+  };
+  window.currentStampCoords = currentStampCoords;
+  updateStampCoordsDisplay();
+}
+
 function toggleSignaturePlacementMode(forceState) {
   const targetState = (typeof forceState === 'boolean') ? forceState : !isSigPlacementActive;
 
   if (targetState) {
-    // Kiểm tra xem giáo viên đã tải ảnh chữ ký cá nhân lên chưa
     const sig = getTeacherSignatureImage();
     if (!sig) {
       showModalAlert(
@@ -3514,6 +3791,13 @@ function toggleSignaturePlacementMode(forceState) {
     if (stamp) stamp.classList.remove('hidden');
     if (btnConfirm) btnConfirm.classList.remove('hidden');
     if (btnText) btnText.textContent = 'Ẩn Chữ Ký';
+
+    const currentUser = appState.currentUser;
+    const userRole = (currentUser?.role || '').toUpperCase();
+    const roleStr = (userRole === 'BGH' || userRole === 'PRINCIPAL' || (currentUser?.fullName || '').includes('Liền')) ? 'principal'
+      : ((userRole === 'LEADER' || userRole === 'TO_TRUONG' || (currentUser?.fullName || '').includes('Hằng')) ? 'leader' : 'teacher');
+
+    placeSignatureOnPage(currentStampPage || 'last', roleStr);
   } else {
     isSigPlacementActive = false;
     const bar = document.getElementById('viewerSigToolBar');
@@ -3522,7 +3806,6 @@ function toggleSignaturePlacementMode(forceState) {
 
     if (bar) bar.classList.add('hidden');
     if (stamp) stamp.classList.add('hidden');
-    // Luôn giữ nút Ký Số Ngay để người dùng có thể ký nhanh bằng Smart Anchor
     if (btnText) btnText.textContent = 'Đặt Chữ Ký Số';
   }
 }
@@ -3592,7 +3875,11 @@ function nudgeSignature(deltaX, deltaY) {
 
 function resetSignaturePosition() {
   setSignatureScale(1.0);
-  snapSignatureTo('teacher');
+  const currentUser = appState.currentUser;
+  const userRole = (currentUser?.role || '').toUpperCase();
+  const roleStr = (userRole === 'BGH' || userRole === 'PRINCIPAL' || (currentUser?.fullName || '').includes('Liền')) ? 'principal'
+    : ((userRole === 'LEADER' || userRole === 'TO_TRUONG' || (currentUser?.fullName || '').includes('Hằng')) ? 'leader' : 'teacher');
+  placeSignatureOnPage('last', roleStr);
 }
 
 function updateStampCoordsDisplay() {
@@ -3637,7 +3924,7 @@ function initDraggableSignature() {
     let newLeft = stampElemStartX + deltaX;
     let newTop = stampElemStartY + deltaY;
 
-    const maxLeft = container.clientWidth - stamp.offsetWidth - 10;
+    const maxLeft = Math.max(container.clientWidth, container.scrollWidth) - stamp.offsetWidth - 10;
     const maxTop = Math.max(container.clientHeight, container.scrollHeight) - stamp.offsetHeight - 10;
 
     newLeft = Math.max(10, Math.min(newLeft, maxLeft));
@@ -3646,21 +3933,14 @@ function initDraggableSignature() {
     stamp.style.left = newLeft + 'px';
     stamp.style.top = newTop + 'px';
 
-    const xPct = Math.round((newLeft / container.clientWidth) * 1000) / 10;
-    const yPct = Math.round((newTop / container.clientHeight) * 1000) / 10;
-    currentStampCoords = { xPercent: xPct, yPercent: yPct, isManualDrag: true };
-
-    if (xPct > 55) currentStampPlacement = 'bottom-right';
-    else if (xPct > 32) currentStampPlacement = 'middle-right';
-    else currentStampPlacement = 'bottom-left';
-
-    updateStampCoordsDisplay();
+    updateStampPlacementFromPosition();
   }
 
   function onPointerUp() {
     if (isDraggingStamp) {
       isDraggingStamp = false;
       shield.classList.add('hidden');
+      updateStampPlacementFromPosition();
     }
   }
 
@@ -4249,6 +4529,7 @@ async function executeMasterSigningPipeline(credentials) {
     startVgcaCountdown(90);
   }
 
+  const resolvedTargetPage = currentStampCoords.targetPage || (currentStampPage === 'last' ? currentDocTotalPages : (parseInt(currentStampPage, 10) || 1));
   currentActiveSignSession = {
     credentials: {
       ...credentials,
@@ -4257,11 +4538,22 @@ async function executeMasterSigningPipeline(credentials) {
     cert,
     isUsb,
     docTitle: currentViewingFileName,
-    page: currentStampPage || 1,
+    page: resolvedTargetPage,
+    targetPage: resolvedTargetPage,
+    x: currentStampCoords.x,
+    y: currentStampCoords.y,
+    width: currentStampCoords.width,
+    height: currentStampCoords.height,
     xPercent: currentStampCoords.xPercent,
     yPercent: currentStampCoords.yPercent,
     scale: currentStampScale,
-    isManualDrag: !!currentStampCoords.isManualDrag
+    isManualDrag: !!currentStampCoords.isManualDrag,
+    signCoordinates: {
+      ...currentStampCoords,
+      page: resolvedTargetPage,
+      targetPage: resolvedTargetPage,
+      scale: currentStampScale
+    }
   };
 
   openModal('modalSignProgress');

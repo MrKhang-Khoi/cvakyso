@@ -65,6 +65,14 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
   <script src="./html2pdf.bundle.min.js?v=2.7.1"></script>
 
+  <!-- Mozilla PDF.js v3.11.174 hiển thị trang PDF sắc nét và hỗ trợ kéo thả chữ ký đa trang trực quan -->
+  <script src="./pdf.min.js"></script>
+  <script>
+    if (window.pdfjsLib) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = './pdf.worker.min.js';
+    }
+  </script>
+
   <!-- Google Firebase SDK v10 (Compat version cho Realtime Sync) -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
@@ -1042,17 +1050,20 @@
       </div>
 
       <!-- Content Viewer Container -->
-      <div id="viewerContentArea" class="flex-1 bg-slate-100 overflow-y-auto p-4 flex justify-center relative select-none">
-        <!-- Khung nhúng PDF -->
-        <iframe id="viewerPdfFrame" class="w-full h-full bg-white rounded-2xl shadow-sm border border-slate-200" src=""></iframe>
+      <div id="viewerContentArea" class="flex-1 bg-slate-100 overflow-y-auto p-4 flex flex-col items-center relative select-none">
+        <!-- Khung nhúng PDF fallback (iframe) -->
+        <iframe id="viewerPdfFrame" class="w-full h-full bg-white rounded-2xl shadow-sm border border-slate-200 hidden" src=""></iframe>
         
+        <!-- Khung hiển thị các trang PDF dạng Canvas trực quan để kéo thả tự do trên mọi trang -->
+        <div id="viewerPdfPagesContainer" class="w-full flex flex-col items-center gap-6 relative"></div>
+
         <!-- Loading spinner -->
         <div id="viewerLoadingSpinner" class="hidden absolute inset-0 bg-white/70 backdrop-blur-xs flex flex-col items-center justify-center gap-2 z-20">
           <div class="w-8 h-8 border-3 border-brand-600 border-t-transparent rounded-full animate-spin"></div>
           <span class="text-xs text-slate-600 font-medium">Đang nạp nội dung tài liệu...</span>
         </div>
 
-        <!-- Tấm chắn bảo vệ chống kẹt chuột khi kéo thả qua iframe PDF -->
+        <!-- Tấm chắn bảo vệ chống kẹt chuột khi kéo thả -->
         <div id="viewerDragShield" class="absolute inset-0 z-30 hidden cursor-move"></div>
 
         <!-- Khung chữ ký của giáo viên kéo thả trực tiếp (Trong suốt 100% để nhìn rõ văn bản bên dưới) -->
