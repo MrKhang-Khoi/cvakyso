@@ -38,6 +38,28 @@ function initFirebaseRealtime() {
     }
     firebaseDb = firebase.database();
 
+    // Bảo vệ triệt để chống lỗi util.ts:550 "Cannot read properties of undefined (reading 'substring')"
+    if (firebaseDb && typeof firebaseDb.ref === 'function') {
+      const origRef = firebaseDb.ref.bind(firebaseDb);
+      firebaseDb.ref = function(path) {
+        if (typeof path !== 'string' || !path || path.includes('undefined')) {
+          console.warn('[Firebase RTDB] Cảnh báo đường dẫn ref không hợp lệ:', path);
+          return origRef('__safe_fallback__');
+        }
+        return origRef(path);
+      };
+    }
+    if (typeof firebase.database.Database !== 'undefined' && firebase.database.Database.prototype) {
+      const origProtoRef = firebase.database.Database.prototype.ref;
+      firebase.database.Database.prototype.ref = function(path) {
+        if (typeof path !== 'string' || !path || path.includes('undefined')) {
+          console.warn('[Firebase RTDB Proto] Cảnh báo đường dẫn ref không hợp lệ:', path);
+          return origProtoRef.call(this, '__safe_fallback__');
+        }
+        return origProtoRef.call(this, path);
+      };
+    }
+
     // 1. Lắng nghe thay đổi bảng Users trong thời gian thực
     firebaseDb.ref('users').on('value', (snapshot) => {
       const data = snapshot.val();
@@ -81,6 +103,10 @@ function initFirebaseRealtime() {
               hasUpdated = true;
             }
           });
+
+          if (appState.currentUser.role === 'ADMIN') {
+            appState.currentUser.canStampSeal = false;
+          }
 
           if (hasUpdated) {
             localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser));
@@ -526,7 +552,7 @@ function renderTeachersTable() {
     return;
   }
 
-  tbody.innerHTML = filtered.map(u => {
+  tbody.innerHTML = filtered.filter(u => u && typeof u === 'object').map(u => {
     const isLocked = !!u.isLocked;
     const signTypeBadge = u.signType === 'USB_TOKEN'
       ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
@@ -552,20 +578,22 @@ function renderTeachersTable() {
       (u.role === 'BGH' ? 'bg-rose-50 text-rose-700 border-rose-200' : 
       (u.role === 'LEADER' || u.role === 'HEAD_DEPT' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-700 border-slate-200'));
 
-    const displayName = u.fullName || u.name || u.username;
+    const displayName = String(u.fullName || u.name || u.username || 'Giáo viên').trim() || 'Giáo viên';
     const deptName = u.departmentName || u.department || 'Chưa vào tổ';
+    const initialLetter = displayName.charAt(0).toUpperCase() || 'G';
+    const userHandle = u.username || u.id || 'user';
 
     return `
       <tr class="hover:bg-slate-50/80 transition-colors">
         <td class="py-3 px-4">
           <div class="flex items-center gap-3">
             <div class="w-8 h-8 rounded-full bg-brand-100 text-brand-700 font-bold flex items-center justify-center text-xs">
-              ${displayName.substring(0, 1).toUpperCase()}
+              ${initialLetter}
             </div>
             <div>
               <div class="font-bold text-slate-900">${escapeHtml(displayName)}</div>
               <div class="text-[11px] text-slate-400 font-mono flex items-center gap-1.5 flex-wrap">
-                <span>@${escapeHtml(u.username)}</span>
+                <span>@${escapeHtml(userHandle)}</span>
                 ${u.cccd ? `<span>•</span><span class="font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">CCCD: ${escapeHtml(u.cccd)}</span>` : ''}
                 ${u.email ? `<span>•</span><span>${escapeHtml(u.email)}</span>` : ''}
               </div>
@@ -782,11 +810,47 @@ async function scanUsbTokenForModalUser() {
   const targetCccd = (cccdInput?.value || '').trim();
   const targetUsername = (usernameInput?.value || '').trim().toLowerCase();
 
+  // 1. BẮT BUỘC KIỂM TRA ĐÃ NHẬP CCCD TRƯỚC KHI QUÉT USB TOKEN (YÊU CẦU ĐỊNH DANH PHÁP LÝ)
+  if (!targetCccd || !/^\d{9,12}$/.test(targetCccd)) {
+    if (cccdInput) {
+      cccdInput.focus();
+      cccdInput.classList.add('ring-2', 'ring-rose-500', 'border-rose-500');
+      setTimeout(() => {
+        if (cccdInput) cccdInput.classList.remove('ring-2', 'ring-rose-500', 'border-rose-500');
+      }, 3500);
+    }
+
+    const warnHtml = `
+      <div class="space-y-2 text-left">
+        <p class="text-rose-700 font-bold text-[13px]">⚠️ YÊU CẦU NHẬP SỐ CCCD TRƯỚC KHI QUÉT USB TOKEN</p>
+        <div class="p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-1 text-xs text-rose-950">
+          <div>• Thầy/Cô đang cấu hình: <strong>[${targetName || targetUsername || 'Chưa nhập tên'}]</strong></div>
+          <div>• Trạng thái CCCD: <span class="text-rose-600 font-bold underline">Chưa nhập hoặc chưa đủ 9-12 chữ số</span></div>
+        </div>
+        <p class="text-xs text-slate-700 leading-relaxed">
+          Theo quy định an toàn định danh ký số, Quản trị viên <strong>bắt buộc phải nhập Số CCCD (12 chữ số)</strong> của Thầy/Cô trước khi quét USB Token để hệ thống đối soát, chống cắm nhầm thiết bị của người khác.
+        </p>
+        <p class="text-xs font-semibold text-purple-700">
+          👉 Vui lòng nhập Số CCCD vào ô trên rồi bấm nút <strong>"🔍 Quét USB đang cắm"</strong> lại!
+        </p>
+      </div>
+    `;
+
+    if (alertBox) {
+      alertBox.className = 'p-3.5 rounded-xl text-xs border bg-rose-50 border-rose-300 text-rose-950 block';
+      alertBox.innerHTML = warnHtml;
+      alertBox.classList.remove('hidden');
+    }
+
+    showModalAlert('YÊU CẦU NHẬP SỐ CCCD TRƯỚC', warnHtml, 'warning');
+    showToast('⚠️ Vui lòng nhập Số CCCD của Thầy/Cô trước khi quét USB Token!', 'warning');
+    return;
+  }
+
   showToast('🔍 Đang kết nối EduSign Agent để quét USB Token đang cắm...', 'info');
 
   try {
-    // Gọi Agent đọc thiết bị thực tế đang cắm trên cổng USB (không filter theo thông tin form)
-    const queryUrl = `http://127.0.0.1:18888/api/check-vgca-status?mode=HARDWARE&_t=${Date.now()}`;
+    const queryUrl = `http://127.0.0.1:18888/api/check-vgca-status?mode=HARDWARE&cccd=${encodeURIComponent(targetCccd)}&name=${encodeURIComponent(targetName)}&_t=${Date.now()}`;
     const res = await fetch(queryUrl, {
       signal: AbortSignal.timeout(4000)
     });
@@ -807,16 +871,63 @@ async function scanUsbTokenForModalUser() {
       return;
     }
 
-    // Lấy chứng thư thực tế đầu tiên từ phần cứng
-    const hwList = certs.filter(c => c.isHardware !== false);
-    const actualCert = hwList.length > 0 ? hwList[0] : certs[0];
+    // 2. PHÂN BIỆT VÀ ƯU TIÊN USB TOKEN PHẦN CỨNG THẬT (LOẠI BỎ VIRTUAL CSP)
+    // - Virtual CSP (ký số từ xa SmartCA/VGCA phần mềm) dùng thuật toán ECC / ECDSA (OID 1.2.840.10045.2.1)
+    // - USB Token phần cứng dùng thuật toán RSA (OID 1.2.840.113549.1.1.1)
+    const isVirtualCspCert = (c) => {
+      if (c.isHardware === false) return true;
+      const algo = ((c.keyAlgorithm || '') + ' ' + (c.oid || '')).toUpperCase();
+      if (algo.includes('ECC') || algo.includes('ECDSA') || algo.includes('1.2.840.10045.2.1')) return true;
+      if (c.serialNumber && c.serialNumber.toUpperCase() === '7C4C44A8671300AE') return true;
+      const isKnownVgcaTeacher = appState.users?.some(u => 
+        u.signType === 'VGCA' && (
+          (u.certSerial && c.serialNumber && u.certSerial.toUpperCase() === c.serialNumber.toUpperCase()) ||
+          (u.email && c.email && u.email.toLowerCase() === c.email.toLowerCase())
+        )
+      );
+      if (isKnownVgcaTeacher && certs.some(other => other !== c && !isKnownVgcaTeacher)) {
+        return true;
+      }
+      return false;
+    };
+
+    // Danh sách phần cứng thật
+    let hwList = certs.filter(c => !isVirtualCspCert(c));
+    if (hwList.length === 0) {
+      hwList = certs;
+    }
+
+    // 3. TÌM CHỨNG THƯ PHẦN CỨNG KHỚP VỚI CCCD ĐÃ NHẬP
+    let matchedCert = null;
+    const normTargetName = removeVietnameseTones(targetName).toLowerCase();
+    const normUsernamePart = targetUsername.replace(/^cva\./, '').replace(/[^a-z0-9]/g, '');
+
+    for (const c of hwList) {
+      const cSigner = (c.signerName || '').trim();
+      const normSigner = removeVietnameseTones(cSigner).toLowerCase();
+      const cCccd = (c.cccd || '').trim();
+      const cSubj = (c.subject || '').trim();
+
+      const isCccdMatch = (cCccd && targetCccd && (cCccd === targetCccd || cCccd.includes(targetCccd) || targetCccd.includes(cCccd))) ||
+                          (cSubj && targetCccd && cSubj.includes(targetCccd));
+      const isNameMatch = normTargetName && normSigner && (normSigner.includes(normTargetName) || normTargetName.includes(normSigner));
+      const isUserMatch = normUsernamePart && normUsernamePart.length >= 2 && normSigner.includes(normUsernamePart);
+
+      if (isCccdMatch || (isNameMatch && isUserMatch)) {
+        matchedCert = c;
+        break;
+      }
+    }
+
+    // Nếu không khớp CCCD: Thiết bị phần cứng thực tế đang cắm là cert phần cứng cuối cùng (như Bit4id)
+    const actualCert = matchedCert || hwList[hwList.length - 1] || hwList[0];
 
     const actualSigner = (actualCert.signerName || '').trim() || 'Không xác định';
     const actualCccd = (actualCert.cccd || '').trim();
     const actualSerial = (actualCert.serialNumber || '').trim().toUpperCase();
     const actualSubj = (actualCert.subject || '').trim();
 
-    // 1. Kiểm tra xem có phải Con dấu cơ quan (Nhà trường) không:
+    // 4. Kiểm tra xem có phải Con dấu cơ quan (Nhà trường) không:
     const normSigner = removeVietnameseTones(actualSigner).toLowerCase();
     const isRealOrgCert = (normSigner.startsWith('truong ') || normSigner.includes('thcs ') || normSigner.includes('ubnd ') || normSigner.includes('van thu ')) ||
                           /(?:mst|2\.5\.4\.97|tax)[:=\s]*[0-9]{10}/i.test(actualSubj);
@@ -834,7 +945,7 @@ async function scanUsbTokenForModalUser() {
               <div>• Số Serial: <code class="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-amber-200 text-purple-700">${actualSerial}</code></div>
             </div>
             <p class="text-xs text-slate-700">
-              Đây là <strong>Con dấu pháp nhân của Nhà trường</strong>, KHÔNG PHẢI chữ ký cá nhân của Thầy/Cô <strong>[${targetName || targetUsername}]</strong>.
+              Đây là <strong>Con dấu pháp nhân của Nhà trường</strong>, KHÔNG PHẢI chữ ký cá nhân của Thầy/Cô <strong>[${targetName || targetUsername}]</strong> (CCCD: <strong>${targetCccd}</strong>).
             </p>
             <p class="text-xs font-semibold text-purple-700">
               👉 Nếu Thầy/Cô này được giao phụ trách Văn thư hoặc đóng dấu thay mặt trường, Quản trị viên vui lòng tích chọn mục <strong>"🔴 Ủy quyền Đóng dấu nhà trường"</strong> ở bên dưới rồi quét lại!
@@ -856,7 +967,7 @@ async function scanUsbTokenForModalUser() {
           <div>
             <strong class="text-emerald-800 block mb-1 text-[13px]">XÁC THỰC CON DẤU CƠ QUAN ĐƯỢC ỦY QUYỀN</strong>
             Đã nhận diện USB Token Con dấu cơ quan: <strong>[${actualSigner}]</strong>.<br>
-            Tài khoản <strong>${targetName || targetUsername}</strong> đã được ủy quyền đóng dấu nhà trường.<br>
+            Tài khoản <strong>${targetName || targetUsername}</strong> (CCCD: <strong>${targetCccd}</strong>) đã được ủy quyền đóng dấu nhà trường.<br>
             Số Serial con dấu: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-purple-700 font-mono">${actualSerial}</code> đã tự động liên kết thành công.
           </div>
         `;
@@ -870,17 +981,8 @@ async function scanUsbTokenForModalUser() {
       }
     }
 
-    // 2. Token đang cắm là TOKEN CÁ NHÂN:
-    // So sánh người sở hữu thực sự của Token vs Tài khoản đang sửa trên Web
-    const normTargetName = removeVietnameseTones(targetName).toLowerCase();
-    const normActualName = removeVietnameseTones(actualSigner).toLowerCase();
-    const normUsernamePart = targetUsername.replace(/^cva\./, '').replace(/[^a-z0-9]/g, '');
-
-    const isCccdMatch = actualCccd && targetCccd && (actualCccd === targetCccd || actualCccd.includes(targetCccd) || targetCccd.includes(actualCccd));
-    const isNameMatch = normTargetName && normActualName && (normActualName.includes(normTargetName) || normTargetName.includes(normActualName));
-    const isUsernameMatch = normUsernamePart && normUsernamePart.length >= 2 && normActualName.includes(normUsernamePart);
-
-    if (isCccdMatch || isNameMatch || isUsernameMatch) {
+    // 5. Token đang cắm là TOKEN CÁ NHÂN:
+    if (matchedCert) {
       // Khớp đúng chủ sở hữu
       if (serialInp) serialInp.value = actualSerial;
       if (emailInput && !emailInput.value && actualCert.email) emailInput.value = actualCert.email;
@@ -891,7 +993,7 @@ async function scanUsbTokenForModalUser() {
         <div>
           <strong class="text-emerald-800 block mb-0.5">XÁC THỰC THÀNH CÔNG ĐÚNG CHỦ SỞ HỮU</strong>
           Đã nhận diện đúng USB Token <strong>[${actualSigner}]</strong> của Thầy/Cô <strong>${targetName || targetUsername}</strong>.<br>
-          • Số CCCD: <strong>${actualCccd || targetCccd || 'Đã khớp'}</strong><br>
+          • Số CCCD: <strong class="text-emerald-700 font-mono">${targetCccd}</strong> (Đã đối soát trùng khớp)<br>
           • Số Serial: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-purple-700 font-mono">${actualSerial}</code> đã tự động điền.
         </div>
       `;
@@ -903,7 +1005,7 @@ async function scanUsbTokenForModalUser() {
       showToast(`✅ Đã xác thực đúng USB Token [${actualSigner}] - Serial: ${actualSerial}`, 'success');
       return;
     } else {
-      // CẮM NHẦM USB TOKEN CỦA NGƯỜI KHÁC! (VẤN ĐỀ HÌNH 3 ĐÃ ĐƯỢC GIẢI QUYẾT)
+      // CẮM NHẦM USB TOKEN CỦA NGƯỜI KHÁC!
       if (serialInp) serialInp.value = '';
 
       const mismatchHtml = `
@@ -913,10 +1015,10 @@ async function scanUsbTokenForModalUser() {
             <div>• <strong>USB Token thực tế đang cắm trên máy:</strong> <span class="text-rose-700 font-bold">[${actualSigner}]</span></div>
             <div>• Số CCCD trên Token: <strong>${actualCccd || 'Không xác định'}</strong></div>
             <div>• Số Serial Token: <code class="font-mono font-bold bg-white px-1.5 py-0.5 rounded border border-rose-200 text-purple-700">${actualSerial}</code></div>
-            <div class="border-t border-rose-200 pt-1.5 mt-1.5">• <strong>Tài khoản Thầy/Cô đang sửa:</strong> <span class="font-bold text-slate-800">[${targetName || targetUsername}]</span> (CCCD: <strong>${targetCccd || 'Chưa nhập'}</strong>)</div>
+            <div class="border-t border-rose-200 pt-1.5 mt-1.5">• <strong>Tài khoản Thầy/Cô đang sửa:</strong> <span class="font-bold text-slate-800">[${targetName || targetUsername}]</span> (CCCD: <strong class="text-purple-700 font-mono">${targetCccd}</strong>)</div>
           </div>
           <p class="text-xs text-slate-700 leading-relaxed">
-            Hệ thống phát hiện thông tin trên USB Token <span class="text-rose-600 font-bold underline">HOÀN TOÀN KHÔNG TRÙNG KHỚP</span> với tài khoản đang chỉnh sửa!
+            Hệ thống phát hiện thông tin trên USB Token <span class="text-rose-600 font-bold underline">HOÀN TOÀN KHÔNG TRÙNG KHỚP</span> với Số CCCD (${targetCccd}) của tài khoản đang chỉnh sửa!
           </p>
           <p class="text-xs font-semibold text-rose-700">
             👉 Hệ thống đã <strong>TỪ CHỐI</strong> gán số Serial này để tránh sai sót định danh pháp lý. Vui lòng rút USB ra và cắm đúng USB Token của Thầy/Cô <strong>[${targetName || targetUsername}]</strong>!
@@ -931,7 +1033,7 @@ async function scanUsbTokenForModalUser() {
       }
 
       showModalAlert('CẢNH BÁO CẮM NHẦM THIẾT BỊ', mismatchHtml, 'error');
-      showToast(`⛔ USB Token đang cắm là của [${actualSigner}], không khớp với tài khoản [${targetName || targetUsername}]!`, 'error');
+      showToast(`⛔ USB Token đang cắm là của [${actualSigner}], không khớp với tài khoản [${targetName || targetUsername}] (CCCD: ${targetCccd})!`, 'error');
       return;
     }
   } catch (err) {

@@ -1318,6 +1318,10 @@ namespace RealPdfSigner
                             return cert;
                         }
                     }
+                    if (string.IsNullOrEmpty(cleanExpectedSigner))
+                    {
+                        return null; // Đã truyền CCCD cụ thể nhưng không khớp cert nào
+                    }
                 }
 
                 // 4. Nếu có expectedSigner: Ưu tiên tìm cert phần cứng có tên/email khớp
@@ -2912,6 +2916,9 @@ namespace RealPdfSigner
                             if (!isGovCa) continue;
 
                             bool isHw = IsHardwareTokenCert(c);
+                            if (isHardwareMode && !isHw) continue;
+                            if (isTeacherOrVgca && isHw) continue;
+
                             availableCerts.Add(new
                             {
                                 serialNumber = c.SerialNumber,
@@ -2992,11 +2999,23 @@ namespace RealPdfSigner
                         {
                             cspHealthy = false;
                             hasCspError = true;
-                            cspErrorMessage = !string.IsNullOrWhiteSpace(checkSerial)
-                                ? $"Không tìm thấy USB Token khớp với số Serial [{checkSerial}]! Vui lòng cắm đúng USB Token."
-                                : (!string.IsNullOrWhiteSpace(expectedSigner)
-                                    ? $"Không tìm thấy USB Token của [{expectedSigner}]. Vui lòng cắm đúng USB Token."
-                                    : "Chưa cắm USB Token phần cứng hoặc chưa nhập PIN mở khóa trong Bit4id PKI Manager.");
+                            if (!string.IsNullOrWhiteSpace(expectedCccd) && availableCerts.Count > 0)
+                            {
+                                string pluggedSigner = "Thiết bị khác";
+                                try {
+                                    var first = availableCerts[0] as dynamic;
+                                    pluggedSigner = first?.signerName ?? "Thiết bị khác";
+                                } catch {}
+                                cspErrorMessage = $"USB Token đang cắm là của [{pluggedSigner}], không khớp với Số CCCD [{expectedCccd}]!";
+                            }
+                            else
+                            {
+                                cspErrorMessage = !string.IsNullOrWhiteSpace(checkSerial)
+                                    ? $"Không tìm thấy USB Token khớp với số Serial [{checkSerial}]! Vui lòng cắm đúng USB Token."
+                                    : (!string.IsNullOrWhiteSpace(expectedSigner)
+                                        ? $"Không tìm thấy USB Token của [{expectedSigner}]. Vui lòng cắm đúng USB Token."
+                                        : "Chưa cắm USB Token phần cứng hoặc chưa nhập PIN mở khóa trong Bit4id PKI Manager.");
+                            }
                         }
                     }
 
