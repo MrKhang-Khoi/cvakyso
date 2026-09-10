@@ -307,6 +307,7 @@ app.post('/api/auth/login', (req, res) => {
       email: user.email,
       phone: user.phone,
       canUploadWord: user.canUploadWord !== false,
+      canStampSeal: user.canStampSeal !== undefined ? Boolean(user.canStampSeal) : (user.role === 'BGH' || user.role === 'ADMIN'),
       school: user.school,
       signatureImage: user.signatureImage
     }
@@ -333,6 +334,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
       email: user.email,
       phone: user.phone,
       canUploadWord: user.canUploadWord !== false,
+      canStampSeal: user.canStampSeal !== undefined ? Boolean(user.canStampSeal) : (user.role === 'BGH' || user.role === 'ADMIN'),
       school: user.school,
       signatureImage: user.signatureImage
     }
@@ -431,7 +433,7 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
 
 // Tạo tài khoản giáo viên mới (Chỉ định Tổ bộ môn, Vai trò & Loại chữ ký số)
 app.post('/api/admin/users', requireAdmin, (req, res) => {
-  const { username, password, name, role, department, departmentId, signType, email, phone, cccd, canUploadWord } = req.body;
+  const { username, password, name, role, department, departmentId, signType, email, phone, cccd, canUploadWord, canStampSeal } = req.body;
   if (!username || !name || !department) {
     return res.status(400).json({ success: false, message: 'Vui lòng điền đủ Tên đăng nhập, Họ và tên và Tổ bộ môn!' });
   }
@@ -449,7 +451,8 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
       email,
       phone,
       cccd: cccd || '',
-      canUploadWord: canUploadWord !== undefined ? Boolean(canUploadWord) : true
+      canUploadWord: canUploadWord !== undefined ? Boolean(canUploadWord) : true,
+      canStampSeal: canStampSeal !== undefined ? Boolean(canStampSeal) : (role === 'BGH' || role === 'ADMIN')
     });
     res.json({
       success: true,
@@ -463,6 +466,7 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
         department: newUser.department,
         signType: newUser.signType,
         canUploadWord: newUser.canUploadWord !== false,
+        canStampSeal: newUser.canStampSeal !== false,
         status: newUser.status
       }
     });
@@ -581,6 +585,53 @@ app.post('/api/user/signature', requireAuth, (req, res) => {
     message: 'Đã lưu mẫu chữ ký tay trong suốt thành công!',
     signatureImage: updatedUser.signatureImage
   });
+});
+
+// Quản lý con dấu đỏ điện tử của nhà trường (Dành cho Admin, BGH và người được ủy quyền)
+app.get('/api/school-seal', (req, res) => {
+  const sealUploadPath = path.join(__dirname, 'uploads', 'signatures', 'school_seal.png');
+  const sealRootPath = path.join(__dirname, 'school_seal.png');
+  const targetPath = fs.existsSync(sealUploadPath) ? sealUploadPath : (fs.existsSync(sealRootPath) ? sealRootPath : null);
+
+  if (targetPath) {
+    const sealBase64 = `data:image/png;base64,${fs.readFileSync(targetPath).toString('base64')}`;
+    return res.json({ success: true, sealImage: sealBase64, exists: true });
+  }
+  res.json({ success: true, sealImage: null, exists: false });
+});
+
+app.post('/api/school-seal', requireAuth, (req, res) => {
+  if (req.user.role !== 'ADMIN' && req.user.role !== 'BGH' && !req.user.canStampSeal) {
+    return res.status(403).json({ success: false, message: 'Chỉ Quản trị viên, Ban Giám hiệu hoặc người được ủy quyền mới có quyền tải lên con dấu nhà trường!' });
+  }
+
+  const { sealImage } = req.body;
+  if (!sealImage) {
+    return res.status(400).json({ success: false, message: 'Chưa có dữ liệu ảnh con dấu!' });
+  }
+
+  try {
+    const base64Data = sealImage.replace(/^data:image\/\w+;base64,/, '');
+    const sealUploadPath = path.join(__dirname, 'uploads', 'signatures', 'school_seal.png');
+    const sealRootPath = path.join(__dirname, 'school_seal.png');
+    const buf = Buffer.from(base64Data, 'base64');
+    
+    fs.mkdirSync(path.dirname(sealUploadPath), { recursive: true });
+    fs.writeFileSync(sealUploadPath, buf);
+    fs.writeFileSync(sealRootPath, buf);
+
+    try {
+      dataStore.syncSignatureToFirebase('school_seal', sealImage);
+    } catch (e) {}
+
+    res.json({
+      success: true,
+      message: 'Đã lưu con dấu đỏ nhà trường thành công!',
+      sealImage
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: `Lỗi lưu con dấu: ${err.message}` });
+  }
 });
 
 // Alias cho chữ ký người dùng hiện tại

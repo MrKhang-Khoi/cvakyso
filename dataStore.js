@@ -258,6 +258,7 @@ function createUser(userData) {
     school: 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN',
     phone: userData.phone ? userData.phone.trim() : '',
     canUploadWord: userData.canUploadWord !== undefined ? Boolean(userData.canUploadWord) : true,
+    canStampSeal: userData.canStampSeal !== undefined ? Boolean(userData.canStampSeal) : (userData.role === 'BGH' || userData.role === 'ADMIN'),
     signatureImage: null,
     createdAt: new Date().toISOString()
   };
@@ -307,6 +308,7 @@ function updateUser(id, updates) {
   if (updates.officialEmail !== undefined) users[index].officialEmail = updates.officialEmail.trim();
   if (updates.cccd !== undefined) users[index].cccd = updates.cccd.trim();
   if (updates.canUploadWord !== undefined) users[index].canUploadWord = Boolean(updates.canUploadWord);
+  if (updates.canStampSeal !== undefined) users[index].canStampSeal = Boolean(updates.canStampSeal);
   if (updates.certSerial !== undefined) users[index].certSerial = updates.certSerial.trim();
   if (updates.phone !== undefined) users[index].phone = updates.phone.trim();
   if (updates.signatureImage !== undefined) users[index].signatureImage = updates.signatureImage;

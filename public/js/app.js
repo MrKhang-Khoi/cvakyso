@@ -120,30 +120,52 @@ function initFirebaseRealtime() {
   }
 }
 
-// Lưu mảng Users lên Firebase
+// Lưu mảng Users lên Firebase (có timeout và không block UI khi mất kết nối ngoài)
 async function syncUsersToFirebase(users) {
-  if (firebaseDb) {
-    await firebaseDb.ref('users').set(users);
-    return;
+  try {
+    if (firebaseDb) {
+      await Promise.race([
+        firebaseDb.ref('users').set(users),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase timeout')), 3000))
+      ]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    await fetch(`${RTDB_URL}/users.json`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(users),
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+  } catch (err) {
+    console.warn('[Firebase Sync Users]:', err.message);
   }
-  await fetch(`${RTDB_URL}/users.json`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(users)
-  });
 }
 
-// Lưu mảng Departments lên Firebase
+// Lưu mảng Departments lên Firebase (có timeout)
 async function syncDepartmentsToFirebase(depts) {
-  if (firebaseDb) {
-    await firebaseDb.ref('departments').set(depts);
-    return;
+  try {
+    if (firebaseDb) {
+      await Promise.race([
+        firebaseDb.ref('departments').set(depts),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Firebase timeout')), 3000))
+      ]);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    await fetch(`${RTDB_URL}/departments.json`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(depts),
+      signal: controller.signal
+    });
+    clearTimeout(timer);
+  } catch (err) {
+    console.warn('[Firebase Sync Depts]:', err.message);
   }
-  await fetch(`${RTDB_URL}/departments.json`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(depts)
-  });
 }
 
 // ==================== AUTHENTICATION ====================
@@ -549,10 +571,14 @@ function renderTeachersTable() {
         </td>
         <td class="py-3 px-4">
           ${signTypeBadge}
-          <div class="mt-1">
+          <div class="mt-1 flex flex-wrap gap-1">
             ${(u.canUploadWord === false) 
               ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200" title="Chưa được cấp quyền gửi file Word">🚫 Chặn Word</span>'
               : '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200" title="Được phép gửi file Word">📄 Word OK</span>'
+            }
+            ${(u.canStampSeal || u.role === 'BGH' || u.role === 'ADMIN')
+              ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300 shadow-2xs" title="Được ủy quyền đóng dấu nhà trường"><span class="w-1.5 h-1.5 rounded-full bg-rose-600 inline-block mr-1"></span>Đóng dấu OK</span>'
+              : ''
             }
           </div>
         </td>
@@ -824,14 +850,31 @@ async function scanUsbTokenForModalUser() {
           showToast(`✅ Đã xác thực đúng USB Token [${certSigner}] - Serial: ${certSerial}`, 'success');
           return;
         } else if (isRealOrgCert) {
-          if (serialInp) serialInp.value = certSerial;
-          if (alertBox) {
-            alertBox.className = 'p-3 rounded-xl text-xs border bg-emerald-50 border-emerald-300 text-emerald-900 flex items-start gap-2';
-            alertBox.innerHTML = `<span>✅</span><div><strong class="text-emerald-800 block mb-0.5">XÁC THỰC CON DẤU CƠ QUAN</strong>Đã nhận diện USB Token Con dấu cơ quan <strong>[${certSigner}]</strong>.<br>Số Serial: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-purple-700">${certSerial}</code> đã tự động điền.</div>`;
-            alertBox.classList.remove('hidden');
+          const roleInput = document.getElementById('userRole');
+          const roleVal = (roleInput?.value || '').toUpperCase();
+          const isAuthorizedForSeal = Boolean(document.getElementById('userCanStampSeal')?.checked || roleVal === 'BGH' || roleVal === 'ADMIN');
+
+          if (!isAuthorizedForSeal) {
+            // CẢNH BÁO CHẶN: ĐÂY LÀ USB TOKEN CON DẤU NHÀ TRƯỜNG, KHÔNG TỰ TIỆN GÁN CHO TÀI KHOẢN CÁ NHÂN KHI CHƯA ĐƯỢC ỦY QUYỀN
+            if (serialInp) serialInp.value = '';
+            if (alertBox) {
+              alertBox.className = 'p-3.5 rounded-xl text-xs border bg-amber-50 border-amber-300 text-amber-950 flex items-start gap-2.5';
+              alertBox.innerHTML = `<span>⚠️</span><div><strong class="text-amber-800 block mb-1 text-[13px]">PHÁT HIỆN USB TOKEN CON DẤU NHÀ TRƯỜNG</strong>Thiết bị đang cắm là USB Token Con dấu cơ quan: <strong>[${certSigner}]</strong> (Số Serial: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-amber-200 text-purple-700 font-mono">${certSerial}</code>).<br><br>Đây là <strong>Con dấu pháp nhân cơ quan</strong> của nhà trường, KHÔNG PHẢI chữ ký số cá nhân của Thầy/Cô <strong>[${expectedSigner || inputUsername}]</strong>.<br><br>👉 Nếu Thầy/Cô được giao quản lý con dấu hoặc phụ trách Văn thư đóng dấu thay mặt trường, Quản trị viên vui lòng tích chọn mục <strong>"🔴 Ủy quyền Đóng dấu nhà trường"</strong> ở phần Phân quyền bên dưới rồi bấm quét lại!</div>`;
+              alertBox.classList.remove('hidden');
+            }
+            showToast(`⚠️ Đây là USB Token Con dấu cơ quan [${certSigner}], vui lòng tích chọn 'Ủy quyền Đóng dấu nhà trường' để cấp quyền!`, 'warning');
+            return;
+          } else {
+            // TÀI KHOẢN ĐÃ ĐƯỢC ỦY QUYỀN ĐÓNG DẤU
+            if (serialInp) serialInp.value = certSerial;
+            if (alertBox) {
+              alertBox.className = 'p-3.5 rounded-xl text-xs border bg-emerald-50 border-emerald-300 text-emerald-950 flex items-start gap-2.5';
+              alertBox.innerHTML = `<span>✅</span><div><strong class="text-emerald-800 block mb-1 text-[13px]">XÁC THỰC CON DẤU CƠ QUAN ĐƯỢC ỦY QUYỀN</strong>Đã nhận diện USB Token Con dấu cơ quan: <strong>[${certSigner}]</strong>.<br>Tài khoản <strong>${expectedSigner || inputUsername}</strong> đã được ủy quyền đóng dấu nhà trường.<br>Số Serial con dấu: <code class="font-bold bg-white px-1.5 py-0.5 rounded border border-emerald-200 text-purple-700 font-mono">${certSerial}</code> đã tự động liên kết thành công.</div>`;
+              alertBox.classList.remove('hidden');
+            }
+            showToast(`✅ Đã liên kết USB Token Con dấu cơ quan [${certSigner}] cho tài khoản được ủy quyền!`, 'success');
+            return;
           }
-          showToast(`✅ Đã nhận diện USB Token Con dấu cơ quan [${certSigner}] - Serial: ${certSerial}`, 'success');
-          return;
         } else {
           // CẮM NHẦM USB TOKEN CỦA NGƯỜI KHÁC!
           if (serialInp) serialInp.value = '';
@@ -879,6 +922,9 @@ function openModalCreateUser() {
   if (document.getElementById('userCanUploadWord')) {
     document.getElementById('userCanUploadWord').checked = true;
   }
+  if (document.getElementById('userCanStampSeal')) {
+    document.getElementById('userCanStampSeal').checked = false;
+  }
   const alertBox = document.getElementById('bghUsbScanAlert');
   if (alertBox) { alertBox.classList.add('hidden'); alertBox.innerHTML = ''; }
 
@@ -911,6 +957,9 @@ function openModalEditUser(userId) {
   document.getElementById('userPhone').value = u.phone || '';
   if (document.getElementById('userCanUploadWord')) {
     document.getElementById('userCanUploadWord').checked = (u.canUploadWord !== false);
+  }
+  if (document.getElementById('userCanStampSeal')) {
+    document.getElementById('userCanStampSeal').checked = (u.canStampSeal === true || u.role === 'BGH' || u.role === 'ADMIN');
   }
   const alertBox = document.getElementById('bghUsbScanAlert');
   if (alertBox) { alertBox.classList.add('hidden'); alertBox.innerHTML = ''; }
@@ -968,6 +1017,7 @@ async function handleSaveUser(e) {
   const email = document.getElementById('userEmail').value.trim();
   const phone = document.getElementById('userPhone').value.trim();
   const canUploadWord = document.getElementById('userCanUploadWord') ? document.getElementById('userCanUploadWord').checked : true;
+  const canStampSeal = document.getElementById('userCanStampSeal') ? document.getElementById('userCanStampSeal').checked : (role === 'BGH' || role === 'ADMIN');
 
   // Validate CCCD: nếu nhập thì phải đúng 12 chữ số (hoặc 9 số CMND)
   if (cccd && !/^\d{9,12}$/.test(cccd)) {
@@ -1004,6 +1054,7 @@ async function handleSaveUser(e) {
           email,
           phone,
           canUploadWord,
+          canStampSeal,
           updatedAt: new Date().toISOString()
         };
 
@@ -1015,6 +1066,7 @@ async function handleSaveUser(e) {
         // Nếu cập nhật chính tài khoản đang đăng nhập, đồng bộ ngay appState.currentUser
         if (appState.currentUser && (appState.currentUser.id === id || appState.currentUser.username === users[idx].username)) {
           appState.currentUser.canUploadWord = canUploadWord;
+          appState.currentUser.canStampSeal = canStampSeal;
           appState.currentUser.certSerial = certSerial;
           appState.currentUser.cccd = cccd;
           appState.currentUser.signType = signType;
@@ -1041,6 +1093,19 @@ async function handleSaveUser(e) {
               badgeEl.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-xs';
             }
           }
+        }
+
+        // Cập nhật Backend Server nếu có kết nối
+        if (appState.token || (typeof API_BASE !== 'undefined' && API_BASE)) {
+          const uEp = API_BASE ? `${API_BASE}/api/admin/users/${id}` : `/api/admin/users/${id}`;
+          fetch(uEp, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${appState.token || ''}`
+            },
+            body: JSON.stringify(users[idx])
+          }).catch(() => {});
         }
 
         await syncUsersToFirebase(users);
@@ -1076,10 +1141,24 @@ async function handleSaveUser(e) {
         email,
         phone,
         canUploadWord,
+        canStampSeal,
         isLocked: false,
         createdAt: new Date().toISOString()
       };
       users.push(newUser);
+
+      // Cập nhật Backend Server nếu có kết nối
+      if (appState.token || (typeof API_BASE !== 'undefined' && API_BASE)) {
+        const uEp = API_BASE ? `${API_BASE}/api/admin/users` : `/api/admin/users`;
+        fetch(uEp, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${appState.token || ''}`
+          },
+          body: JSON.stringify(newUser)
+        }).catch(() => {});
+      }
 
       if (role === 'ADMIN' || role === 'BGH') {
         syncBghSigningConfigDirect(fullName, certSerial);
@@ -3435,6 +3514,19 @@ function openDocumentViewer(fileName, fileObject, enableSigning = false) {
 
   openModal('modalDocViewer');
 
+  // Phân quyền hiển thị nút Đóng Dấu Nhà Trường:
+  // CHỈ tài khoản được phân quyền (canStampSeal === true) hoặc Ban Giám hiệu / Quản trị viên mới xuất hiện tính năng này
+  const canStamp = Boolean(currentUser?.canStampSeal || currentUser?.role === 'BGH' || currentUser?.role === 'ADMIN');
+  const btnSeal = document.getElementById('btnToggleSealPlacement');
+  if (btnSeal) {
+    if (canStamp) {
+      btnSeal.classList.remove('hidden');
+    } else {
+      btnSeal.classList.add('hidden');
+    }
+  }
+  currentSigningAction = 'PERSONAL';
+
   // TUYỆT ĐỐI KHÔNG tự động hiện con dấu khi người dùng chỉ bấm mở xem văn bản
   isSigPlacementActive = false;
   toggleSignaturePlacementMode(false);
@@ -3797,8 +3889,11 @@ function updateStampPlacementFromPosition() {
   updateStampCoordsDisplay();
 }
 
+let currentSigningAction = 'PERSONAL'; // 'PERSONAL' hoặc 'SEAL'
+
 function toggleSignaturePlacementMode(forceState) {
-  const targetState = (typeof forceState === 'boolean') ? forceState : !isSigPlacementActive;
+  const isCurrentlyPersonal = (isSigPlacementActive && currentSigningAction === 'PERSONAL');
+  const targetState = (typeof forceState === 'boolean') ? forceState : !isCurrentlyPersonal;
 
   if (targetState) {
     const sig = getTeacherSignatureImage();
@@ -3818,26 +3913,42 @@ function toggleSignaturePlacementMode(forceState) {
       return;
     }
 
+    currentSigningAction = 'PERSONAL';
     isSigPlacementActive = true;
     const bar = document.getElementById('viewerSigToolBar');
     const stamp = document.getElementById('draggableSignatureStamp');
     const btnConfirm = document.getElementById('btnViewerConfirmSign');
+    const btnConfirmText = document.getElementById('btnViewerConfirmSignText');
     const btnText = document.getElementById('btnToggleSignatureText');
+    const btnSealText = document.getElementById('btnToggleSealText');
     const dragImg = document.getElementById('draggableSignatureImg');
     const defaultBox = document.getElementById('draggableSignatureDefaultBox');
+    const nameEl = document.getElementById('draggableStampSignerName');
+
+    const currentUser = appState.currentUser;
+    const signerName = currentUser ? (currentUser.fullName || currentUser.name || currentUser.username) : 'Giáo viên';
+    if (nameEl) nameEl.textContent = signerName;
 
     if (dragImg) {
       dragImg.src = sig;
       dragImg.classList.remove('hidden');
+      dragImg.alt = 'Chữ ký cá nhân';
     }
     if (defaultBox) defaultBox.classList.add('hidden');
 
     if (bar) bar.classList.remove('hidden');
-    if (stamp) stamp.classList.remove('hidden');
-    if (btnConfirm) btnConfirm.classList.remove('hidden');
+    if (stamp) {
+      stamp.classList.remove('hidden');
+      stamp.className = 'absolute z-40 cursor-move select-none group';
+    }
+    if (btnConfirm) {
+      btnConfirm.classList.remove('hidden');
+      btnConfirm.className = 'px-4 py-1.5 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer';
+    }
+    if (btnConfirmText) btnConfirmText.textContent = 'Ký Số Ngay';
     if (btnText) btnText.textContent = 'Ẩn Chữ Ký';
+    if (btnSealText) btnSealText.textContent = '🔴 Đóng Dấu Nhà Trường';
 
-    const currentUser = appState.currentUser;
     const userRole = (currentUser?.role || '').toUpperCase();
     const roleStr = (userRole === 'BGH' || userRole === 'PRINCIPAL' || (currentUser?.fullName || '').includes('Liền')) ? 'principal'
       : ((userRole === 'LEADER' || userRole === 'TO_TRUONG' || (currentUser?.fullName || '').includes('Hằng')) ? 'leader' : 'teacher');
@@ -3849,13 +3960,92 @@ function toggleSignaturePlacementMode(forceState) {
     placeSignatureOnPage(targetPage, roleStr, false);
   } else {
     isSigPlacementActive = false;
+    currentSigningAction = 'PERSONAL';
     const bar = document.getElementById('viewerSigToolBar');
     const stamp = document.getElementById('draggableSignatureStamp');
     const btnText = document.getElementById('btnToggleSignatureText');
+    const btnSealText = document.getElementById('btnToggleSealText');
+    const btnConfirmText = document.getElementById('btnViewerConfirmSignText');
+    const btnConfirm = document.getElementById('btnViewerConfirmSign');
 
     if (bar) bar.classList.add('hidden');
     if (stamp) stamp.classList.add('hidden');
     if (btnText) btnText.textContent = 'Đặt Chữ Ký Số';
+    if (btnSealText) btnSealText.textContent = '🔴 Đóng Dấu Nhà Trường';
+    if (btnConfirmText) btnConfirmText.textContent = 'Ký Số Ngay';
+    if (btnConfirm) {
+      btnConfirm.className = 'px-4 py-1.5 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer';
+    }
+  }
+}
+
+// Chế độ Đóng Dấu Nhà Trường bằng USB Token của trường (chuẩn Viettel vOffice/SMAS)
+function toggleSealPlacementMode(forceState) {
+  const currentUser = appState.currentUser;
+  const canStamp = Boolean(currentUser?.canStampSeal || currentUser?.role === 'BGH' || currentUser?.role === 'ADMIN');
+  if (!canStamp) {
+    showToast('⚠️ Thầy/Cô chưa được phân quyền đóng dấu con dấu nhà trường!', 'warning');
+    return;
+  }
+
+  const isCurrentlySeal = (isSigPlacementActive && currentSigningAction === 'SEAL');
+  const targetState = (typeof forceState === 'boolean') ? forceState : !isCurrentlySeal;
+
+  const bar = document.getElementById('viewerSigToolBar');
+  const stamp = document.getElementById('draggableSignatureStamp');
+  const btnConfirm = document.getElementById('btnViewerConfirmSign');
+  const btnConfirmText = document.getElementById('btnViewerConfirmSignText');
+  const btnSealText = document.getElementById('btnToggleSealText');
+  const btnSigText = document.getElementById('btnToggleSignatureText');
+  const dragImg = document.getElementById('draggableSignatureImg');
+  const defaultBox = document.getElementById('draggableSignatureDefaultBox');
+  const nameEl = document.getElementById('draggableStampSignerName');
+
+  if (targetState) {
+    currentSigningAction = 'SEAL';
+    isSigPlacementActive = true;
+
+    // Ảnh con dấu đỏ điện tử của nhà trường
+    const schoolSealSrc = './school_seal.png';
+    if (dragImg) {
+      dragImg.src = schoolSealSrc;
+      dragImg.classList.remove('hidden');
+      dragImg.alt = 'Con dấu đỏ nhà trường';
+    }
+    if (defaultBox) defaultBox.classList.add('hidden');
+
+    if (nameEl) nameEl.textContent = 'TRƯỜNG THCS CHU VĂN AN (Dấu cơ quan)';
+
+    if (bar) bar.classList.remove('hidden');
+    if (stamp) {
+      stamp.classList.remove('hidden');
+      stamp.className = 'absolute z-40 cursor-move select-none group';
+    }
+    if (btnConfirm) {
+      btnConfirm.classList.remove('hidden');
+      btnConfirm.className = 'px-4 py-1.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer';
+    }
+    if (btnConfirmText) btnConfirmText.textContent = '🔴 Xác Nhận Đóng Dấu (USB Token)';
+    if (btnSealText) btnSealText.textContent = 'Ẩn Con Dấu';
+    if (btnSigText) btnSigText.textContent = 'Đặt Chữ Ký Số';
+
+    // Đặt con dấu vào trang hiện tại (nơi ký duyệt)
+    const visibleWrapper = getCurrentlyVisiblePageWrapper();
+    const targetPage = visibleWrapper ? (parseInt(visibleWrapper.getAttribute('data-page'), 10) || 1) : (currentStampPage === 'last' ? (currentDocTotalPages || 1) : (currentStampPage || 1));
+    placeSignatureOnPage(targetPage, 'principal', false);
+    showToast('🔴 Đã kích hoạt chế độ Đóng dấu nhà trường. Vui lòng kéo thả con dấu đỏ vào đúng vị trí trên văn bản!', 'info');
+  } else {
+    currentSigningAction = 'PERSONAL';
+    isSigPlacementActive = false;
+
+    if (bar) bar.classList.add('hidden');
+    if (stamp) stamp.classList.add('hidden');
+    if (btnSealText) btnSealText.textContent = '🔴 Đóng Dấu Nhà Trường';
+    if (btnSigText) btnSigText.textContent = 'Đặt Chữ Ký Số';
+    if (btnConfirmText) btnConfirmText.textContent = 'Ký Số Ngay';
+    if (btnConfirm) {
+      btnConfirm.className = 'px-4 py-1.5 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer';
+    }
   }
 }
 
@@ -4220,16 +4410,17 @@ async function pingLocalSigner(timeoutMs = 2500) {
   return { available: false };
 }
 
-async function verifyVgcaStatusFromAgent(cccd, password, signType = 'VGCA') {
+async function verifyVgcaStatusFromAgent(cccd, password, signType = 'VGCA', options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4500);
   const currentUser = appState.currentUser;
+  const isSchoolSeal = Boolean(options && options.isSchoolSeal);
   const isCurrentUserBgh = (currentUser?.role === 'BGH' || currentUser?.role === 'ADMIN' || currentUser?.signType === 'USB_TOKEN' || currentUser?.departmentId === 'dept_bgh');
-  const isUsb = isCurrentUserBgh || (signType === 'USB_TOKEN' || signType === 'usb');
+  const isUsb = isSchoolSeal || isCurrentUserBgh || (signType === 'USB_TOKEN' || signType === 'usb');
   const mode = isUsb ? 'HARDWARE' : 'PERSONAL';
-  const expectedSigner = currentUser?.fullName || currentUser?.name || (isUsb ? 'Ngô Thị Liền' : '');
-  const expectedCccd = cccd || currentUser?.cccd || (isUsb ? '042084002100' : '');
-  const expectedSerial = isUsb ? (currentUser?.certSerial || currentUser?.certificateSerial || (window.bghSigningConfig && window.bghSigningConfig.serialNumber) || '025E056A3F133DA9') : '';
+  const expectedSigner = isSchoolSeal ? 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN' : (currentUser?.fullName || currentUser?.name || (isUsb ? 'Ngô Thị Liền' : ''));
+  const expectedCccd = isSchoolSeal ? '' : (cccd || currentUser?.cccd || (isUsb ? '042084002100' : ''));
+  const expectedSerial = isSchoolSeal ? (options.serialNumber || '189A2218A5A80E4C') : (isUsb ? (currentUser?.certSerial || currentUser?.certificateSerial || (window.bghSigningConfig && window.bghSigningConfig.serialNumber) || '025E056A3F133DA9') : '');
 
   let queryUrl = `http://127.0.0.1:18888/api/check-vgca-status?signType=${encodeURIComponent(isUsb ? 'USB_TOKEN' : signType)}&mode=${encodeURIComponent(mode)}&signer=${encodeURIComponent(expectedSigner)}&cccd=${encodeURIComponent(expectedCccd)}&_t=${Date.now()}`;
   if (expectedSerial) {
@@ -4252,7 +4443,20 @@ async function verifyVgcaStatusFromAgent(cccd, password, signType = 'VGCA') {
     // Đối chiếu danh tính tuyệt đối chống ký chéo / nhầm lẫn
     if (data.certInfo) {
       const cert = data.certInfo;
-      if (!isUsb) {
+      if (isSchoolSeal) {
+        // Đóng dấu nhà trường: Bắt buộc là USB Token Con dấu cơ quan
+        const normAct = removeVietnameseTones(cert.signerName || '').toLowerCase();
+        const isOrg = normAct.includes('truong') || normAct.includes('thcs') || normAct.includes('chu van an');
+        const cleanActual = (cert.serialNumber || '').replace(/[\s:]/g, '').toUpperCase();
+        const cleanExp = expectedSerial.replace(/[\s:]/g, '').toUpperCase();
+
+        if (!isOrg && cleanExp && cleanActual !== cleanExp) {
+          data.cspHealthy = false;
+          data.hasCspError = true;
+          data.cspErrorMessage = `Thiết bị USB Token không hợp lệ! Để đóng dấu nhà trường, vui lòng cắm USB Token Con dấu của trường [TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN] (Serial: ${expectedSerial}), hiện tại thiết bị đang cắm là của [${cert.signerName}].`;
+          data.certInfo = null;
+        }
+      } else if (!isUsb) {
         // Giáo viên ký cá nhân: Kiểm tra bắt buộc khớp tên hoặc CCCD của tài khoản đang đăng nhập
         const normExp = removeVietnameseTones(expectedSigner).toLowerCase();
         const normAct = removeVietnameseTones(cert.signerName || '').toLowerCase();
@@ -4321,6 +4525,32 @@ function handleViewerConfirmSignClick() {
   currentActiveSignSession = null;
   if (vgcaCountdownTimer) clearInterval(vgcaCountdownTimer);
   if (driveCleanupTimer) clearInterval(driveCleanupTimer);
+
+  // 0. XỬ LÝ RIÊNG CHO CHẾ ĐỘ ĐÓNG DẤU NHÀ TRƯỜNG (chuẩn Viettel vOffice/SMAS)
+  if (currentSigningAction === 'SEAL') {
+    if (!isSigPlacementActive) {
+      showModalAlert(
+        'Chưa đặt vị trí con dấu',
+        `Thầy/Cô chưa định vị vị trí con dấu trên văn bản!<br><br>Vui lòng nhấn nút <strong>"🔴 Đóng Dấu Nhà Trường"</strong> trên thanh công cụ và kéo con dấu đỏ vào đúng vị trí cần đóng trước khi xác nhận.`,
+        'warning',
+        {
+          confirmText: '🔴 Đặt con dấu ngay',
+          onConfirm: () => toggleSealPlacementMode(true)
+        }
+      );
+      return;
+    }
+
+    // Thực hiện quy trình ký đóng dấu pháp nhân bằng USB Token con dấu nhà trường
+    executeMasterSigningPipeline({
+      signType: 'USB_TOKEN',
+      isSchoolSeal: true,
+      signerName: 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN',
+      serialNumber: '189A2218A5A80E4C',
+      role: 'CON_DAU_NHA_TRUONG'
+    });
+    return;
+  }
 
   // 0. Bắt buộc đã tải ảnh chữ ký cá nhân
   const sig = getTeacherSignatureImage();
@@ -4494,11 +4724,12 @@ async function executeMasterSigningPipeline(credentials) {
   if (vgcaCountdownTimer) clearInterval(vgcaCountdownTimer);
   if (driveCleanupTimer) clearInterval(driveCleanupTimer);
 
+  const isSchoolSeal = Boolean(credentials.isSchoolSeal);
   const isCurrentUserBgh = (appState.currentUser?.role === 'BGH' || appState.currentUser?.role === 'ADMIN' || appState.currentUser?.signType === 'USB_TOKEN' || appState.currentUser?.departmentId === 'dept_bgh');
-  const isUsb = isCurrentUserBgh || (credentials.signType === 'USB_TOKEN' || credentials.signType === 'usb');
+  const isUsb = isSchoolSeal || isCurrentUserBgh || (credentials.signType === 'USB_TOKEN' || credentials.signType === 'usb');
 
   // BƯỚC 1: KIỂM TRA EDUSIGN AGENT (127.0.0.1:18888)
-  showToast(isUsb ? 'Đang kết nối EduSign Agent để kiểm tra USB Token Ban Cơ yếu...' : 'Đang kết nối EduSign Agent (cổng 18888)...', 'info');
+  showToast(isSchoolSeal ? 'Đang kết nối EduSign Agent để kiểm tra USB Token Con dấu nhà trường...' : (isUsb ? 'Đang kết nối EduSign Agent để kiểm tra USB Token Ban Cơ yếu...' : 'Đang kết nối EduSign Agent (cổng 18888)...'), 'info');
   const ping = await pingLocalSigner(2500);
   if (!ping.available) {
     showModalAlert(
@@ -4515,10 +4746,10 @@ async function executeMasterSigningPipeline(credentials) {
   }
 
   // BƯỚC 2 & 3: ĐỐI SOÁT & KIỂM TRA CSP / TOKEN
-  showToast(isUsb ? 'Đang kiểm tra thiết bị USB Token phần cứng...' : 'Đang đối soát mật khẩu & kiểm tra Virtual CSP...', 'info');
+  showToast(isSchoolSeal ? 'Đang kiểm tra thiết bị USB Token Con dấu nhà trường...' : (isUsb ? 'Đang kiểm tra thiết bị USB Token phần cứng...' : 'Đang đối soát mật khẩu & kiểm tra Virtual CSP...'), 'info');
   let cspData;
   try {
-    cspData = await verifyVgcaStatusFromAgent(credentials.cccd, credentials.password, isUsb ? 'USB_TOKEN' : credentials.signType);
+    cspData = await verifyVgcaStatusFromAgent(credentials.cccd, credentials.password, isUsb ? 'USB_TOKEN' : credentials.signType, { isSchoolSeal, serialNumber: credentials.serialNumber });
   } catch (err) {
     showModalAlert(
       isUsb ? 'Lỗi kiểm tra USB Token' : 'Lỗi kiểm tra Virtual CSP',
@@ -4568,7 +4799,7 @@ async function executeMasterSigningPipeline(credentials) {
   if (!cert) {
     showModalAlert(
       'Không tìm thấy Chứng thư số hợp lệ',
-      cspData.cspErrorMessage || (isUsb ? 'Không tìm thấy USB Token Ban Giám hiệu đang cắm trên máy tính. Vui lòng cắm Token và thử lại.' : 'Không tìm thấy chứng thư số phù hợp với tài khoản của Thầy/Cô. Vui lòng kiểm tra lại dịch vụ VGCA Virtual CSP.'),
+      cspData.cspErrorMessage || (isSchoolSeal ? 'Không tìm thấy USB Token Con dấu nhà trường đang cắm trên máy tính. Vui lòng cắm Token con dấu của trường và thử lại.' : (isUsb ? 'Không tìm thấy USB Token Ban Giám hiệu đang cắm trên máy tính. Vui lòng cắm Token và thử lại.' : 'Không tìm thấy chứng thư số phù hợp với tài khoản của Thầy/Cô. Vui lòng kiểm tra lại dịch vụ VGCA Virtual CSP.')),
       'error'
     );
     return; // DỪNG LẬP TỨC
@@ -4580,11 +4811,11 @@ async function executeMasterSigningPipeline(credentials) {
   const serialEl = document.getElementById('signProgressSerial');
   const statusLabel = document.getElementById('signProgressStatusLabel');
 
-  if (signerEl) signerEl.textContent = cert.signerName || appState.currentUser?.fullName || (isUsb ? 'Ngô Thị Liền' : 'Giáo viên');
-  if (cccdEl) cccdEl.textContent = cert.cccd || credentials.cccd || (isUsb ? '042084002100' : '');
+  if (signerEl) signerEl.textContent = isSchoolSeal ? 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN' : (cert.signerName || appState.currentUser?.fullName || (isUsb ? 'Ngô Thị Liền' : 'Giáo viên'));
+  if (cccdEl) cccdEl.textContent = isSchoolSeal ? 'Mã cơ quan: MST 6100433738' : (cert.cccd || credentials.cccd || (isUsb ? '042084002100' : ''));
   if (deptEl) deptEl.textContent = cert.school || appState.currentUser?.department || 'THCS Chu Văn An';
-  if (serialEl) serialEl.textContent = cert.serialNumber || (isUsb ? '025E056A3F133DA9' : 'X.509 PAdES SHA256withRSA');
-  if (statusLabel) statusLabel.textContent = isUsb ? 'Đang sẵn sàng phê duyệt & đóng dấu điện tử...' : 'Đang sẵn sàng niêm phong chữ ký số...';
+  if (serialEl) serialEl.textContent = cert.serialNumber || (isSchoolSeal ? '189A2218A5A80E4C' : (isUsb ? '025E056A3F133DA9' : 'X.509 PAdES SHA256withRSA'));
+  if (statusLabel) statusLabel.textContent = isSchoolSeal ? 'Đang sẵn sàng đóng dấu đỏ pháp nhân cơ quan...' : (isUsb ? 'Đang sẵn sàng phê duyệt & đóng dấu điện tử...' : 'Đang sẵn sàng niêm phong chữ ký số...');
 
   const mobileView = document.getElementById('signProgressMobileView');
   const usbView = document.getElementById('signProgressUsbView');
@@ -4607,6 +4838,7 @@ async function executeMasterSigningPipeline(credentials) {
     },
     cert,
     isUsb,
+    isSchoolSeal,
     docTitle: currentViewingFileName,
     page: resolvedTargetPage,
     targetPage: resolvedTargetPage,
@@ -4753,9 +4985,9 @@ async function executeLocalAgentSigning() {
       doc: {
         id: 'DOC_' + Date.now(),
         title: session.docTitle || 'KeHoachBaiDay.pdf',
-        author: session.cert.signerName,
-        signerRole: roleString,
-        role: roleString,
+        author: session.isSchoolSeal ? 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN' : session.cert.signerName,
+        signerRole: session.isSchoolSeal ? 'seal' : roleString,
+        role: session.isSchoolSeal ? 'seal' : roleString,
         signCoordinates: signCoordObj
       },
       page: pageNum,
@@ -4766,17 +4998,35 @@ async function executeLocalAgentSigning() {
       height: Math.round(stampH * 10) / 10,
       scale: session.scale || 1.0,
       isManualDrag: isManualDrag,
-      signerRole: roleString,
-      role: roleString,
+      signerRole: session.isSchoolSeal ? 'seal' : roleString,
+      role: session.isSchoolSeal ? 'seal' : roleString,
       signCoordinates: signCoordObj,
       fileBase64: pdfBase64,
       signMode: session.isUsb ? 'HARDWARE' : 'PERSONAL',
       signType: session.isUsb ? 'USB_TOKEN' : 'VGCA',
-      signerName: appState.currentUser?.fullName || session.cert.signerName,
-      cccd: appState.currentUser?.cccd || session.credentials.cccd,
+      signerName: session.isSchoolSeal ? 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN' : (appState.currentUser?.fullName || session.cert.signerName),
+      cccd: session.isSchoolSeal ? '6100433738' : (appState.currentUser?.cccd || session.credentials.cccd),
       expectedSerial: session.cert.serialNumber,
       thumbprint: session.cert.thumbprint
     };
+
+    if (session.isSchoolSeal) {
+      payload.isSchoolSeal = true;
+      try {
+        const sRes = await fetch('./school_seal.png');
+        if (sRes.ok) {
+          const sBlob = await sRes.blob();
+          payload.signatureImage = await new Promise(r => {
+            const fr = new FileReader();
+            fr.onload = () => r(fr.result);
+            fr.readAsDataURL(sBlob);
+          });
+        }
+      } catch (e) {}
+    } else {
+      const sigImg = getTeacherSignatureImage();
+      if (sigImg) payload.signatureImage = sigImg;
+    }
     if (isManualDrag) {
       payload.x = Math.round(xPt * 10) / 10;
       payload.y = Math.round(yPt * 10) / 10;
@@ -4976,15 +5226,12 @@ document.addEventListener('click', (e) => {
 // ==================== QUẢN LÝ ẢNH CHỮ KÝ CÁ NHÂN & XÓA NỀN TRONG SUỐT ====================
 let rawLoadedSignatureImage = null;
 let currentProcessedSignatureBase64 = null;
+let currentUploadSignatureTarget = 'PERSONAL'; // 'PERSONAL' hoặc 'SCHOOL_SEAL'
 
 function openModalUploadSignature() {
   const finput = document.getElementById('inputSignatureImageFile');
   if (finput) finput.value = '';
 
-  const savedSig = getTeacherSignatureImage();
-  const previewImg = document.getElementById('userSigPreviewImg');
-  const emptyBox = document.getElementById('userSigPreviewEmpty');
-  const btnDel = document.getElementById('btnDeleteCurrentSig');
   const range = document.getElementById('rangeBgThreshold');
   const label = document.getElementById('labelBgThresholdVal');
   const cb = document.getElementById('cbAutoRemoveBg');
@@ -4993,27 +5240,96 @@ function openModalUploadSignature() {
   if (label) label.textContent = '200';
   if (cb) cb.checked = true;
 
-  if (savedSig) {
-    currentProcessedSignatureBase64 = savedSig;
-    rawLoadedSignatureImage = null;
-    if (previewImg) {
-      previewImg.src = savedSig;
-      previewImg.classList.remove('hidden');
+  const currentUser = appState.currentUser;
+  const canStamp = Boolean(currentUser?.canStampSeal || currentUser?.role === 'BGH' || currentUser?.role === 'ADMIN');
+  const selectorBox = document.getElementById('boxSignatureTargetSelector');
+  if (selectorBox) {
+    if (canStamp) {
+      selectorBox.classList.remove('hidden');
+    } else {
+      selectorBox.classList.add('hidden');
     }
-    if (emptyBox) emptyBox.classList.add('hidden');
-    if (btnDel) btnDel.classList.remove('hidden');
-  } else {
-    currentProcessedSignatureBase64 = null;
-    rawLoadedSignatureImage = null;
-    if (previewImg) {
-      previewImg.src = '';
-      previewImg.classList.add('hidden');
-    }
-    if (emptyBox) emptyBox.classList.remove('hidden');
-    if (btnDel) btnDel.classList.add('hidden');
   }
 
+  switchUploadSignatureTarget('PERSONAL');
   openModal('modalUploadSignature');
+}
+
+function switchUploadSignatureTarget(target) {
+  currentUploadSignatureTarget = target;
+  const tabPersonal = document.getElementById('tabUploadPersonalSig');
+  const tabSeal = document.getElementById('tabUploadSchoolSeal');
+  const labelSource = document.getElementById('labelUploadSignatureSource');
+  const textPrompt = document.getElementById('textUploadPrompt');
+  const btnSaveText = document.getElementById('btnSaveUserSigText');
+  const previewImg = document.getElementById('userSigPreviewImg');
+  const emptyBox = document.getElementById('userSigPreviewEmpty');
+  const btnDel = document.getElementById('btnDeleteCurrentSig');
+
+  const finput = document.getElementById('inputSignatureImageFile');
+  if (finput) finput.value = '';
+
+  if (target === 'SCHOOL_SEAL') {
+    if (tabPersonal) {
+      tabPersonal.className = 'py-2 px-3 rounded-xl text-slate-600 hover:text-brand-700 flex items-center justify-center gap-1.5 transition cursor-pointer font-semibold';
+    }
+    if (tabSeal) {
+      tabSeal.className = 'py-2 px-3 rounded-xl bg-white shadow-xs text-rose-700 flex items-center justify-center gap-1.5 transition cursor-pointer font-extrabold';
+    }
+    if (labelSource) labelSource.textContent = 'Chọn ảnh con dấu đỏ nhà trường (Hình tròn hoặc scan con dấu):';
+    if (textPrompt) textPrompt.textContent = 'Bấm để tải ảnh con dấu đỏ của nhà trường';
+    if (btnSaveText) btnSaveText.textContent = 'Lưu Con Dấu Nhà Trường';
+
+    // Nạp ảnh con dấu nhà trường hiện tại để xem trước
+    fetch('./school_seal.png').then(res => {
+      if (res.ok) return res.blob();
+      throw new Error();
+    }).then(blob => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        currentProcessedSignatureBase64 = reader.result;
+        rawLoadedSignatureImage = null;
+        if (previewImg) {
+          previewImg.src = reader.result;
+          previewImg.classList.remove('hidden');
+        }
+        if (emptyBox) emptyBox.classList.add('hidden');
+      };
+      reader.readAsDataURL(blob);
+    }).catch(() => {});
+
+  } else {
+    if (tabPersonal) {
+      tabPersonal.className = 'py-2 px-3 rounded-xl bg-white shadow-xs text-brand-700 flex items-center justify-center gap-1.5 transition cursor-pointer font-extrabold';
+    }
+    if (tabSeal) {
+      tabSeal.className = 'py-2 px-3 rounded-xl text-slate-600 hover:text-rose-700 flex items-center justify-center gap-1.5 transition cursor-pointer font-semibold';
+    }
+    if (labelSource) labelSource.textContent = 'Chọn ảnh chữ ký (Chụp từ giấy hoặc ảnh scan):';
+    if (textPrompt) textPrompt.textContent = 'Bấm để tải ảnh chữ ký từ máy tính hoặc điện thoại';
+    if (btnSaveText) btnSaveText.textContent = 'Lưu Chữ Ký Cá Nhân';
+
+    const savedSig = getTeacherSignatureImage();
+    if (savedSig) {
+      currentProcessedSignatureBase64 = savedSig;
+      rawLoadedSignatureImage = null;
+      if (previewImg) {
+        previewImg.src = savedSig;
+        previewImg.classList.remove('hidden');
+      }
+      if (emptyBox) emptyBox.classList.add('hidden');
+      if (btnDel) btnDel.classList.remove('hidden');
+    } else {
+      currentProcessedSignatureBase64 = null;
+      rawLoadedSignatureImage = null;
+      if (previewImg) {
+        previewImg.src = '';
+        previewImg.classList.add('hidden');
+      }
+      if (emptyBox) emptyBox.classList.remove('hidden');
+      if (btnDel) btnDel.classList.add('hidden');
+    }
+  }
 }
 
 function handleUserSignatureFileSelected(file) {
@@ -5120,7 +5436,57 @@ function reprocessSignatureImage() {
 
 function saveUserSignature() {
   if (!currentProcessedSignatureBase64) {
-    showModalAlert('Chưa có ảnh chữ ký', 'Vui lòng chọn ảnh chữ ký từ thiết bị trước khi lưu.', 'warning');
+    showModalAlert('Chưa có ảnh chữ ký', 'Vui lòng chọn ảnh từ thiết bị trước khi lưu.', 'warning');
+    return;
+  }
+
+  if (currentUploadSignatureTarget === 'SCHOOL_SEAL') {
+    // Lưu con dấu đỏ nhà trường vào cache client
+    try {
+      localStorage.setItem('edusign_school_seal', currentProcessedSignatureBase64);
+    } catch (e) {}
+
+    // Gửi lên backend server
+    if (appState.token || (typeof API_BASE !== 'undefined' && API_BASE)) {
+      const endpoint = (typeof API_BASE !== 'undefined' && API_BASE) ? `${API_BASE}/api/school-seal` : '/api/school-seal';
+      fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${appState.token || ''}`
+        },
+        body: JSON.stringify({ sealImage: currentProcessedSignatureBase64 })
+      }).catch(err => console.warn('Lỗi lưu con dấu backend:', err));
+    }
+
+    // Tự động đồng bộ lên Firebase Realtime Database
+    try {
+      const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+      fetch(`${rtdbUrl}/signatures/school_seal.json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signatureImage: currentProcessedSignatureBase64,
+          updatedAt: new Date().toISOString()
+        })
+      }).catch(e => console.warn('[Seal Sync] Lưu Firebase nền:', e.message));
+    } catch (e) {}
+
+    // Nếu con dấu đang hiển thị trên canvas ký ở chế độ SEAL, cập nhật ngay
+    if (currentSigningAction === 'SEAL') {
+      const dragImg = document.getElementById('draggableSignatureImg');
+      if (dragImg) {
+        dragImg.src = currentProcessedSignatureBase64;
+        dragImg.classList.remove('hidden');
+      }
+    }
+
+    closeModal('modalUploadSignature');
+    showModalAlert(
+      'Lưu con dấu thành công',
+      '🎉 Đã cập nhật con dấu đỏ điện tử của nhà trường thành công! Giáo viên hoặc Ban Giám hiệu được phân quyền đóng dấu có thể sử dụng ngay khi ký duyệt văn bản.',
+      'success'
+    );
     return;
   }
 
@@ -5141,8 +5507,6 @@ function saveUserSignature() {
           signatureImage: currentProcessedSignatureBase64,
           updatedAt: new Date().toISOString()
         })
-      }).then(() => {
-        console.log('[Signature Sync] ✅ Đã đồng bộ chữ ký lên Firebase Cloud thành công');
       }).catch(e => console.warn('[Signature Sync] Lưu Firebase nền:', e.message));
     } catch (e) {}
 
@@ -5178,6 +5542,30 @@ function saveUserSignature() {
 }
 
 function handleDeleteCurrentSignature() {
+  if (currentUploadSignatureTarget === 'SCHOOL_SEAL') {
+    showModalConfirm(
+      'Xác nhận xóa con dấu',
+      'Thầy/Cô có chắc chắn muốn xóa mẫu con dấu nhà trường hiện tại không?',
+      () => {
+        localStorage.removeItem('edusign_school_seal');
+        rawLoadedSignatureImage = null;
+        currentProcessedSignatureBase64 = null;
+        const previewImg = document.getElementById('userSigPreviewImg');
+        const emptyBox = document.getElementById('userSigPreviewEmpty');
+        const btnDel = document.getElementById('btnDeleteCurrentSig');
+        const finput = document.getElementById('inputSignatureImageFile');
+        if (finput) finput.value = '';
+        if (previewImg) {
+          previewImg.src = '';
+          previewImg.classList.add('hidden');
+        }
+        if (emptyBox) emptyBox.classList.remove('hidden');
+        if (btnDel) btnDel.classList.add('hidden');
+      }
+    );
+    return;
+  }
+
   showModalConfirm(
     'Xác nhận xóa mẫu chữ ký',
     'Thầy/Cô có chắc chắn muốn xóa mẫu ảnh chữ ký cá nhân hiện tại không?',
