@@ -222,7 +222,7 @@ async function handleLogin(e) {
             departmentName: matched.departmentName || matched.department || '',
             signType: matched.signType || ((matched.role === 'ADMIN' || matched.role === 'BGH' || matched.departmentId === 'dept_bgh') ? 'USB_TOKEN' : 'VGCA'),
             canUploadWord: matched.canUploadWord !== false,
-            canStampSeal: (matched.canStampSeal !== undefined) ? Boolean(matched.canStampSeal) : (matched.role === 'ADMIN')
+            canStampSeal: (matched.role === 'ADMIN' || matched.role === 'BGH') ? true : Boolean(matched.canStampSeal)
           };
         }
       }
@@ -317,8 +317,8 @@ function checkSession() {
               appState.currentUser.canUploadWord = Boolean(matched.canUploadWord);
               sessionUpdated = true;
             }
-            if (matched && matched.canStampSeal !== undefined) {
-              appState.currentUser.canStampSeal = Boolean(matched.canStampSeal);
+            if (matched) {
+              appState.currentUser.canStampSeal = (appState.currentUser.role === 'ADMIN' || appState.currentUser.role === 'BGH') ? true : Boolean(matched.canStampSeal);
               sessionUpdated = true;
             }
             if (sessionUpdated) {
@@ -585,7 +585,7 @@ function renderTeachersTable() {
               ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200" title="Chưa được cấp quyền gửi file Word">🚫 Chặn Word</span>'
               : '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200" title="Được phép gửi file Word">📄 Word OK</span>'
             }
-            ${((u.canStampSeal !== undefined) ? Boolean(u.canStampSeal) : (u.role === 'ADMIN'))
+            ${((u.role === 'ADMIN') ? false : Boolean(u.canStampSeal))
               ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300 shadow-2xs" title="Được ủy quyền đóng dấu nhà trường"><span class="w-1.5 h-1.5 rounded-full bg-rose-600 inline-block mr-1"></span>Đóng dấu OK</span>'
               : ''
             }
@@ -966,7 +966,7 @@ function openModalEditUser(userId) {
     document.getElementById('userCanUploadWord').checked = (u.canUploadWord !== false);
   }
   if (document.getElementById('userCanStampSeal')) {
-    document.getElementById('userCanStampSeal').checked = (u.canStampSeal !== undefined) ? Boolean(u.canStampSeal) : (u.role === 'ADMIN');
+    document.getElementById('userCanStampSeal').checked = (u.role === 'ADMIN' || u.role === 'BGH') ? true : Boolean(u.canStampSeal);
   }
   const alertBox = document.getElementById('bghUsbScanAlert');
   if (alertBox) { alertBox.classList.add('hidden'); alertBox.innerHTML = ''; }
@@ -1024,7 +1024,7 @@ async function handleSaveUser(e) {
   const email = document.getElementById('userEmail').value.trim();
   const phone = document.getElementById('userPhone').value.trim();
   const canUploadWord = document.getElementById('userCanUploadWord') ? document.getElementById('userCanUploadWord').checked : true;
-  const canStampSeal = document.getElementById('userCanStampSeal') ? document.getElementById('userCanStampSeal').checked : (role === 'ADMIN');
+  const canStampSeal = (role === 'ADMIN' || role === 'BGH') ? true : Boolean(document.getElementById('userCanStampSeal')?.checked);
 
   // Validate CCCD: nếu nhập thì phải đúng 12 chữ số (hoặc 9 số CMND)
   if (cccd && !/^\d{9,12}$/.test(cccd)) {
@@ -3527,7 +3527,7 @@ function openDocumentViewer(fileName, fileObject, enableSigning = false) {
 
   // Phân quyền hiển thị nút Đóng Dấu Nhà Trường:
   // CHỈ tài khoản được phân quyền (canStampSeal === true) hoặc Quản trị viên tối cao mới xuất hiện tính năng này
-  const canStamp = (currentUser?.canStampSeal !== undefined) ? Boolean(currentUser.canStampSeal) : (currentUser?.role === 'ADMIN');
+  const canStamp = (currentUser?.role === 'ADMIN' || currentUser?.role === 'BGH' || Boolean(currentUser?.canStampSeal));
   const btnSeal = document.getElementById('btnToggleSealPlacement');
   if (btnSeal) {
     if (canStamp) {
@@ -3993,7 +3993,7 @@ function toggleSignaturePlacementMode(forceState) {
 // Chế độ Đóng Dấu Nhà Trường bằng USB Token của trường (chuẩn Viettel vOffice/SMAS)
 function toggleSealPlacementMode(forceState) {
   const currentUser = appState.currentUser;
-  const canStamp = (currentUser?.canStampSeal !== undefined) ? Boolean(currentUser.canStampSeal) : (currentUser?.role === 'ADMIN');
+  const canStamp = (currentUser?.role === 'ADMIN' || currentUser?.role === 'BGH' || Boolean(currentUser?.canStampSeal));
   if (!canStamp) {
     showToast('⚠️ Thầy/Cô chưa được phân quyền đóng dấu con dấu nhà trường!', 'warning');
     return;
@@ -5257,7 +5257,7 @@ function openModalUploadSignature(target = 'PERSONAL') {
   if (cb) cb.checked = true;
 
   const currentUser = appState.currentUser;
-  const canStamp = (currentUser?.canStampSeal !== undefined) ? Boolean(currentUser.canStampSeal) : (currentUser?.role === 'ADMIN');
+  const canStamp = (currentUser?.role === 'ADMIN' || currentUser?.role === 'BGH' || Boolean(currentUser?.canStampSeal));
   const selectorBox = document.getElementById('boxSignatureTargetSelector');
   if (selectorBox) {
     if (canStamp) {
