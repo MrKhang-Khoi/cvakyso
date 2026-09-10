@@ -221,9 +221,13 @@
                 <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                 <span>Tải bộ cài EduSign Agent</span>
               </button>
-              <button onclick="openModalUploadSignature(); closeSettingsDropdowns();" class="w-full text-left px-4 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2.5">
+              <button onclick="openModalUploadSignature('PERSONAL'); closeSettingsDropdowns();" class="w-full text-left px-4 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2.5">
                 <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
-                <span>Tải chữ ký số / Con dấu</span>
+                <span>Tải chữ ký số cá nhân</span>
+              </button>
+              <button onclick="openModalUploadSignature('SCHOOL_SEAL'); closeSettingsDropdowns();" class="w-full text-left px-4 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 text-rose-700 font-semibold">
+                <svg class="w-4 h-4 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+                <span>Tải con dấu nhà trường</span>
               </button>
               <button onclick="openModalCheckAgent(); closeSettingsDropdowns();" class="w-full text-left px-4 py-2 text-slate-700 hover:bg-slate-50 flex items-center gap-2.5">
                 <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
@@ -1793,6 +1797,6 @@
   </div>
 
   <!-- Client Application Logic -->
-  <script src="./js/app.js?v=2.8.2&t=20260910_2045"></script>
+  <script src="./js/app.js?v=2.8.3&t=20260910_2115"></script>
 </body>
 </html>

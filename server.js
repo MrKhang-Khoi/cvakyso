@@ -238,16 +238,26 @@ function getCurrentUser(req) {
     if (user) return user;
   }
   const userId = req.headers['x-user-id'];
-  if (userId) {
-    const user = dataStore.getUserById(userId);
-    if (user) return user;
-    if (userId === 'admin') {
-      return { id: 'admin', username: 'admin', role: 'ADMIN', name: 'Quản trị viên', status: 'ACTIVE' };
-    }
-  }
+  const userUsername = req.headers['x-user-username'];
   const userRole = req.headers['x-user-role'];
+  if (userId || userUsername) {
+    let user = userId ? dataStore.getUserById(userId) : null;
+    if (!user && userUsername) user = dataStore.getUserByUsername(userUsername);
+    if (user) return user;
+    if (userId === 'admin' || userUsername === 'admin' || userRole === 'ADMIN') {
+      return { id: 'admin', username: 'admin', role: 'ADMIN', name: 'Quản trị viên', status: 'ACTIVE', canStampSeal: true };
+    }
+    return {
+      id: userId || `user_${userUsername}`,
+      username: userUsername || userId,
+      role: userRole || 'TEACHER',
+      name: req.headers['x-user-fullname'] || userUsername || 'Giáo viên',
+      status: 'ACTIVE',
+      canStampSeal: req.headers['x-user-can-stamp'] === 'true'
+    };
+  }
   if (userRole === 'ADMIN') {
-    return { id: 'admin', username: 'admin', role: 'ADMIN', name: 'Quản trị viên', status: 'ACTIVE' };
+    return { id: 'admin', username: 'admin', role: 'ADMIN', name: 'Quản trị viên', status: 'ACTIVE', canStampSeal: true };
   }
   return null;
 }

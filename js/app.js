@@ -4017,7 +4017,7 @@ function toggleSealPlacementMode(forceState) {
     isSigPlacementActive = true;
 
     // Ảnh con dấu đỏ điện tử của nhà trường
-    const schoolSealSrc = './school_seal.png';
+    const schoolSealSrc = localStorage.getItem('edusign_school_seal') || './school_seal.png';
     if (dragImg) {
       dragImg.src = schoolSealSrc;
       dragImg.classList.remove('hidden');
@@ -5024,14 +5024,19 @@ async function executeLocalAgentSigning() {
     if (session.isSchoolSeal) {
       payload.isSchoolSeal = true;
       try {
-        const sRes = await fetch('./school_seal.png');
-        if (sRes.ok) {
-          const sBlob = await sRes.blob();
-          payload.signatureImage = await new Promise(r => {
-            const fr = new FileReader();
-            fr.onload = () => r(fr.result);
-            fr.readAsDataURL(sBlob);
-          });
+        const cachedSeal = localStorage.getItem('edusign_school_seal');
+        if (cachedSeal && cachedSeal.length > 50) {
+          payload.signatureImage = cachedSeal;
+        } else {
+          const sRes = await fetch('./school_seal.png');
+          if (sRes.ok) {
+            const sBlob = await sRes.blob();
+            payload.signatureImage = await new Promise(r => {
+              const fr = new FileReader();
+              fr.onload = () => r(fr.result);
+              fr.readAsDataURL(sBlob);
+            });
+          }
         }
       } catch (e) {}
     } else {
@@ -5239,7 +5244,7 @@ let rawLoadedSignatureImage = null;
 let currentProcessedSignatureBase64 = null;
 let currentUploadSignatureTarget = 'PERSONAL'; // 'PERSONAL' hoặc 'SCHOOL_SEAL'
 
-function openModalUploadSignature() {
+function openModalUploadSignature(target = 'PERSONAL') {
   const finput = document.getElementById('inputSignatureImageFile');
   if (finput) finput.value = '';
 
@@ -5262,7 +5267,8 @@ function openModalUploadSignature() {
     }
   }
 
-  switchUploadSignatureTarget('PERSONAL');
+  const activeTarget = (target === 'SCHOOL_SEAL' && canStamp) ? 'SCHOOL_SEAL' : 'PERSONAL';
+  switchUploadSignatureTarget(activeTarget);
   openModal('modalUploadSignature');
 }
 
@@ -5292,22 +5298,58 @@ function switchUploadSignatureTarget(target) {
     if (btnSaveText) btnSaveText.textContent = 'Lưu Con Dấu Nhà Trường';
 
     // Nạp ảnh con dấu nhà trường hiện tại để xem trước
-    fetch('./school_seal.png').then(res => {
-      if (res.ok) return res.blob();
-      throw new Error();
-    }).then(blob => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        currentProcessedSignatureBase64 = reader.result;
-        rawLoadedSignatureImage = null;
-        if (previewImg) {
-          previewImg.src = reader.result;
-          previewImg.classList.remove('hidden');
+    // 1. Kiểm tra cache localStorage
+    const cachedSeal = localStorage.getItem('edusign_school_seal');
+    if (cachedSeal && cachedSeal.length > 50) {
+      currentProcessedSignatureBase64 = cachedSeal;
+      rawLoadedSignatureImage = null;
+      if (previewImg) {
+        previewImg.src = cachedSeal;
+        previewImg.classList.remove('hidden');
+      }
+      if (emptyBox) emptyBox.classList.add('hidden');
+      if (btnDel) btnDel.classList.remove('hidden');
+    } else {
+      // 2. Thử tải từ Firebase Realtime Database
+      const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+      fetch(`${rtdbUrl}/signatures/school_seal.json`).then(r => r.ok ? r.json() : null).then(data => {
+        if (data && data.signatureImage && data.signatureImage.length > 50) {
+          currentProcessedSignatureBase64 = data.signatureImage;
+          try { localStorage.setItem('edusign_school_seal', data.signatureImage); } catch(e){}
+          if (previewImg) {
+            previewImg.src = data.signatureImage;
+            previewImg.classList.remove('hidden');
+          }
+          if (emptyBox) emptyBox.classList.add('hidden');
+          if (btnDel) btnDel.classList.remove('hidden');
+        } else {
+          throw new Error('No Firebase seal');
         }
-        if (emptyBox) emptyBox.classList.add('hidden');
-      };
-      reader.readAsDataURL(blob);
-    }).catch(() => {});
+      }).catch(() => {
+        // 3. Fallback lấy tệp mặc định ./school_seal.png
+        fetch('./school_seal.png').then(res => {
+          if (res.ok) return res.blob();
+          throw new Error();
+        }).then(blob => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            currentProcessedSignatureBase64 = reader.result;
+            rawLoadedSignatureImage = null;
+            if (previewImg) {
+              previewImg.src = reader.result;
+              previewImg.classList.remove('hidden');
+            }
+            if (emptyBox) emptyBox.classList.add('hidden');
+            if (btnDel) btnDel.classList.remove('hidden');
+          };
+          reader.readAsDataURL(blob);
+        }).catch(() => {
+          if (previewImg) previewImg.classList.add('hidden');
+          if (emptyBox) emptyBox.classList.remove('hidden');
+          if (btnDel) btnDel.classList.add('hidden');
+        });
+      });
+    }
 
   } else {
     if (tabPersonal) {
@@ -5452,25 +5494,12 @@ function saveUserSignature() {
   }
 
   if (currentUploadSignatureTarget === 'SCHOOL_SEAL') {
-    // Lưu con dấu đỏ nhà trường vào cache client
+    // 1. Lưu con dấu đỏ nhà trường vào cache client
     try {
       localStorage.setItem('edusign_school_seal', currentProcessedSignatureBase64);
     } catch (e) {}
 
-    // Gửi lên backend server
-    if (appState.token || (typeof API_BASE !== 'undefined' && API_BASE)) {
-      const endpoint = (typeof API_BASE !== 'undefined' && API_BASE) ? `${API_BASE}/api/school-seal` : '/api/school-seal';
-      fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${appState.token || ''}`
-        },
-        body: JSON.stringify({ sealImage: currentProcessedSignatureBase64 })
-      }).catch(err => console.warn('Lỗi lưu con dấu backend:', err));
-    }
-
-    // Tự động đồng bộ lên Firebase Realtime Database
+    // 2. Tự động đồng bộ lên Firebase Realtime Database
     try {
       const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
       fetch(`${rtdbUrl}/signatures/school_seal.json`, {
@@ -5482,6 +5511,20 @@ function saveUserSignature() {
         })
       }).catch(e => console.warn('[Seal Sync] Lưu Firebase nền:', e.message));
     } catch (e) {}
+
+    // 3. Gửi lên backend server nếu chạy máy chủ cục bộ
+    if (!isStaticOrGitHub) {
+      fetch('/api/school-seal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${appState.token || ''}`,
+          'x-user-id': appState.currentUser?.id || 'admin',
+          'x-user-role': appState.currentUser?.role || 'ADMIN'
+        },
+        body: JSON.stringify({ sealImage: currentProcessedSignatureBase64 })
+      }).catch(err => console.warn('Lỗi lưu con dấu backend:', err));
+    }
 
     // Nếu con dấu đang hiển thị trên canvas ký ở chế độ SEAL, cập nhật ngay
     if (currentSigningAction === 'SEAL') {
@@ -5521,14 +5564,15 @@ function saveUserSignature() {
       }).catch(e => console.warn('[Signature Sync] Lưu Firebase nền:', e.message));
     } catch (e) {}
 
-    // 2. Gửi lưu lên Backend Server nếu có kết nối
-    if (appState.token || (typeof API_BASE !== 'undefined' && API_BASE)) {
-      const endpoint = (typeof API_BASE !== 'undefined' && API_BASE) ? `${API_BASE}/api/user/signature` : '/api/user/signature';
-      fetch(endpoint, {
+    // 2. Gửi lưu lên Backend Server nếu chạy máy chủ cục bộ
+    if (!isStaticOrGitHub) {
+      fetch('/api/user/signature', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${appState.token || ''}`
+          'Authorization': `Bearer ${appState.token || ''}`,
+          'x-user-id': user.id || user.username,
+          'x-user-role': user.role || 'TEACHER'
         },
         body: JSON.stringify({ signatureImage: currentProcessedSignatureBase64 })
       }).catch(() => {});
@@ -5559,6 +5603,10 @@ function handleDeleteCurrentSignature() {
       'Thầy/Cô có chắc chắn muốn xóa mẫu con dấu nhà trường hiện tại không?',
       () => {
         localStorage.removeItem('edusign_school_seal');
+        try {
+          const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+          fetch(`${rtdbUrl}/signatures/school_seal.json`, { method: 'DELETE' }).catch(() => {});
+        } catch(e) {}
         rawLoadedSignatureImage = null;
         currentProcessedSignatureBase64 = null;
         const previewImg = document.getElementById('userSigPreviewImg');
@@ -5572,6 +5620,7 @@ function handleDeleteCurrentSignature() {
         }
         if (emptyBox) emptyBox.classList.remove('hidden');
         if (btnDel) btnDel.classList.add('hidden');
+        showToast('Đã xóa mẫu con dấu nhà trường!', 'success');
       }
     );
     return;
@@ -5583,9 +5632,14 @@ function handleDeleteCurrentSignature() {
     () => {
       const user = appState.currentUser;
       if (user) {
-        const key = `edusign_sig_${user.id || user.username}`;
+        const uid = user.id || user.username;
+        const key = `edusign_sig_${uid}`;
         localStorage.removeItem(key);
         delete user.signatureImage;
+        try {
+          const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+          fetch(`${rtdbUrl}/signatures/${uid}.json`, { method: 'DELETE' }).catch(() => {});
+        } catch(e) {}
       }
 
       rawLoadedSignatureImage = null;
