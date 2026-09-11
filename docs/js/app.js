@@ -191,6 +191,7 @@ function initFirebaseRealtime() {
         if (typeof loadTeacherPendingDocuments === 'function') loadTeacherPendingDocuments();
         if (typeof loadTeacherSentDocuments === 'function') loadTeacherSentDocuments();
         if (typeof loadTeacherReturnedDocuments === 'function') loadTeacherReturnedDocuments();
+        if (typeof loadSchoolReports === 'function') loadSchoolReports();
       }
     });
 
@@ -517,6 +518,9 @@ function showView(viewName) {
     }
     if (typeof loadTeacherReturnedDocuments === 'function') {
       loadTeacherReturnedDocuments();
+    }
+    if (typeof loadSchoolReports === 'function') {
+      loadSchoolReports();
     }
   }
 }
@@ -1633,6 +1637,13 @@ function escapeHtml(str) {
 // ==================== HỆ THỐNG HỘP THOẠI MODAL ĐỒNG NHẤT (ZERO BROWSER ALERTS) ====================
 let pendingConfirmCallback = null;
 
+function showUnifiedAlert(cfg) {
+  if (!cfg) return;
+  if (typeof cfg === 'string') return showModalAlert('Thông báo', cfg, 'info');
+  return showModalAlert(cfg.title || 'Thông báo', cfg.message || '', cfg.type || 'info', cfg.actionConfig || null);
+}
+window.showUnifiedAlert = showUnifiedAlert;
+
 function showModalAlert(title, message, type = 'info', actionConfig = null) {
   const elTitle = document.getElementById('alertTitle');
   const elMsg = document.getElementById('alertMessage');
@@ -2338,10 +2349,12 @@ function switchTeacherTab(tabName) {
   const btnPending = document.getElementById('tabBtnTeacherPending');
   const btnSent = document.getElementById('tabBtnTeacherSent');
   const btnReturned = document.getElementById('tabBtnTeacherReturned');
+  const btnReports = document.getElementById('tabBtnTeacherReports');
   const contentWorkspace = document.getElementById('tabContentTeacherWorkspace');
   const contentPending = document.getElementById('tabContentTeacherPending');
   const contentSent = document.getElementById('tabContentTeacherSent');
   const contentReturned = document.getElementById('tabContentTeacherReturned');
+  const contentReports = document.getElementById('tabContentTeacherReports');
 
   const activeBtnClass = 'px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all bg-brand-600 text-white shadow-sm shadow-brand-500/20 flex items-center gap-2 cursor-pointer';
   const inactiveBtnClass = 'px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center gap-2 cursor-pointer';
@@ -2351,12 +2364,14 @@ function switchTeacherTab(tabName) {
   if (contentPending) contentPending.classList.add('hidden');
   if (contentSent) contentSent.classList.add('hidden');
   if (contentReturned) contentReturned.classList.add('hidden');
+  if (contentReports) contentReports.classList.add('hidden');
 
   // Đặt class mặc định cho nút
   if (btnWorkspace) btnWorkspace.className = inactiveBtnClass;
   if (btnPending) btnPending.className = inactiveBtnClass;
   if (btnSent) btnSent.className = inactiveBtnClass;
   if (btnReturned) btnReturned.className = inactiveBtnClass;
+  if (btnReports) btnReports.className = inactiveBtnClass;
 
   if (tabName === 'workspace') {
     if (contentWorkspace) contentWorkspace.classList.remove('hidden');
@@ -2373,6 +2388,10 @@ function switchTeacherTab(tabName) {
     if (contentReturned) contentReturned.classList.remove('hidden');
     if (btnReturned) btnReturned.className = activeBtnClass;
     loadTeacherReturnedDocuments(true);
+  } else if (tabName === 'reports') {
+    if (contentReports) contentReports.classList.remove('hidden');
+    if (btnReports) btnReports.className = activeBtnClass;
+    loadSchoolReports(true);
   }
 }
 
@@ -3007,6 +3026,326 @@ function handleResubmitReturnedDoc(docId) {
   }
 }
 
+// ==================== KHO BÁO CÁO ĐIỆN TỬ & PHÂN QUYỀN TRUY CẬP ====================
+let currentCachedSchoolReports = [];
+
+async function loadSchoolReports(force = false) {
+  const container = document.getElementById('listSchoolReportsContainer');
+  const badgeEl = document.getElementById('badgeTeacherReportsCount');
+  const user = appState.currentUser;
+  if (!user) return;
+
+  const role = user.role || 'TEACHER';
+  const currentUserId = user.id || user.username;
+  const currentDept = user.departmentName || user.department || 'Tổ chuyên môn';
+  const isAdminOrBgh = (role === 'ADMIN' || role === 'BGH' || user.id === 'admin' || user.departmentId === 'dept_bgh');
+  const isLeader = (role === 'LEADER' || role === 'HEAD_DEPT');
+
+  // 1. Cập nhật thẻ phân quyền trực quan
+  const permBanner = document.getElementById('reportPermissionBanner');
+  if (permBanner) {
+    if (isAdminOrBgh) {
+      permBanner.innerHTML = `
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="flex items-center gap-2 text-indigo-900 text-xs font-bold">
+            <span class="px-2 py-0.5 rounded-md bg-indigo-600 text-white text-[10px] font-extrabold uppercase tracking-wide shadow-2xs">Toàn quyền BGH</span>
+            <span>Thầy/Cô có thẩm quyền xem & quản lý toàn bộ Báo cáo chuyên môn của tất cả các Tổ trong nhà trường.</span>
+          </div>
+          <span class="text-[11px] font-semibold text-indigo-700 bg-indigo-100/70 px-2.5 py-1 rounded-lg border border-indigo-200/80">Phạm vi: Toàn trường</span>
+        </div>
+      `;
+      permBanner.className = "p-3.5 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-2xl shadow-xs";
+    } else if (isLeader) {
+      permBanner.innerHTML = `
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="flex items-center gap-2 text-blue-900 text-xs font-bold">
+            <span class="px-2 py-0.5 rounded-md bg-blue-600 text-white text-[10px] font-extrabold uppercase tracking-wide shadow-2xs">Quyền Tổ trưởng</span>
+            <span>Thầy/Cô có quyền tra cứu toàn bộ Báo cáo thuộc <strong>${escapeHtml(currentDept)}</strong> và các hồ sơ được phân công.</span>
+          </div>
+          <span class="text-[11px] font-semibold text-blue-700 bg-blue-100/70 px-2.5 py-1 rounded-lg border border-blue-200/80">Phạm vi: ${escapeHtml(currentDept)}</span>
+        </div>
+      `;
+      permBanner.className = "p-3.5 bg-gradient-to-r from-blue-50 to-sky-50 border border-blue-200 rounded-2xl shadow-xs";
+    } else {
+      permBanner.innerHTML = `
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="flex items-center gap-2 text-emerald-900 text-xs font-bold">
+            <span class="px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-extrabold uppercase tracking-wide shadow-2xs">Quyền Giáo viên</span>
+            <span>Thầy/Cô được tra cứu các Báo cáo do mình khởi tạo / tham gia ký & các Báo cáo đã đóng dấu ban hành của <strong>${escapeHtml(currentDept)}</strong>.</span>
+          </div>
+          <span class="text-[11px] font-semibold text-emerald-700 bg-emerald-100/70 px-2.5 py-1 rounded-lg border border-emerald-200/80">Phạm vi: ${escapeHtml(currentDept)} (Đã duyệt) & Cá nhân</span>
+        </div>
+      `;
+      permBanner.className = "p-3.5 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl shadow-xs";
+    }
+  }
+
+  // 2. Tải toàn bộ hồ sơ từ Firebase hoặc Backend
+  if (container) {
+    container.innerHTML = `
+      <div class="py-12 text-center text-slate-400 text-xs">
+        <div class="w-7 h-7 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+        <span>Đang tải và phân quyền hồ sơ báo cáo...</span>
+      </div>
+    `;
+  }
+
+  let docList = [];
+  try {
+    let allDocs = null;
+    if (firebaseDb) {
+      const snap = await firebaseDb.ref('documents').once('value');
+      allDocs = snap.val();
+    } else {
+      const fRes = await fetch(`${RTDB_URL}/documents.json?_t=${Date.now()}`).catch(() => null);
+      if (fRes && fRes.ok) allDocs = await fRes.json().catch(() => null);
+    }
+
+    if (allDocs) {
+      docList = Array.isArray(allDocs)
+        ? allDocs.filter(Boolean)
+        : Object.keys(allDocs).map(k => ({ id: allDocs[k].id || k, ...allDocs[k] }));
+    }
+  } catch (err) {
+    console.warn('[loadSchoolReports] Lỗi tải dữ liệu:', err);
+  }
+
+  // Lọc chỉ lấy các tài liệu dạng BÁO CÁO (REPORT)
+  const allReports = docList.filter(d => {
+    return d.docType === 'REPORT' || d.category === 'REPORT' || (d.id && String(d.id).startsWith('BC-'));
+  });
+
+  // 3. Áp dụng Ma trận Phân quyền bảo mật (Security Access Matrix)
+  const filteredByRole = allReports.filter(doc => {
+    // A. Ban Giám hiệu / Quản trị viên: Toàn quyền xem mọi hồ sơ
+    if (isAdminOrBgh) return true;
+
+    const docDept = doc.creatorDept || doc.department || '';
+    const isSameDept = docDept && currentDept && (
+      docDept.toLowerCase().includes(currentDept.toLowerCase()) ||
+      currentDept.toLowerCase().includes(docDept.toLowerCase())
+    );
+
+    const isCreator = (doc.creatorId === currentUserId || doc.authorId === currentUserId || doc.creatorUsername === user.username);
+    const isAssigned = (doc.assignedTo === currentUserId || doc.currentSignerId === currentUserId);
+    const hasSigned = Array.isArray(doc.signatures) && doc.signatures.some(s => s.signerId === currentUserId || s.signerName === user.fullName);
+
+    // B. Tổ trưởng chuyên môn: Xem tất cả báo cáo trong tổ của mình, hoặc liên quan trực tiếp
+    if (isLeader) {
+      return isSameDept || isCreator || isAssigned || hasSigned;
+    }
+
+    // C. Giáo viên:
+    // - Luôn được xem hồ sơ do mình tạo, được giao ký, hoặc đã từng ký
+    if (isCreator || isAssigned || hasSigned) return true;
+
+    // - Được xem các báo cáo chung của tổ mình KHI VÀ CHỈ KHI báo cáo đó ĐÃ ĐƯỢC DUYỆT & ĐÓNG DẤU HOÀN TẤT
+    const isCompleted = (doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ')));
+    if (isSameDept && isCompleted) return true;
+
+    return false;
+  });
+
+  // Sắp xếp báo cáo mới nhất lên đầu
+  filteredByRole.sort((a, b) => new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0));
+  currentCachedSchoolReports = filteredByRole;
+
+  if (badgeEl) badgeEl.textContent = filteredByRole.length;
+
+  // Render ra bảng kèm bộ lọc tương tác
+  renderSchoolReportsTable();
+}
+
+function renderSchoolReportsTable() {
+  const container = document.getElementById('listSchoolReportsContainer');
+  if (!container) return;
+
+  const searchKeyword = (document.getElementById('inputReportSearchKeyword')?.value || '').trim().toLowerCase();
+  const deptFilter = document.getElementById('selectReportDeptFilter')?.value || '';
+  const statusFilter = document.getElementById('selectReportStatusFilter')?.value || '';
+
+  const user = appState.currentUser;
+  const role = user?.role || 'TEACHER';
+  const isAdminOrBgh = (role === 'ADMIN' || role === 'BGH' || user?.id === 'admin' || user?.departmentId === 'dept_bgh');
+
+  let list = currentCachedSchoolReports.filter(doc => {
+    // 1. Lọc từ khóa
+    if (searchKeyword) {
+      const title = (doc.title || '').toLowerCase();
+      const code = (doc.id || '').toLowerCase();
+      const author = (doc.creatorName || doc.author || '').toLowerCase();
+      const dept = (doc.creatorDept || doc.department || '').toLowerCase();
+      if (!title.includes(searchKeyword) && !code.includes(searchKeyword) && !author.includes(searchKeyword) && !dept.includes(searchKeyword)) {
+        return false;
+      }
+    }
+
+    // 2. Lọc Tổ chuyên môn
+    if (deptFilter) {
+      const docDept = (doc.creatorDept || doc.department || '').toLowerCase();
+      if (!docDept.includes(deptFilter.toLowerCase())) return false;
+    }
+
+    // 3. Lọc Trạng thái
+    if (statusFilter) {
+      if (statusFilter === 'COMPLETED') {
+        const isComp = doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ'));
+        if (!isComp) return false;
+      } else if (statusFilter === 'PENDING') {
+        const isComp = doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ'));
+        const isRet = doc.status === 'RETURNED' || doc.status === 'REJECTED';
+        if (isComp || isRet) return false;
+      } else if (statusFilter === 'RETURNED') {
+        const isRet = doc.status === 'RETURNED' || doc.status === 'REJECTED';
+        if (!isRet) return false;
+      }
+    }
+
+    return true;
+  });
+
+  if (list.length === 0) {
+    container.innerHTML = `
+      <div class="py-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200/80">
+        <svg class="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        <div class="text-sm font-bold text-slate-700">Không có báo cáo nào phù hợp với bộ lọc</div>
+        <div class="text-xs text-slate-400 mt-1">Thầy/Cô vui lòng thử đổi từ khóa tìm kiếm hoặc điều kiện lọc.</div>
+      </div>
+    `;
+    return;
+  }
+
+  let html = `
+    <div class="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-xs">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr class="bg-slate-50/80 text-slate-600 font-bold border-b border-slate-200">
+              <th class="py-3 px-3.5 w-12 text-center">STT</th>
+              <th class="py-3 px-3.5">Mã & Tiêu đề Báo cáo</th>
+              <th class="py-3 px-3.5">Tổ chuyên môn</th>
+              <th class="py-3 px-3.5">Người lập</th>
+              <th class="py-3 px-3.5">Tiến độ & Chữ ký</th>
+              <th class="py-3 px-3.5 text-center">Trạng thái</th>
+              <th class="py-3 px-3.5 text-right">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+  `;
+
+  list.forEach((doc, idx) => {
+    const isCompleted = (doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ')));
+    const isReturned = (doc.status === 'RETURNED' || doc.status === 'REJECTED');
+    
+    let statusBadge = '';
+    if (isCompleted) {
+      statusBadge = `
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+          Đã ký duyệt & Đóng dấu
+        </span>
+      `;
+    } else if (isReturned) {
+      statusBadge = `
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+          <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+          Bị trả về
+        </span>
+      `;
+    } else {
+      statusBadge = `
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+          Đang chờ ký duyệt
+        </span>
+      `;
+    }
+
+    // Render danh sách người ký
+    let signersText = '';
+    if (Array.isArray(doc.signatures) && doc.signatures.length > 0) {
+      signersText = doc.signatures.map(s => {
+        const sealIcon = s.isSchoolSeal ? '🔴 ' : '✍️ ';
+        return `<span class="inline-block bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[10px] font-medium mr-1 mb-1">${sealIcon}${escapeHtml(s.signerName || s.name || 'Người ký')}</span>`;
+      }).join('');
+    } else {
+      signersText = `<span class="text-slate-400 italic">Chưa có chữ ký</span>`;
+    }
+
+    const driveUrl = (doc.driveInfo && doc.driveInfo.viewUrl) ? doc.driveInfo.viewUrl : '';
+    const dateStr = doc.createdAt ? new Date(doc.createdAt).toLocaleDateString('vi-VN') : 'N/A';
+
+    html += `
+      <tr class="hover:bg-slate-50/70 transition">
+        <td class="py-3 px-3.5 text-center font-bold text-slate-400">${idx + 1}</td>
+        <td class="py-3 px-3.5">
+          <div class="font-bold text-slate-900 text-xs">${escapeHtml(doc.title || 'Báo cáo chuyên môn')}</div>
+          <div class="text-[10px] font-mono text-slate-400 mt-0.5 flex items-center gap-2">
+            <span>${escapeHtml(doc.id || '')}</span>
+            <span>•</span>
+            <span>${dateStr}</span>
+          </div>
+        </td>
+        <td class="py-3 px-3.5 font-semibold text-slate-700">${escapeHtml(doc.creatorDept || doc.department || 'CVA')}</td>
+        <td class="py-3 px-3.5 text-slate-700 font-medium">${escapeHtml(doc.creatorName || doc.author || 'Giáo viên')}</td>
+        <td class="py-3 px-3.5">${signersText}</td>
+        <td class="py-3 px-3.5 text-center">${statusBadge}</td>
+        <td class="py-3 px-3.5 text-right whitespace-nowrap">
+          <div class="flex items-center justify-end gap-1.5">
+            <button onclick="handleViewReportPdfInline('${escapeHtml(doc.id)}')" title="Xem trực tiếp tệp PDF" class="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold text-[11px] transition flex items-center gap-1 cursor-pointer">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              <span>Xem</span>
+            </button>
+            ${driveUrl ? `
+              <a href="${driveUrl}" target="_blank" title="Mở trên Google Drive" class="px-2 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[11px] transition flex items-center gap-1">
+                <span>📁</span>
+              </a>
+            ` : ''}
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+
+  html += `
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  container.innerHTML = html;
+}
+
+async function handleViewReportPdfInline(docId) {
+  const doc = currentCachedSchoolReports.find(d => d.id === docId);
+  if (!doc) {
+    showToast('Không tìm thấy thông tin báo cáo này!', 'warning');
+    return;
+  }
+
+  showToast('Đang mở văn bản báo cáo...', 'info');
+
+  if (doc.fileBase64) {
+    displayPdfInViewer(doc.fileBase64, doc.title || 'BaoCao', null, false);
+    // Ẩn các thanh ký duyệt vì đây là chế độ xem báo cáo lưu trữ
+    const chainedBar = document.getElementById('viewerChainedSignBar');
+    if (chainedBar) chainedBar.classList.add('hidden');
+    const btnSign = document.getElementById('btnViewerConfirmSign');
+    if (btnSign) btnSign.classList.add('hidden');
+    const btnReject = document.getElementById('btnViewerRejectDoc');
+    if (btnReject) btnReject.classList.add('hidden');
+    return;
+  }
+
+  // Nếu không có base64 cục bộ thì mở URL file từ Drive
+  if (doc.driveInfo && doc.driveInfo.viewUrl) {
+    window.open(doc.driveInfo.viewUrl, '_blank');
+  } else {
+    showModalAlert('Không có bản xem trước', 'Hồ sơ này không đính kèm nội dung tệp PDF hoặc tệp đang được lưu trữ trên Cloud.', 'info');
+  }
+}
+
 // ==================== XỬ LÝ TRẢ VỀ / YÊU CẦU SỬA LẠI (MODAL) ====================
 function openModalRejectDocument(docId) {
   currentDocToReject = docId;
@@ -3147,6 +3486,7 @@ async function handleConfirmRejectDocument() {
     loadTeacherPendingDocuments(true);
     loadTeacherSentDocuments(true);
     loadTeacherReturnedDocuments(true);
+    loadSchoolReports(true);
 
   } catch (err) {
     console.error('Lỗi trả về hồ sơ:', err);
@@ -3938,6 +4278,9 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
   loadTeacherSentDocuments(true);
   if (typeof loadTeacherReturnedDocuments === 'function') {
     loadTeacherReturnedDocuments(true);
+  }
+  if (typeof loadSchoolReports === 'function') {
+    loadSchoolReports(true);
   }
 }
 
