@@ -195,11 +195,17 @@ runTest("Khớp đúng họ tên đầy đủ: 'tkb Hà Văn Tý' -> Tý", () =>
 // -----------------------------------------------------------------------------
 // 3. KIỂM THỬ HIỂN THỊ TKB KÈM KHUNG GIỜ VÀO/RA LỚP (TỐI ƯU MOBILE)
 // -----------------------------------------------------------------------------
-console.log("\n👉 3. Kiểm thử Định Dạng Phản Hồi TKB Tối Ưu Màn Hình Điện Thoại:");
+// -----------------------------------------------------------------------------
+// 3. KIỂM THỬ HIỂN THỊ TKB KÈM KHUNG GIỜ VÀO/RA LỚP (TỐI ƯU MOBILE & BÔI ĐẬM)
+// -----------------------------------------------------------------------------
+console.log("\n👉 3. Kiểm thử Định Dạng Phản Hồi TKB Tối Ưu Màn Hình Điện Thoại & Bôi Đậm:");
 
-runTest("TKB lớp học tinh gọn, không viền khung rối mắt và chứa khung giờ chuẩn", () => {
+runTest("TKB lớp học tinh gọn, bôi đậm tên lớp/GVCN, có icon buổi và không viền khung", () => {
   const res = gasBot.formatClassTimetableResponse(mockClasses[0], mockSchoolData, "T2");
-  assert.ok(res.includes("TKB LỚP 6A1"));
+  assert.ok(res.includes("TKB LỚP *6A1*"));
+  assert.ok(res.includes("GVCN: *Hà Văn Tý (Tý)*"));
+  assert.ok(res.includes("🗓️ *THỨ HAI*:"));
+  assert.ok(res.includes("🌅 Sáng:"));
   assert.ok(res.includes("Tiết 1 (07h00-07h45): Chào cờ"));
   assert.ok(res.includes("Tiết 2 (07h50-08h35): Toán"));
   assert.ok(res.includes("Tiết 3 (08h40-09h25): Ngữ văn"));
@@ -207,11 +213,14 @@ runTest("TKB lớp học tinh gọn, không viền khung rối mắt và chứa 
   assert.ok(!res.includes("───"), "Tuyệt đối không chứa dải gạch ngang thừa");
 });
 
-runTest("TKB giáo viên tinh gọn, từng tiết nằm trọn trên 1 dòng đơn (<= 40 ký tự)", () => {
+runTest("TKB giáo viên bôi đậm tên, đồng nhất cấu trúc Thứ -> icon Buổi -> từng tiết", () => {
   const teacherTrong = mockTeachers[0];
   const res = gasBot.formatTeacherTimetableResponse(teacherTrong, mockSchoolData, "T3");
-  assert.ok(res.includes("LỊCH DẠY: NGUYỄN ĐỨC TRỌNG (Trọng)"));
+  assert.ok(res.includes("LỊCH DẠY: *NGUYỄN ĐỨC TRỌNG* (Trọng)"));
+  assert.ok(res.includes("🗓️ *THỨ BA*:"));
+  assert.ok(res.includes("🌅 Sáng:"));
   assert.ok(res.includes("Tiết 1 (07h00-07h45): Toán - 6A1"));
+  assert.ok(res.includes("🌇 Chiều:"));
   assert.ok(res.includes("Tiết 1 (13h00-13h45): Toán - 9B1"));
 
   // Kiểm tra từng dòng tiết học không vượt quá 42 ký tự
@@ -233,11 +242,11 @@ runTest("Soạn tin nhắn 6h00 sáng chuẩn cho giáo viên có tiết dạy (
   const morningMsg = gasBot.generateMorningTeacherMessage(teacherTrong, mockSchoolData, "T3", "Thứ Ba", "15/10/2026");
   
   assert.ok(morningMsg, "Nội dung tin nhắn không được rỗng");
-  assert.ok(morningMsg.includes("LỊCH GIẢNG DẠY HÔM NAY (Thứ Ba - 15/10/2026)"));
-  assert.ok(morningMsg.includes("Nguyễn Đức Trọng"));
-  assert.ok(morningMsg.includes("Buổi Sáng"));
+  assert.ok(morningMsg.includes("LỊCH GIẢNG DẠY HÔM NAY (*Thứ Ba* - 15/10/2026)"));
+  assert.ok(morningMsg.includes("*NGUYỄN ĐỨC TRỌNG*"));
+  assert.ok(morningMsg.includes("🌅 Sáng"));
   assert.ok(morningMsg.includes("Tiết 1 (07h00-07h45): Toán - 6A1"));
-  assert.ok(morningMsg.includes("Buổi Chiều"));
+  assert.ok(morningMsg.includes("🌇 Chiều"));
   assert.ok(morningMsg.includes("Tiết 1 (13h00-13h45): Toán - 9B1"));
   assert.ok(morningMsg.includes("CA DẠY THAY TRONG NGÀY"));
   assert.ok(morningMsg.includes("Dạy thay cho GV Tý"));
@@ -255,41 +264,58 @@ runTest("Không gửi tin nhắn làm phiền nếu giáo viên không có tiế
 console.log("\n👉 5. Kiểm thử Tính Năng Nhắc Lịch TKB Ngày Mai Thông Minh:");
 
 runTest("Tạo tin nhắn ngày mai cho giáo viên CÓ tiết dạy (Thứ 3 cho Thầy Trọng)", () => {
-  // Giả lập ngày mai là Thứ Ba (T3): 15/09/2026
-  const targetTuesday = new Date(2026, 8, 15); // Month index 8 is September
+  const targetTuesday = new Date(2026, 8, 15);
   const teacherTrong = mockTeachers[0];
   const msg = gasBot.generateTomorrowTeacherMessage(teacherTrong, mockSchoolData, targetTuesday);
 
   assert.ok(msg);
-  assert.ok(msg.includes("LỊCH GIẢNG DẠY NGÀY MAI (Thứ Ba"));
+  assert.ok(msg.includes("LỊCH GIẢNG DẠY NGÀY MAI (*Thứ Ba*"));
+  assert.ok(msg.includes("*NGUYỄN ĐỨC TRỌNG*"));
+  assert.ok(msg.includes("🌅 Sáng"));
   assert.ok(msg.includes("Tiết 1 (07h00-07h45): Toán - 6A1"));
+  assert.ok(msg.includes("🌇 Chiều"));
   assert.ok(msg.includes("Tiết 1 (13h00-13h45): Toán - 9B1"));
 });
 
 runTest("Tạo tin nhắn ngày mai khi KHÔNG CÓ tiết: Báo nghỉ và tự động xem trước buổi tiếp theo", () => {
-  // Giả lập ngày mai là Thứ Bảy (T7): 12/09/2026
   const targetSaturday = new Date(2026, 8, 12);
   const teacherTy = mockTeachers[3]; // Thầy Hà Văn Tý (Tý)
   const msg = gasBot.generateTomorrowTeacherMessage(teacherTy, mockSchoolData, targetSaturday);
 
   assert.ok(msg);
-  assert.ok(msg.includes("LỊCH GIẢNG DẠY NGÀY MAI (Thứ Bảy"));
-  assert.ok(msg.includes("Hà Văn Tý (Tý)"));
+  assert.ok(msg.includes("LỊCH GIẢNG DẠY NGÀY MAI (*Thứ Bảy*"));
+  assert.ok(msg.includes("*HÀ VĂN TÝ* (Tý)"));
   assert.ok(msg.includes("KHÔNG CÓ TIẾT DẠY"));
   assert.ok(msg.includes("LỊCH DẠY BUỔI TIẾP THEO"));
   assert.ok(msg.includes("Thứ Hai"));
+  assert.ok(msg.includes("🌅 Sáng:"));
   assert.ok(msg.includes("Tiết 2 (07h50-08h35): Toán - 6A1"));
 });
 
 // -----------------------------------------------------------------------------
-// 6. KIỂM THỬ BỘ ĐIỀU PHỐI TIN NHẮN THÔNG MINH (ROUTER)
+// 6. KIỂM THỬ MENU HƯỚNG DẪN TRỢ LÝ (CHỐNG RƠI CHỮ TRÊN ĐIỆN THOẠI)
 // -----------------------------------------------------------------------------
-console.log("\n👉 6. Kiểm thử Bộ Điều Phối Lệnh Hợp Nhất (Unified Router):");
+console.log("\n👉 6. Kiểm thử Menu Hướng Dẫn Trợ Lý (Chống Rơi Chữ Mobile):");
+
+runTest("Menu hướng dẫn xuống dòng chuẩn, các dòng hướng dẫn không vượt quá 35 ký tự", () => {
+  const menu = gasBot.getUnifiedWelcomeGuideText();
+  assert.ok(menu);
+  assert.ok(menu.includes("TRỢ LÝ THÔNG MINH THCS CHU VĂN AN"));
+  assert.ok(menu.includes("• tkb [Tên Lớp]\n  ↳ VD: tkb 6a1"));
+  assert.ok(menu.includes("• tkb [Tên GV]\n  ↳ VD: tkb Tý"));
+  assert.ok(menu.includes("• day thay\n  ↳ Xem ca phân công dạy thay"));
+  assert.ok(menu.includes("• hoso\n  ↳ Tra cứu giáo án đã nộp"));
+});
+
+// -----------------------------------------------------------------------------
+// 7. KIỂM THỬ BỘ ĐIỀU PHỐI TIN NHẮN THÔNG MINH (ROUTER)
+// -----------------------------------------------------------------------------
+console.log("\n👉 7. Kiểm thử Bộ Điều Phối Lệnh Hợp Nhất (Unified Router):");
 
 runTest("Lệnh tra cứu TKB lớp: 'tkb 6a1' trả lời đúng TKB kèm khung giờ", () => {
   const reply = gasBot.handleNaturalTimetableQuery("tkb 6a1", "tkb 6a1", mockSchoolData);
   assert.ok(reply);
-  assert.ok(reply.includes("TKB LỚP 6A1"));
+  assert.ok(reply.includes("TKB LỚP *6A1*"));
   assert.ok(reply.includes("07h00-07h45"));
 });
 

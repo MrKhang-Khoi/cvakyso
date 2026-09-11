@@ -591,20 +591,20 @@ function generateMorningTeacherMessage(teacher, schoolData, dayKey, dayName, dat
     return null; // Không gửi để tránh làm phiền giáo viên trong ngày nghỉ
   }
 
-  var msg = "🌅 LỊCH GIẢNG DẠY HÔM NAY (" + dayName + " - " + dateStr + ")\n" +
-            "Kính chào Thầy/Cô " + teacher.fullName + "! ✨\n" +
+  var msg = "🌅 LỊCH GIẢNG DẠY HÔM NAY (*" + dayName + "* - " + dateStr + ")\n" +
+            "Kính chào Thầy/Cô *" + teacher.fullName.toUpperCase() + "*! ✨\n" +
             "Chúc Thầy/Cô một ngày làm việc hiệu quả.\n\n" +
             "📋 Hôm nay Thầy/Cô có " + totalPeriods + " tiết dạy:\n";
 
   if (morningSlots.length > 0) {
-    msg += "\n🌅 Buổi Sáng (" + morningSlots.length + " tiết):\n";
+    msg += "\n🌅 Sáng (" + morningSlots.length + " tiết):\n";
     morningSlots.forEach(function(s) {
       msg += "• Tiết " + s.period + " (" + s.time + "): " + s.subject + " - " + s.className + "\n";
     });
   }
 
   if (afternoonSlots.length > 0) {
-    msg += "\n🌇 Buổi Chiều (" + afternoonSlots.length + " tiết):\n";
+    msg += "\n🌇 Chiều (" + afternoonSlots.length + " tiết):\n";
     afternoonSlots.forEach(function(s) {
       msg += "• Tiết " + s.period + " (" + s.time + "): " + s.subject + " - " + s.className + "\n";
     });
@@ -663,9 +663,9 @@ function formatTeacherTimetableResponse(teacher, schoolData, dayFilter) {
   var weekdays = dayFilter ? [dayFilter] : ["T2", "T3", "T4", "T5", "T6", "T7"];
   var dayNames = { "T2": "Thứ Hai", "T3": "Thứ Ba", "T4": "Thứ Tư", "T5": "Thứ Năm", "T6": "Thứ Sáu", "T7": "Thứ Bảy" };
 
-  var out = "📅 LỊCH DẠY: " + teacher.fullName.toUpperCase() + " (" + teacher.shortName + ")\n";
+  var out = "📅 LỊCH DẠY: *" + teacher.fullName.toUpperCase() + "* (" + teacher.shortName + ")\n";
   if (teacher.group) {
-    out += "🏢 " + formatDepartmentName(teacher.group) + "\n";
+    out += "🏢 *" + formatDepartmentName(teacher.group) + "*\n";
   }
   if (active.weekName) {
     out += "📌 " + active.weekName + (active.applyDate ? " (từ " + active.applyDate + ")" : "") + "\n";
@@ -716,31 +716,20 @@ function formatTeacherTimetableResponse(teacher, schoolData, dayFilter) {
     if (morning.length > 0 || afternoon.length > 0) {
       hasAnyPeriod = true;
       var dayTitle = (dayNames[day] || day).toUpperCase();
+      out += "\n🗓️ *" + dayTitle + "*:\n";
 
-      if (morning.length > 0 && afternoon.length === 0) {
-        out += "\n🗓️ " + dayTitle + " (Sáng):\n";
+      if (morning.length > 0) {
+        out += "🌅 Sáng:\n";
         morning.forEach(function(s) {
           out += "• Tiết " + s.p + " (" + s.time + "): " + s.sub + " - " + s.classes.join(", ") + "\n";
         });
-      } else if (afternoon.length > 0 && morning.length === 0) {
-        out += "\n🗓️ " + dayTitle + " (Chiều):\n";
+      }
+
+      if (afternoon.length > 0) {
+        out += "🌇 Chiều:\n";
         afternoon.forEach(function(s) {
           out += "• Tiết " + s.p + " (" + s.time + "): " + s.sub + " - " + s.classes.join(", ") + "\n";
         });
-      } else {
-        out += "\n🗓️ " + dayTitle + ":\n";
-        if (morning.length > 0) {
-          out += "🌅 Sáng:\n";
-          morning.forEach(function(s) {
-            out += "• Tiết " + s.p + " (" + s.time + "): " + s.sub + " - " + s.classes.join(", ") + "\n";
-          });
-        }
-        if (afternoon.length > 0) {
-          out += "🌇 Chiều:\n";
-          afternoon.forEach(function(s) {
-            out += "• Tiết " + s.p + " (" + s.time + "): " + s.sub + " - " + s.classes.join(", ") + "\n";
-          });
-        }
       }
     }
   });
@@ -748,10 +737,10 @@ function formatTeacherTimetableResponse(teacher, schoolData, dayFilter) {
   if (!hasAnyPeriod) {
     if (dayFilter) {
       var dName = dayNames[dayFilter] || dayFilter;
-      out += "\n🌴 " + dName + ": Thầy/Cô không có tiết dạy.\n";
+      out += "\n🌴 *" + dName + "*: Thầy/Cô không có tiết dạy.\n";
       var nextSchedule = findNextTeachingSession(teacher, schoolData, dayFilter);
       if (nextSchedule) {
-        out += "\n🗓️ LỊCH DẠY BUỔI TIẾP THEO (" + nextSchedule.dayName + "):\n" + nextSchedule.content + "\n";
+        out += "\n🗓️ *LỊCH DẠY BUỔI TIẾP THEO* (*" + nextSchedule.dayName + "*):\n" + nextSchedule.content + "\n";
       }
     } else {
       out += "\n🌴 Thầy/Cô không có tiết dạy trong thời khóa biểu tuần này.\n";
@@ -771,9 +760,9 @@ function formatClassTimetableResponse(cls, schoolData, dayFilter) {
 
   var gvcnInfo = getHomeroomTeacher(cls, timetable, schoolData.assignments, schoolData.teachers);
 
-  var out = "🏫 TKB LỚP " + cls.name + " (" + (session === "chiều" ? "Buổi Chiều" : "Buổi Sáng") + ")\n";
+  var out = "🏫 TKB LỚP *" + cls.name + "* (*" + (session === "chiều" ? "Buổi Chiều" : "Buổi Sáng") + "*)\n";
   if (gvcnInfo) {
-    out += "👨‍🏫 GVCN: " + gvcnInfo + "\n";
+    out += "👨‍🏫 GVCN: *" + gvcnInfo + "*\n";
   }
   if (active.weekName) {
     out += "📌 " + active.weekName + (active.applyDate ? " (từ " + active.applyDate + ")" : "") + "\n";
@@ -799,7 +788,8 @@ function formatClassTimetableResponse(cls, schoolData, dayFilter) {
     if (slots.length > 0) {
       hasSlots = true;
       var dayTitle = (dayNames[day] || day).toUpperCase();
-      out += "\n🗓️ " + dayTitle + ":\n";
+      out += "\n🗓️ *" + dayTitle + "*:\n";
+      out += (session === "chiều" ? "🌇 Chiều:\n" : "🌅 Sáng:\n");
       slots.forEach(function(s) {
         var teacherStr = s.tea ? " (" + s.tea + ")" : "";
         out += "• Tiết " + s.p + " (" + s.time + "): " + s.sub + teacherStr + "\n";
@@ -861,25 +851,25 @@ function generateTomorrowTeacherMessage(teacher, schoolData, targetDate) {
   afternoonSlots.sort(function(a, b) { return a.period - b.period; });
   var totalPeriods = morningSlots.length + afternoonSlots.length;
 
-  var msg = "📅 LỊCH GIẢNG DẠY NGÀY MAI (" + dayName + " - " + dateStr + ")\n" +
-            "👤 Thầy/Cô: " + teacher.fullName + " (" + teacher.shortName + ")\n";
+  var msg = "📅 LỊCH GIẢNG DẠY NGÀY MAI (*" + dayName + "* - " + dateStr + ")\n" +
+            "👤 Thầy/Cô: *" + teacher.fullName.toUpperCase() + "* (" + teacher.shortName + ")\n";
 
   if (totalPeriods === 0) {
-    msg += "\n🌴 Ngày mai Thầy/Cô KHÔNG CÓ TIẾT DẠY. Chúc Thầy/Cô có thời gian nghỉ ngơi vui vẻ!\n";
+    msg += "\n🌴 Ngày mai Thầy/Cô *KHÔNG CÓ TIẾT DẠY*. Chúc Thầy/Cô có thời gian nghỉ ngơi vui vẻ!\n";
     var nextSchedule = findNextTeachingSession(teacher, schoolData, dayKey);
     if (nextSchedule) {
-      msg += "\n🗓️ LỊCH DẠY BUỔI TIẾP THEO (" + nextSchedule.dayName + "):\n" + nextSchedule.content + "\n";
+      msg += "\n🗓️ *LỊCH DẠY BUỔI TIẾP THEO* (*" + nextSchedule.dayName + "*):\n" + nextSchedule.content + "\n";
     }
   } else {
     msg += "📋 Ngày mai Thầy/Cô có " + totalPeriods + " tiết dạy:\n";
     if (morningSlots.length > 0) {
-      msg += "\n🌅 Buổi Sáng (" + morningSlots.length + " tiết):\n";
+      msg += "\n🌅 Sáng (" + morningSlots.length + " tiết):\n";
       morningSlots.forEach(function(s) {
         msg += "• Tiết " + s.period + " (" + s.time + "): " + s.subject + " - " + s.className + "\n";
       });
     }
     if (afternoonSlots.length > 0) {
-      msg += "\n🌇 Buổi Chiều (" + afternoonSlots.length + " tiết):\n";
+      msg += "\n🌇 Chiều (" + afternoonSlots.length + " tiết):\n";
       afternoonSlots.forEach(function(s) {
         msg += "• Tiết " + s.period + " (" + s.time + "): " + s.subject + " - " + s.className + "\n";
       });
@@ -927,13 +917,25 @@ function findNextTeachingSession(teacher, schoolData, afterDayKey) {
 
     if (slots.length > 0) {
       slots.sort(function(a, b) { return a.p - b.p; });
-      var lines = slots.map(function(s) {
-        return "• Tiết " + s.p + " (" + s.time + "): " + s.sub + " - " + s.cls;
-      }).join("\n");
+      var morning = slots.filter(function(s) { return s.session === "sáng"; });
+      var afternoon = slots.filter(function(s) { return s.session !== "sáng"; });
+      var lines = [];
+      if (morning.length > 0) {
+        lines.push("🌅 Sáng:");
+        morning.forEach(function(s) {
+          lines.push("• Tiết " + s.p + " (" + s.time + "): " + s.sub + " - " + s.cls);
+        });
+      }
+      if (afternoon.length > 0) {
+        lines.push("🌇 Chiều:");
+        afternoon.forEach(function(s) {
+          lines.push("• Tiết " + s.p + " (" + s.time + "): " + s.sub + " - " + s.cls);
+        });
+      }
       return {
         dayKey: d,
         dayName: dayNames[d] || d,
-        content: lines
+        content: lines.join("\n")
       };
     }
   }
@@ -1477,21 +1479,32 @@ function getUnifiedWelcomeGuideText() {
 
   return "🏫 TRỢ LÝ THÔNG MINH THCS CHU VĂN AN 4.0\n" +
          "Chào mừng Quý Thầy/Cô và các em học sinh!" + currentInfo + "\n\n" +
-         "📱 1. KÍCH HOẠT NHẮC LỊCH 6H00 SÁNG & KÝ SỐ:\n" +
-         "👉 Gửi [Số Điện Thoại] (VD: 0818810007) để nhận lịch dạy tự động.\n\n" +
+         "📱 1. NHẬN LỊCH DẠY 6H00 SÁNG & KÝ SỐ:\n" +
+         "👉 Gửi: [Số điện thoại]\n" +
+         "   ↳ VD: 0818810007\n\n" +
          "🔹 2. TRA CỨU THỜI KHÓA BIỂU:\n" +
-         "• tkb [Tên Lớp]  👉 Ví dụ: tkb 6a1\n" +
-         "• tkb [Tên GV]   👉 Ví dụ: tkb Tý (hoặc tkb Trọng)\n" +
-         "• tkb hôm nay    👉 Xem lịch dạy hôm nay\n" +
-         "• tkb ngày mai   👉 Xem lịch dạy ngày mai\n\n" +
-         "🔹 3. DẠY THAY & GIÁO VIÊN TRỐNG TIẾT:\n" +
-         "• day thay       👉 Xem ca phân công dạy thay\n" +
-         "• tim gv t3      👉 Tìm GV rảnh tiết Thứ 3\n\n" +
-         "🔹 4. KÝ SỐ & BÁO CÁO:\n" +
-         "• hoso           👉 Tra cứu giáo án đã nộp\n" +
-         "• baocao         👉 Cổng lưu trữ báo cáo số\n\n" +
-         "🌐 Cổng TKB Online: " + CONFIG.PUBLIC_TKB_PORTAL + "\n" +
-         "🌐 Cổng Báo Cáo Ký Số: " + CONFIG.PORTAL_URL;
+         "• tkb [Tên Lớp]\n" +
+         "  ↳ VD: tkb 6a1\n" +
+         "• tkb [Tên GV]\n" +
+         "  ↳ VD: tkb Tý (hoặc tkb Trọng)\n" +
+         "• tkb hôm nay\n" +
+         "  ↳ Xem lịch dạy hôm nay\n" +
+         "• tkb ngày mai\n" +
+         "  ↳ Xem lịch dạy ngày mai\n\n" +
+         "🔹 3. LỊCH DẠY THAY & GV TRỐNG TIẾT:\n" +
+         "• day thay\n" +
+         "  ↳ Xem ca phân công dạy thay\n" +
+         "• tim gv t3\n" +
+         "  ↳ Tìm GV rảnh tiết Thứ 3\n\n" +
+         "🔹 4. HỒ SƠ & BÁO CÁO KÝ SỐ:\n" +
+         "• hoso\n" +
+         "  ↳ Tra cứu giáo án đã nộp\n" +
+         "• baocao\n" +
+         "  ↳ Cổng lưu trữ báo cáo số\n\n" +
+         "🌐 Cổng TKB Online:\n" +
+         CONFIG.PUBLIC_TKB_PORTAL + "\n\n" +
+         "🌐 Cổng Báo Cáo Ký Số:\n" +
+         CONFIG.PORTAL_URL;
 }
 
 function fetchSchoolTimetableData() {
@@ -1521,7 +1534,7 @@ function fetchSchoolTimetableData() {
 
     return data;
   } catch (e) {
-    Logger.log("Lỗi tải dữ liệu Firebase: " + e.toString());
+    if (typeof Logger !== "undefined") Logger.log("Lỗi tải dữ liệu Firebase: " + e.toString());
     return null;
   }
 }
@@ -1868,6 +1881,7 @@ if (typeof module !== "undefined" && module.exports) {
     generateTomorrowTeacherMessage: generateTomorrowTeacherMessage,
     findNextTeachingSession: findNextTeachingSession,
     testSendTomorrowSchedule: testSendTomorrowSchedule,
+    getUnifiedWelcomeGuideText: getUnifiedWelcomeGuideText,
     handleNaturalTimetableQuery: handleNaturalTimetableQuery,
     handleSubstitutionQuery: handleSubstitutionQuery,
     handleFindFreeTeacherQuery: handleFindFreeTeacherQuery,
