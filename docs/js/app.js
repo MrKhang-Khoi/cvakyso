@@ -2343,12 +2343,35 @@ let currentChainedPendingDoc = null;
 let currentSignedPdfBase64 = null;
 let currentDocToReject = null;
 
+let currentTeacherSentSubFilter = 'ALL';
+
+function setTeacherSentSubFilter(sub) {
+  currentTeacherSentSubFilter = sub;
+  const btnAll = document.getElementById('sentFilterBtnAll');
+  const btnPending = document.getElementById('sentFilterBtnPending');
+  const btnReturned = document.getElementById('sentFilterBtnReturned');
+
+  const activeClass = 'px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-slate-900 text-white shadow-2xs cursor-pointer flex items-center gap-1.5 shrink-0';
+  const inactivePending = 'px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-slate-100 hover:bg-amber-50 text-slate-600 hover:text-amber-800 cursor-pointer flex items-center gap-1.5 shrink-0';
+  const inactiveReturned = 'px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-800 cursor-pointer flex items-center gap-1.5 shrink-0';
+  const inactiveAll = 'px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer flex items-center gap-1.5 shrink-0';
+
+  if (btnAll) btnAll.className = sub === 'ALL' ? activeClass : inactiveAll;
+  if (btnPending) btnPending.className = sub === 'PENDING' ? activeClass : inactivePending;
+  if (btnReturned) btnReturned.className = sub === 'RETURNED' ? activeClass : inactiveReturned;
+
+  renderTeacherSentList(teacherSentDocs);
+}
+
 function switchTeacherTab(tabName) {
+  if (tabName === 'returned') {
+    tabName = 'sent';
+    setTeacherSentSubFilter('RETURNED');
+  }
   currentTeacherTab = tabName;
   const btnWorkspace = document.getElementById('tabBtnTeacherWorkspace');
   const btnPending = document.getElementById('tabBtnTeacherPending');
   const btnSent = document.getElementById('tabBtnTeacherSent');
-  const btnReturned = document.getElementById('tabBtnTeacherReturned');
   const btnReports = document.getElementById('tabBtnTeacherReports');
   const contentWorkspace = document.getElementById('tabContentTeacherWorkspace');
   const contentPending = document.getElementById('tabContentTeacherPending');
@@ -2356,8 +2379,8 @@ function switchTeacherTab(tabName) {
   const contentReturned = document.getElementById('tabContentTeacherReturned');
   const contentReports = document.getElementById('tabContentTeacherReports');
 
-  const activeBtnClass = 'px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all bg-brand-600 text-white shadow-sm shadow-brand-500/20 flex items-center gap-2 cursor-pointer';
-  const inactiveBtnClass = 'px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center gap-2 cursor-pointer';
+  const activeBtnClass = 'px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all bg-brand-600 text-white shadow-sm shadow-brand-500/20 flex items-center gap-2 shrink-0 cursor-pointer';
+  const inactiveBtnClass = 'px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center gap-2 shrink-0 cursor-pointer';
 
   // Ẩn tất cả nội dung
   if (contentWorkspace) contentWorkspace.classList.add('hidden');
@@ -2370,7 +2393,6 @@ function switchTeacherTab(tabName) {
   if (btnWorkspace) btnWorkspace.className = inactiveBtnClass;
   if (btnPending) btnPending.className = inactiveBtnClass;
   if (btnSent) btnSent.className = inactiveBtnClass;
-  if (btnReturned) btnReturned.className = inactiveBtnClass;
   if (btnReports) btnReports.className = inactiveBtnClass;
 
   if (tabName === 'workspace') {
@@ -2384,10 +2406,6 @@ function switchTeacherTab(tabName) {
     if (contentSent) contentSent.classList.remove('hidden');
     if (btnSent) btnSent.className = activeBtnClass;
     loadTeacherSentDocuments(true);
-  } else if (tabName === 'returned') {
-    if (contentReturned) contentReturned.classList.remove('hidden');
-    if (btnReturned) btnReturned.className = activeBtnClass;
-    loadTeacherReturnedDocuments(true);
   } else if (tabName === 'reports') {
     if (contentReports) contentReports.classList.remove('hidden');
     if (btnReports) btnReports.className = activeBtnClass;
@@ -2652,19 +2670,47 @@ async function loadTeacherSentDocuments(force = false) {
           const isAssigned = (d.assignedTo && (d.assignedTo === currentUserId || d.assignedTo === currentUsername)) ||
                              (d.currentSignerId && (d.currentSignerId === currentUserId || d.currentSignerId === currentUsername));
 
-          return Boolean(isCreator || isSigner || isAssigned);
+          const hasRelation = Boolean(isCreator || isSigner || isAssigned);
+          if (!hasRelation) return false;
+
+          // QUAN TRỌNG: Chỉ giữ lại hồ sơ đang luân chuyển hoặc cần sửa lại
+          // Loại bỏ hồ sơ đã hoàn tất ký duyệt (COMPLETED, ARCHIVED, APPROVED) vì đã có trong Tab 4 Kho Báo Cáo
+          const isDone = d.status === 'COMPLETED' || d.status === 'ARCHIVED' || d.status === 'APPROVED' || (d.status && d.status.includes('ĐÃ KÝ'));
+          return !isDone;
         });
 
         sentList.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
       }
     }
 
+    // Lọc bỏ triệt để các hồ sơ đã hoàn tất/lưu trữ/đã duyệt khỏi Tab 3 Tiến độ
+    sentList = sentList.filter(d => {
+      if (!d) return false;
+      const isDone = d.status === 'COMPLETED' || d.status === 'ARCHIVED' || d.status === 'APPROVED' || (d.status && d.status.includes('ĐÃ KÝ'));
+      return !isDone;
+    });
+
     teacherSentDocs = sentList;
 
-    // Cập nhật huy hiệu số lượng hồ sơ đã gửi
+    // Cập nhật số lượng đếm trên các bộ lọc con
+    const allCount = sentList.length;
+    const pendingCount = sentList.filter(d => d.status === 'PENDING_SIGN' || d.status === 'WAITING_LEADER_APPROVAL').length;
+    const returnedCount = sentList.filter(d => d.status === 'RETURNED' || d.status === 'REJECTED').length;
+
+    const elSubAll = document.getElementById('sentSubCountAll');
+    const elSubPending = document.getElementById('sentSubCountPending');
+    const elSubReturned = document.getElementById('sentSubCountReturned');
+    if (elSubAll) elSubAll.textContent = allCount;
+    if (elSubPending) elSubPending.textContent = pendingCount;
+    if (elSubReturned) elSubReturned.textContent = returnedCount;
+
+    // Cập nhật huy hiệu số lượng hồ sơ đang tiến độ
     if (badgeEl) {
-      badgeEl.textContent = sentList.length;
-      if (sentList.length > 0) {
+      badgeEl.textContent = allCount;
+      if (returnedCount > 0) {
+        badgeEl.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-600 text-white animate-pulse';
+        badgeEl.title = `Có ${returnedCount} hồ sơ bị trả về cần sửa lại`;
+      } else if (allCount > 0) {
         badgeEl.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-brand-600 text-white';
       } else {
         badgeEl.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-600';
@@ -2692,14 +2738,31 @@ function renderTeacherSentList(docs) {
   const container = document.getElementById('listTeacherSentContainer');
   if (!container) return;
 
-  if (!docs || docs.length === 0) {
+  let filteredDocs = docs || [];
+  if (currentTeacherSentSubFilter === 'PENDING') {
+    filteredDocs = filteredDocs.filter(d => d.status === 'PENDING_SIGN' || d.status === 'WAITING_LEADER_APPROVAL');
+  } else if (currentTeacherSentSubFilter === 'RETURNED') {
+    filteredDocs = filteredDocs.filter(d => d.status === 'RETURNED' || d.status === 'REJECTED');
+  }
+
+  if (!filteredDocs || filteredDocs.length === 0) {
+    let emptyTitle = 'Thầy/Cô không có hồ sơ nào đang luân chuyển';
+    let emptySubtitle = 'Khi Thầy/Cô trình ký văn bản mới, tiến độ ký duyệt của đồng nghiệp sẽ hiển thị tại đây.';
+    if (currentTeacherSentSubFilter === 'PENDING') {
+      emptyTitle = 'Không có hồ sơ nào đang chờ ký';
+      emptySubtitle = 'Tất cả các hồ sơ gửi đi đã được xử lý xong hoặc chuyển bước tiếp theo.';
+    } else if (currentTeacherSentSubFilter === 'RETURNED') {
+      emptyTitle = 'Tuyệt vời! Không có hồ sơ nào bị trả về';
+      emptySubtitle = 'Các báo cáo của Thầy/Cô đều đạt yêu cầu và không bị yêu cầu sửa lại.';
+    }
+
     container.innerHTML = `
       <div class="py-14 text-center text-slate-400 space-y-2">
         <div class="w-14 h-14 mx-auto rounded-3xl bg-slate-100 text-slate-400 flex items-center justify-center">
-          <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         </div>
-        <p class="text-xs font-bold text-slate-600">Thầy/Cô chưa có văn bản nào cần theo dõi</p>
-        <p class="text-[11px] text-slate-400">Khi Thầy/Cô tạo Báo cáo hoặc tham gia ký duyệt liên hoàn, tiến độ sẽ xuất hiện tại đây.</p>
+        <p class="text-xs font-bold text-slate-600">${emptyTitle}</p>
+        <p class="text-[11px] text-slate-400">${emptySubtitle}</p>
       </div>
     `;
     return;
@@ -2709,7 +2772,7 @@ function renderTeacherSentList(docs) {
   const currentUserId = user?.id || user?.username;
   const currentUsername = user?.username || user?.id;
 
-  container.innerHTML = docs.map(doc => {
+  container.innerHTML = filteredDocs.map(doc => {
     const isCompleted = doc.status === 'COMPLETED';
     const isPending = doc.status === 'PENDING_SIGN';
     const isRecalled = doc.status === 'RECALLED';
@@ -3140,7 +3203,7 @@ async function loadSchoolReports(force = false) {
     if (isCreator || isAssigned || hasSigned) return true;
 
     // - Được xem các báo cáo chung của tổ mình KHI VÀ CHỈ KHI báo cáo đó ĐÃ ĐƯỢC DUYỆT & ĐÓNG DẤU HOÀN TẤT
-    const isCompleted = (doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ')));
+    const isCompleted = (doc.status === 'COMPLETED' || doc.status === 'ARCHIVED' || doc.status === 'APPROVED' || (doc.status && doc.status.includes('ĐÃ KÝ')));
     if (isSameDept && isCompleted) return true;
 
     return false;
