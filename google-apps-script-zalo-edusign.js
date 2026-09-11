@@ -222,6 +222,18 @@ function doPost(e) {
 
     if (postData.message) {
       userMessage = postData.message.text || "";
+      if (!userMessage && postData.message.attachments && postData.message.attachments.length > 0) {
+        for (var a = 0; a < postData.message.attachments.length; a++) {
+          var item = postData.message.attachments[a];
+          if (item && item.payload && item.payload.phone_number) {
+            userMessage = item.payload.phone_number;
+            break;
+          }
+        }
+      }
+      if (!userMessage && postData.message.contact && postData.message.contact.phone_number) {
+        userMessage = postData.message.contact.phone_number;
+      }
       if (postData.message.chat) {
         chatId = postData.message.chat.id;
       } else if (postData.message.from) {
@@ -231,12 +243,14 @@ function doPost(e) {
       userMessage = postData.text;
       chatId = postData.chat_id || postData.sender_id || postData.user_id;
     } else if (eventName === "user_send_text") {
-      userMessage = postData.message ? postData.message.text : "";
-      chatId = postData.sender ? postData.sender.id : "";
+      userMessage = postData.message ? (typeof postData.message === 'string' ? postData.message : (postData.message.text || "")) : "";
+      chatId = postData.sender ? (typeof postData.sender === 'object' ? postData.sender.id : postData.sender) : "";
     }
 
     if (!chatId && postData.chat_id) chatId = postData.chat_id;
-    if (!chatId && postData.sender) chatId = postData.sender.id;
+    if (!chatId && postData.sender) chatId = (typeof postData.sender === 'object' ? postData.sender.id : postData.sender);
+    if (!chatId && postData.user_id) chatId = postData.user_id;
+    if (!chatId && postData.from) chatId = (typeof postData.from === 'object' ? postData.from.id : postData.from);
 
     // A. Khi giáo viên vừa mở Bot hoặc bấm Quan tâm / Bắt đầu (Start)
     if (eventName === "follow" || eventName === "user_open_bot" || eventName === "join" || userMessage === "/start") {
@@ -280,7 +294,7 @@ function processTeacherZaloMessage(chatId, rawText) {
 
   // 1. Kiểm tra nếu tin nhắn là SỐ ĐIỆN THOẠI (để liên kết tài khoản)
   var phoneMatch = text.replace(/[^0-9]/g, "");
-  if (phoneMatch.length >= 10 && phoneMatch.length <= 11) {
+  if (phoneMatch.length >= 9 && phoneMatch.length <= 12) {
     return handlePhoneMapping(chatId, phoneMatch);
   }
 
