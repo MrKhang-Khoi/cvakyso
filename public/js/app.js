@@ -529,31 +529,54 @@ function switchTab(tabName) {
   appState.activeTab = tabName;
   const tabTeachers = document.getElementById('tabContentTeachers');
   const tabDepts = document.getElementById('tabContentDepartments');
+  const tabReports = document.getElementById('tabContentAdminReports');
   const btnTeachers = document.getElementById('tabBtnTeachers');
   const btnDepts = document.getElementById('tabBtnDepartments');
+  const btnReports = document.getElementById('tabBtnAdminReports');
 
   const btnCreateUser = document.querySelector('.btn-create-user');
   const btnCreateDept = document.querySelector('.btn-create-dept');
 
+  const activeBtnClass = "px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all bg-brand-600 text-white shadow-sm shadow-brand-500/20";
+  const inactiveBtnClass = "px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-500 hover:text-slate-800 hover:bg-slate-100";
+
   if (tabName === 'teachers') {
-    tabTeachers.classList.remove('hidden');
-    tabDepts.classList.add('hidden');
+    if (tabTeachers) tabTeachers.classList.remove('hidden');
+    if (tabDepts) tabDepts.classList.add('hidden');
+    if (tabReports) tabReports.classList.add('hidden');
 
-    btnTeachers.className = "px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all bg-brand-600 text-white shadow-sm shadow-brand-500/20";
-    btnDepts.className = "px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-500 hover:text-slate-800 hover:bg-slate-100";
+    if (btnTeachers) btnTeachers.className = activeBtnClass;
+    if (btnDepts) btnDepts.className = inactiveBtnClass;
+    if (btnReports) btnReports.className = inactiveBtnClass;
 
-    btnCreateUser.classList.remove('hidden');
-    btnCreateDept.classList.add('hidden');
-  } else {
-    tabTeachers.classList.add('hidden');
-    tabDepts.classList.remove('hidden');
+    if (btnCreateUser) btnCreateUser.classList.remove('hidden');
+    if (btnCreateDept) btnCreateDept.classList.add('hidden');
+  } else if (tabName === 'departments') {
+    if (tabTeachers) tabTeachers.classList.add('hidden');
+    if (tabDepts) tabDepts.classList.remove('hidden');
+    if (tabReports) tabReports.classList.add('hidden');
 
-    btnDepts.className = "px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all bg-brand-600 text-white shadow-sm shadow-brand-500/20";
-    btnTeachers.className = "px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-500 hover:text-slate-800 hover:bg-slate-100";
+    if (btnTeachers) btnTeachers.className = inactiveBtnClass;
+    if (btnDepts) btnDepts.className = activeBtnClass;
+    if (btnReports) btnReports.className = inactiveBtnClass;
 
-    btnCreateUser.classList.add('hidden');
-    btnCreateDept.classList.remove('hidden');
+    if (btnCreateUser) btnCreateUser.classList.add('hidden');
+    if (btnCreateDept) btnCreateDept.classList.remove('hidden');
     renderDepartmentsGrid();
+  } else if (tabName === 'reports') {
+    if (tabTeachers) tabTeachers.classList.add('hidden');
+    if (tabDepts) tabDepts.classList.add('hidden');
+    if (tabReports) tabReports.classList.remove('hidden');
+
+    if (btnTeachers) btnTeachers.className = inactiveBtnClass;
+    if (btnDepts) btnDepts.className = inactiveBtnClass;
+    if (btnReports) btnReports.className = activeBtnClass;
+
+    if (btnCreateUser) btnCreateUser.classList.add('hidden');
+    if (btnCreateDept) btnCreateDept.classList.add('hidden');
+    if (typeof loadAdminReportManagement === 'function') {
+      loadAdminReportManagement(true);
+    }
   }
 }
 
@@ -3091,10 +3114,14 @@ function handleResubmitReturnedDoc(docId) {
 
 // ==================== KHO BÁO CÁO ĐIỆN TỬ & PHÂN QUYỀN TRUY CẬP ====================
 let currentCachedSchoolReports = [];
+let teacherSelectedReportIds = new Set();
 
 async function loadSchoolReports(force = false) {
   const container = document.getElementById('listSchoolReportsContainer');
   const badgeEl = document.getElementById('badgeTeacherReportsCount');
+  const iconRefresh = document.getElementById('iconRefreshTeacherReports');
+  if (iconRefresh && force) iconRefresh.classList.add('animate-spin');
+
   const user = appState.currentUser;
   if (!user) return;
 
@@ -3215,8 +3242,18 @@ async function loadSchoolReports(force = false) {
 
   if (badgeEl) badgeEl.textContent = filteredByRole.length;
 
+  teacherSelectedReportIds.clear();
+  updateTeacherBatchBar();
+
   // Render ra bảng kèm bộ lọc tương tác
   renderSchoolReportsTable();
+
+  if (iconRefresh) {
+    setTimeout(() => iconRefresh.classList.remove('animate-spin'), 400);
+  }
+  if (force) {
+    showToast('🎉 Đã làm mới dữ liệu Kho Báo cáo!', 'success');
+  }
 }
 
 function renderSchoolReportsTable() {
@@ -3229,6 +3266,7 @@ function renderSchoolReportsTable() {
 
   const user = appState.currentUser;
   const role = user?.role || 'TEACHER';
+  const currentUserId = user?.id || user?.username;
   const isAdminOrBgh = (role === 'ADMIN' || role === 'BGH' || user?.id === 'admin' || user?.departmentId === 'dept_bgh');
 
   let list = currentCachedSchoolReports.filter(doc => {
@@ -3284,7 +3322,10 @@ function renderSchoolReportsTable() {
         <table class="w-full text-left text-xs border-collapse">
           <thead>
             <tr class="bg-slate-50/80 text-slate-600 font-bold border-b border-slate-200">
-              <th class="py-3 px-3.5 w-12 text-center">STT</th>
+              <th class="py-3 px-3 w-10 text-center">
+                <input type="checkbox" id="teacherSelectAllReportsCheckbox" onchange="toggleTeacherSelectAllReports(this.checked)" class="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer" title="Chọn tất cả">
+              </th>
+              <th class="py-3 px-3 w-12 text-center">STT</th>
               <th class="py-3 px-3.5">Mã & Tiêu đề Báo cáo</th>
               <th class="py-3 px-3.5">Tổ chuyên môn</th>
               <th class="py-3 px-3.5">Người lập</th>
@@ -3299,6 +3340,7 @@ function renderSchoolReportsTable() {
   list.forEach((doc, idx) => {
     const isCompleted = (doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ')));
     const isReturned = (doc.status === 'RETURNED' || doc.status === 'REJECTED');
+    const isCreator = (doc.creatorId === currentUserId || doc.authorId === currentUserId || doc.creatorUsername === user?.username);
     
     let statusBadge = '';
     if (isCompleted) {
@@ -3340,7 +3382,10 @@ function renderSchoolReportsTable() {
 
     html += `
       <tr class="hover:bg-slate-50/70 transition">
-        <td class="py-3 px-3.5 text-center font-bold text-slate-400">${idx + 1}</td>
+        <td class="py-3 px-3 text-center">
+          <input type="checkbox" data-teacher-report-id="${escapeHtml(doc.id)}" ${teacherSelectedReportIds.has(doc.id) ? 'checked' : ''} onchange="toggleTeacherReportItem('${escapeHtml(doc.id)}', this.checked)" class="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+        </td>
+        <td class="py-3 px-3 text-center font-bold text-slate-400">${idx + 1}</td>
         <td class="py-3 px-3.5">
           <div class="font-bold text-slate-900 text-xs">${escapeHtml(doc.title || 'Báo cáo chuyên môn')}</div>
           <div class="text-[10px] font-mono text-slate-400 mt-0.5 flex items-center gap-2">
@@ -3364,6 +3409,11 @@ function renderSchoolReportsTable() {
                 <span>📁</span>
               </a>
             ` : ''}
+            ${(isAdminOrBgh || isReturned || isCreator) ? `
+              <button onclick="handleDeleteReportInline('${escapeHtml(doc.id)}', '${escapeHtml(doc.title || '')}')" title="Xóa báo cáo này" class="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition cursor-pointer">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              </button>
+            ` : ''}
           </div>
         </td>
       </tr>
@@ -3380,8 +3430,125 @@ function renderSchoolReportsTable() {
   container.innerHTML = html;
 }
 
+// Batch functions cho Giáo viên / Kho Báo Cáo
+function toggleTeacherSelectAllReports(checked) {
+  const container = document.getElementById('listSchoolReportsContainer');
+  if (!container) return;
+  const checkboxes = container.querySelectorAll('input[data-teacher-report-id]');
+  checkboxes.forEach(cb => {
+    const docId = cb.getAttribute('data-teacher-report-id');
+    cb.checked = checked;
+    if (checked) {
+      if (docId) teacherSelectedReportIds.add(docId);
+    } else {
+      if (docId) teacherSelectedReportIds.delete(docId);
+    }
+  });
+  updateTeacherBatchBar();
+}
+
+function toggleTeacherReportItem(docId, checked) {
+  if (!docId) return;
+  if (checked) {
+    teacherSelectedReportIds.add(docId);
+  } else {
+    teacherSelectedReportIds.delete(docId);
+  }
+  updateTeacherBatchBar();
+}
+
+function updateTeacherBatchBar() {
+  const bar = document.getElementById('teacherReportsBatchBar');
+  const countEl = document.getElementById('teacherReportsSelectedCount');
+  const selectAllCb = document.getElementById('teacherSelectAllReportsCheckbox');
+  const size = teacherSelectedReportIds.size;
+
+  if (countEl) countEl.textContent = size;
+  if (bar) {
+    if (size > 0) {
+      bar.classList.remove('hidden');
+    } else {
+      bar.classList.add('hidden');
+    }
+  }
+
+  if (selectAllCb) {
+    const container = document.getElementById('listSchoolReportsContainer');
+    const checkboxes = container ? container.querySelectorAll('input[data-teacher-report-id]') : [];
+    if (checkboxes.length > 0 && size >= checkboxes.length) {
+      selectAllCb.checked = true;
+    } else {
+      selectAllCb.checked = false;
+    }
+  }
+}
+
+function clearTeacherReportSelection() {
+  teacherSelectedReportIds.clear();
+  const selectAllCb = document.getElementById('teacherSelectAllReportsCheckbox');
+  if (selectAllCb) selectAllCb.checked = false;
+  const container = document.getElementById('listSchoolReportsContainer');
+  if (container) {
+    const checkboxes = container.querySelectorAll('input[data-teacher-report-id]');
+    checkboxes.forEach(cb => cb.checked = false);
+  }
+  updateTeacherBatchBar();
+}
+
+async function handleTeacherBatchDeleteReports() {
+  const size = teacherSelectedReportIds.size;
+  if (size === 0) {
+    showToast('Chưa chọn báo cáo nào để xóa!', 'warning');
+    return;
+  }
+
+  const user = appState.currentUser;
+  const role = user?.role || 'TEACHER';
+  const isAdminOrBgh = (role === 'ADMIN' || role === 'BGH' || user?.id === 'admin' || user?.departmentId === 'dept_bgh');
+  const currentUserId = user?.id || user?.username;
+
+  const selectedDocs = currentCachedSchoolReports.filter(d => teacherSelectedReportIds.has(d.id));
+
+  // Phân quyền bảo vệ: giáo viên chỉ được xóa báo cáo do mình lập mà bị trả về
+  if (!isAdminOrBgh) {
+    const unauthorizedDocs = selectedDocs.filter(d => {
+      const isCreator = (d.creatorId === currentUserId || d.authorId === currentUserId || d.creatorUsername === user?.username);
+      const isReturned = (d.status === 'RETURNED' || d.status === 'REJECTED');
+      return !(isCreator && isReturned);
+    });
+
+    if (unauthorizedDocs.length > 0) {
+      showModalAlert('Không có quyền xóa', `Thầy/Cô chỉ có thể xóa các Báo cáo do chính mình tạo và đang ở trạng thái "Bị trả về". Có ${unauthorizedDocs.length} báo cáo không thuộc diện này.`, 'warning');
+      return;
+    }
+  }
+
+  if (!confirm(`Thầy/Cô có chắc chắn muốn xóa ${size} báo cáo đã chọn không? Dữ liệu sau khi xóa sẽ không thể phục hồi.`)) {
+    return;
+  }
+
+  showToast(`Đang xóa ${size} báo cáo...`, 'info');
+  try {
+    const ids = Array.from(teacherSelectedReportIds);
+    await Promise.all(ids.map(id => {
+      if (firebaseDb) return firebaseDb.ref(`documents/${id}`).remove();
+      return fetch(`${RTDB_URL}/documents/${id}.json`, { method: 'DELETE' });
+    }));
+    showToast(`✅ Đã xóa thành công ${ids.length} báo cáo!`, 'success');
+    teacherSelectedReportIds.clear();
+    updateTeacherBatchBar();
+    loadSchoolReports(true);
+    if (typeof loadTeacherReturnedDocuments === 'function') loadTeacherReturnedDocuments(true);
+    if (typeof loadTeacherSentDocuments === 'function') loadTeacherSentDocuments(true);
+  } catch (err) {
+    console.error('Lỗi xóa báo cáo hàng loạt:', err);
+    showToast('Lỗi khi xóa: ' + err.message, 'error');
+  }
+}
+
 async function handleViewReportPdfInline(docId) {
-  const doc = currentCachedSchoolReports.find(d => d.id === docId);
+  const doc = (currentCachedSchoolReports && currentCachedSchoolReports.find(d => d.id === docId)) ||
+              (currentCachedAdminReports && currentCachedAdminReports.find(d => d.id === docId));
   if (!doc) {
     showToast('Không tìm thấy thông tin báo cáo này!', 'warning');
     return;
@@ -3406,6 +3573,447 @@ async function handleViewReportPdfInline(docId) {
     window.open(doc.driveInfo.viewUrl, '_blank');
   } else {
     showModalAlert('Không có bản xem trước', 'Hồ sơ này không đính kèm nội dung tệp PDF hoặc tệp đang được lưu trữ trên Cloud.', 'info');
+  }
+}
+
+// ==================== QUẢN LÝ BÁO CÁO TOÀN TRƯỜNG DÀNH CHO ADMIN ====================
+let currentCachedAdminReports = [];
+let adminSelectedReportIds = new Set();
+
+async function loadAdminReportManagement(force = false) {
+  const container = document.getElementById('listAdminReportsTableContainer');
+  const iconRefresh = document.getElementById('iconRefreshAdminReports');
+  if (iconRefresh) iconRefresh.classList.add('animate-spin');
+
+  if (container) {
+    container.innerHTML = `
+      <div class="py-12 text-center text-slate-400 text-xs">
+        <div class="w-7 h-7 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+        <span>Đang tải danh sách báo cáo toàn hệ thống...</span>
+      </div>
+    `;
+  }
+
+  try {
+    let allDocs = null;
+    if (firebaseDb) {
+      const snap = await firebaseDb.ref('documents').once('value');
+      allDocs = snap.val();
+    } else {
+      const fRes = await fetch(`${RTDB_URL}/documents.json?_t=${Date.now()}`).catch(() => null);
+      if (fRes && fRes.ok) allDocs = await fRes.json().catch(() => null);
+    }
+
+    let docList = [];
+    if (allDocs) {
+      docList = Array.isArray(allDocs)
+        ? allDocs.filter(Boolean)
+        : Object.keys(allDocs).map(k => ({ id: allDocs[k].id || k, ...allDocs[k] }));
+    }
+
+    // Lấy các tài liệu báo cáo toàn trường
+    const allReports = docList.filter(d => {
+      return d.docType === 'REPORT' || d.category === 'REPORT' || (d.id && String(d.id).startsWith('BC-')) || d.isReport;
+    });
+
+    allReports.sort((a, b) => new Date(b.createdAt || b.updatedAt || 0) - new Date(a.createdAt || a.updatedAt || 0));
+    currentCachedAdminReports = allReports;
+
+    // Cập nhật thẻ thống kê
+    const statTotal = document.getElementById('adminStatTotalReports');
+    const statComp = document.getElementById('adminStatCompletedReports');
+    const statPending = document.getElementById('adminStatPendingReports');
+
+    const totalCount = allReports.length;
+    const compCount = allReports.filter(d => d.status === 'COMPLETED' || (d.status && d.status.includes('ĐÃ KÝ'))).length;
+    const pendingCount = allReports.filter(d => d.status === 'RETURNED' || d.status === 'REJECTED' || (d.status !== 'COMPLETED' && (!d.status || !d.status.includes('ĐÃ KÝ')))).length;
+
+    if (statTotal) statTotal.textContent = totalCount;
+    if (statComp) statComp.textContent = compCount;
+    if (statPending) statPending.textContent = pendingCount;
+
+    adminSelectedReportIds.clear();
+    updateAdminBatchBar();
+
+    renderAdminReportsTable();
+
+    if (force) {
+      showToast('🎉 Đã làm mới dữ liệu Báo cáo hệ thống!', 'success');
+    }
+  } catch (err) {
+    console.warn('[loadAdminReportManagement] Lỗi tải dữ liệu:', err);
+    if (container) {
+      container.innerHTML = `<div class="p-6 text-center text-rose-500 text-xs">Lỗi tải dữ liệu: ${escapeHtml(err.message)}</div>`;
+    }
+  } finally {
+    if (iconRefresh) {
+      setTimeout(() => iconRefresh.classList.remove('animate-spin'), 400);
+    }
+  }
+}
+
+function renderAdminReportsTable() {
+  const container = document.getElementById('listAdminReportsTableContainer');
+  if (!container) return;
+
+  const searchKeyword = (document.getElementById('inputAdminReportSearch')?.value || '').trim().toLowerCase();
+  const deptFilter = document.getElementById('selectAdminReportDeptFilter')?.value || '';
+  const statusFilter = document.getElementById('selectAdminReportStatusFilter')?.value || '';
+
+  let list = currentCachedAdminReports.filter(doc => {
+    // 1. Lọc từ khóa
+    if (searchKeyword) {
+      const title = (doc.title || '').toLowerCase();
+      const code = (doc.id || '').toLowerCase();
+      const author = (doc.creatorName || doc.author || '').toLowerCase();
+      const dept = (doc.creatorDept || doc.department || '').toLowerCase();
+      if (!title.includes(searchKeyword) && !code.includes(searchKeyword) && !author.includes(searchKeyword) && !dept.includes(searchKeyword)) {
+        return false;
+      }
+    }
+
+    // 2. Lọc Tổ chuyên môn
+    if (deptFilter) {
+      const docDept = (doc.creatorDept || doc.department || '').toLowerCase();
+      if (!docDept.includes(deptFilter.toLowerCase())) return false;
+    }
+
+    // 3. Lọc Trạng thái
+    if (statusFilter) {
+      if (statusFilter === 'COMPLETED') {
+        const isComp = doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ'));
+        if (!isComp) return false;
+      } else if (statusFilter === 'PENDING') {
+        const isComp = doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ'));
+        const isRet = doc.status === 'RETURNED' || doc.status === 'REJECTED';
+        if (isComp || isRet) return false;
+      } else if (statusFilter === 'RETURNED') {
+        const isRet = doc.status === 'RETURNED' || doc.status === 'REJECTED';
+        if (!isRet) return false;
+      }
+    }
+
+    return true;
+  });
+
+  if (list.length === 0) {
+    container.innerHTML = `
+      <div class="py-12 text-center text-slate-400 bg-slate-50/50 rounded-2xl border border-slate-200/80">
+        <svg class="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        <div class="text-sm font-bold text-slate-700">Không có báo cáo nào phù hợp</div>
+        <div class="text-xs text-slate-400 mt-1">Vui lòng điều chỉnh lại từ khóa hoặc bộ lọc.</div>
+      </div>
+    `;
+    return;
+  }
+
+  let html = `
+    <div class="overflow-x-auto rounded-2xl border border-slate-200">
+      <table class="w-full text-left text-xs border-collapse">
+        <thead>
+          <tr class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+            <th class="py-3 px-3 text-center w-10">
+              <input type="checkbox" id="adminSelectAllReportsCheckbox" onchange="toggleAdminSelectAllReports(this.checked)" class="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer" title="Chọn tất cả">
+            </th>
+            <th class="py-3 px-3 w-12 text-center">STT</th>
+            <th class="py-3 px-3.5">Mã & Tiêu đề Báo cáo</th>
+            <th class="py-3 px-3.5">Tổ chuyên môn</th>
+            <th class="py-3 px-3.5">Người lập</th>
+            <th class="py-3 px-3.5">Tiến độ & Chữ ký</th>
+            <th class="py-3 px-3.5 text-center">Trạng thái</th>
+            <th class="py-3 px-3.5 text-right">Thao tác</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+  `;
+
+  list.forEach((doc, idx) => {
+    const isCompleted = (doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ')));
+    const isReturned = (doc.status === 'RETURNED' || doc.status === 'REJECTED');
+
+    let statusBadge = '';
+    if (isCompleted) {
+      statusBadge = `
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+          Đã duyệt & Đóng dấu
+        </span>
+      `;
+    } else if (isReturned) {
+      statusBadge = `
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+          <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+          Bị trả về
+        </span>
+      `;
+    } else {
+      statusBadge = `
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+          Đang chờ ký duyệt
+        </span>
+      `;
+    }
+
+    let signersText = '';
+    if (Array.isArray(doc.signatures) && doc.signatures.length > 0) {
+      signersText = doc.signatures.map(s => {
+        const sealIcon = s.isSchoolSeal ? '🔴 ' : '✍️ ';
+        return `<span class="inline-block bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded text-[10px] font-medium mr-1 mb-1">${sealIcon}${escapeHtml(s.signerName || s.name || 'Người ký')}</span>`;
+      }).join('');
+    } else {
+      signersText = `<span class="text-slate-400 italic">Chưa có chữ ký</span>`;
+    }
+
+    const driveUrl = (doc.driveInfo && doc.driveInfo.viewUrl) ? doc.driveInfo.viewUrl : '';
+    const dateStr = doc.createdAt ? new Date(doc.createdAt).toLocaleDateString('vi-VN') : 'N/A';
+
+    html += `
+      <tr class="hover:bg-slate-50/70 transition">
+        <td class="py-3 px-3 text-center">
+          <input type="checkbox" data-admin-report-id="${escapeHtml(doc.id)}" ${adminSelectedReportIds.has(doc.id) ? 'checked' : ''} onchange="toggleAdminReportItem('${escapeHtml(doc.id)}', this.checked)" class="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+        </td>
+        <td class="py-3 px-3 text-center font-bold text-slate-400">${idx + 1}</td>
+        <td class="py-3 px-3.5">
+          <div class="font-bold text-slate-900 text-xs">${escapeHtml(doc.title || 'Báo cáo chuyên môn')}</div>
+          <div class="text-[10px] font-mono text-slate-400 mt-0.5 flex items-center gap-2">
+            <span>${escapeHtml(doc.id || '')}</span>
+            <span>•</span>
+            <span>${dateStr}</span>
+          </div>
+        </td>
+        <td class="py-3 px-3.5 font-semibold text-slate-700">${escapeHtml(doc.creatorDept || doc.department || 'CVA')}</td>
+        <td class="py-3 px-3.5 text-slate-700 font-medium">${escapeHtml(doc.creatorName || doc.author || 'Giáo viên')}</td>
+        <td class="py-3 px-3.5">${signersText}</td>
+        <td class="py-3 px-3.5 text-center">${statusBadge}</td>
+        <td class="py-3 px-3.5 text-right whitespace-nowrap">
+          <div class="flex items-center justify-end gap-1.5">
+            <button onclick="handleViewReportPdfInline('${escapeHtml(doc.id)}')" title="Xem trực tiếp tệp PDF" class="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold text-[11px] transition flex items-center gap-1 cursor-pointer">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              <span>Xem</span>
+            </button>
+            ${driveUrl ? `
+              <a href="${driveUrl}" target="_blank" title="Mở trên Google Drive" class="px-2 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[11px] transition flex items-center gap-1">
+                <span>📁</span>
+              </a>
+            ` : ''}
+            <button onclick="handleDeleteReportInline('${escapeHtml(doc.id)}', '${escapeHtml(doc.title || '')}')" title="Xóa báo cáo này" class="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition cursor-pointer">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+
+  html += `
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  container.innerHTML = html;
+}
+
+function toggleAdminSelectAllReports(checked) {
+  const container = document.getElementById('listAdminReportsTableContainer');
+  if (!container) return;
+  const checkboxes = container.querySelectorAll('input[data-admin-report-id]');
+  checkboxes.forEach(cb => {
+    const docId = cb.getAttribute('data-admin-report-id');
+    cb.checked = checked;
+    if (checked) {
+      if (docId) adminSelectedReportIds.add(docId);
+    } else {
+      if (docId) adminSelectedReportIds.delete(docId);
+    }
+  });
+  updateAdminBatchBar();
+}
+
+function toggleAdminReportItem(docId, checked) {
+  if (!docId) return;
+  if (checked) {
+    adminSelectedReportIds.add(docId);
+  } else {
+    adminSelectedReportIds.delete(docId);
+  }
+  updateAdminBatchBar();
+}
+
+function updateAdminBatchBar() {
+  const bar = document.getElementById('adminReportsBatchBar');
+  const countEl = document.getElementById('adminReportsSelectedCount');
+  const selectAllCb = document.getElementById('adminSelectAllReportsCheckbox');
+  const size = adminSelectedReportIds.size;
+
+  if (countEl) countEl.textContent = size;
+  if (bar) {
+    if (size > 0) {
+      bar.classList.remove('hidden');
+    } else {
+      bar.classList.add('hidden');
+    }
+  }
+
+  if (selectAllCb) {
+    const container = document.getElementById('listAdminReportsTableContainer');
+    const checkboxes = container ? container.querySelectorAll('input[data-admin-report-id]') : [];
+    if (checkboxes.length > 0 && size >= checkboxes.length) {
+      selectAllCb.checked = true;
+    } else {
+      selectAllCb.checked = false;
+    }
+  }
+}
+
+function clearAdminReportSelection() {
+  adminSelectedReportIds.clear();
+  const selectAllCb = document.getElementById('adminSelectAllReportsCheckbox');
+  if (selectAllCb) selectAllCb.checked = false;
+  const container = document.getElementById('listAdminReportsTableContainer');
+  if (container) {
+    const checkboxes = container.querySelectorAll('input[data-admin-report-id]');
+    checkboxes.forEach(cb => cb.checked = false);
+  }
+  updateAdminBatchBar();
+}
+
+async function handleAdminBatchDeleteReports() {
+  const size = adminSelectedReportIds.size;
+  if (size === 0) {
+    showToast('Chưa chọn báo cáo nào để xóa!', 'warning');
+    return;
+  }
+
+  if (!confirm(`Thầy/Cô có chắc chắn muốn xóa ${size} báo cáo đã chọn không? Thao tác này không thể hoàn tác!`)) {
+    return;
+  }
+
+  showToast(`Đang xóa ${size} báo cáo...`, 'info');
+  try {
+    const ids = Array.from(adminSelectedReportIds);
+    await Promise.all(ids.map(id => {
+      if (firebaseDb) return firebaseDb.ref(`documents/${id}`).remove();
+      return fetch(`${RTDB_URL}/documents/${id}.json`, { method: 'DELETE' });
+    }));
+    showToast(`✅ Đã xóa thành công ${ids.length} báo cáo!`, 'success');
+    adminSelectedReportIds.clear();
+    updateAdminBatchBar();
+    await loadAdminReportManagement(true);
+    if (typeof loadSchoolReports === 'function') loadSchoolReports(true);
+  } catch (err) {
+    console.error('Lỗi khi xóa hàng loạt báo cáo Admin:', err);
+    showToast('Lỗi khi xóa: ' + err.message, 'error');
+  }
+}
+
+async function handleAdminQuickCleanJunkReports() {
+  const junkDocs = currentCachedAdminReports.filter(d => 
+    d.status === 'RETURNED' || d.status === 'REJECTED' || d.status === 'RECALLED'
+  );
+  if (junkDocs.length === 0) {
+    showToast('✨ Hệ thống sạch sẽ! Không có báo cáo lỗi hoặc bị trả về cần dọn.', 'info');
+    return;
+  }
+
+  if (!confirm(`Tìm thấy ${junkDocs.length} báo cáo bị trả về / lỗi hỏng. Thầy/Cô có chắc chắn muốn xóa dọn dẹp các báo cáo rác này không?`)) {
+    return;
+  }
+
+  showToast(`Đang dọn dẹp ${junkDocs.length} báo cáo rác...`, 'info');
+  try {
+    await Promise.all(junkDocs.map(d => {
+      if (firebaseDb) return firebaseDb.ref(`documents/${d.id}`).remove();
+      return fetch(`${RTDB_URL}/documents/${d.id}.json`, { method: 'DELETE' });
+    }));
+    showToast(`🧹 Đã dọn dẹp sạch sẽ ${junkDocs.length} báo cáo rác!`, 'success');
+    await loadAdminReportManagement(true);
+    if (typeof loadSchoolReports === 'function') loadSchoolReports(true);
+  } catch (err) {
+    console.error('Lỗi khi dọn dẹp báo cáo rác:', err);
+    showToast('Lỗi khi dọn dẹp: ' + err.message, 'error');
+  }
+}
+
+function openModalConfirmResetAllReports() {
+  const input = document.getElementById('inputResetAllReportsConfirm');
+  const btn = document.getElementById('btnConfirmResetAllReports');
+  if (input) input.value = '';
+  if (btn) btn.disabled = true;
+  openModal('modalConfirmResetReports');
+}
+
+function checkResetKeywordMatch() {
+  const input = document.getElementById('inputResetAllReportsConfirm');
+  const btn = document.getElementById('btnConfirmResetAllReports');
+  if (!input || !btn) return;
+  const val = (input.value || '').trim().toUpperCase();
+  btn.disabled = (val !== 'XOA-TAT-CA-BAO-CAO');
+}
+
+async function handleConfirmResetAllReports() {
+  const input = document.getElementById('inputResetAllReportsConfirm');
+  const btn = document.getElementById('btnConfirmResetAllReports');
+  const btnText = document.getElementById('btnConfirmResetAllReportsText');
+  if (!input || input.value.trim().toUpperCase() !== 'XOA-TAT-CA-BAO-CAO') {
+    showToast('Vui lòng nhập chính xác từ khóa xác nhận!', 'warning');
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  if (btnText) btnText.textContent = 'Đang xóa toàn bộ dữ liệu...';
+
+  try {
+    if (firebaseDb) {
+      await firebaseDb.ref('documents').remove();
+    } else {
+      await fetch(`${RTDB_URL}/documents.json`, { method: 'DELETE' });
+    }
+    showToast('💥 Đã xóa toàn bộ báo cáo và làm sạch hệ thống thành công!', 'success');
+    closeModal('modalConfirmResetReports');
+    currentCachedAdminReports = [];
+    adminSelectedReportIds.clear();
+    await loadAdminReportManagement(true);
+    if (typeof loadSchoolReports === 'function') loadSchoolReports(true);
+  } catch (err) {
+    console.error('Lỗi khi reset báo cáo:', err);
+    showModalAlert('Lỗi Reset', err.message, 'error');
+  } finally {
+    if (btnText) btnText.textContent = 'Tôi hiểu rủi ro, Xóa toàn bộ';
+  }
+}
+
+async function handleDeleteReportInline(docId, docTitle) {
+  if (!docId) return;
+  const title = docTitle || docId;
+  if (!confirm(`Thầy/Cô có chắc chắn muốn xóa vĩnh viễn báo cáo "${title}" không? Thao tác này không thể hoàn tác.`)) {
+    return;
+  }
+
+  showToast('Đang xóa báo cáo...', 'info');
+  try {
+    if (firebaseDb) {
+      await firebaseDb.ref(`documents/${docId}`).remove();
+    } else {
+      await fetch(`${RTDB_URL}/documents/${docId}.json`, { method: 'DELETE' });
+    }
+    showToast('🗑️ Đã xóa báo cáo thành công!', 'success');
+    if (typeof loadAdminReportManagement === 'function') {
+      loadAdminReportManagement(false);
+    }
+    if (typeof loadSchoolReports === 'function') {
+      loadSchoolReports(false);
+    }
+    if (typeof loadTeacherReturnedDocuments === 'function') {
+      loadTeacherReturnedDocuments(false);
+    }
+    if (typeof loadTeacherSentDocuments === 'function') {
+      loadTeacherSentDocuments(false);
+    }
+  } catch (err) {
+    console.error('Lỗi xóa báo cáo:', err);
+    showToast('Lỗi xóa báo cáo: ' + err.message, 'error');
   }
 }
 
