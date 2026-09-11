@@ -21,7 +21,7 @@ function getDriveConfig() {
     autoUploadOnSign: true, // Tự động đẩy lên Google Drive sau khi ký số hoàn tất
     schoolFolderId: 'THCS_CHU_VAN_AN_ARCHIVE_2026',
     schoolFolderName: 'KHO_HO_SO_SO_TRUONG_THCS_CHU_VAN_AN',
-    gasWebhookUrl: 'https://script.google.com/macros/s/AKfycbwoMCdjRZjaSme1o5xF6gDrEcDFqvRPsWo3YNUY5NLI0FoKr-qkfflXhhFcnH2VmBNv/exec',
+    gasWebhookUrl: 'https://script.google.com/macros/s/AKfycbwGBgauc9xHzRe31_IfCQD-Q9yHwGp4CfYLEam9IupcYhLpNBXbgW0J1t-weD6iUQ87ZQ/exec',
     backupLocalStorage: true
   };
 }

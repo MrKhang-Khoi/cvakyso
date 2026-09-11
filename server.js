@@ -8,6 +8,7 @@ const googleDriveService = require('./googleDriveService');
 const oneDriveService = require('./oneDriveService');
 const pdfSignerService = require('./pdfSignerService');
 const webpush = require('web-push');
+const zaloNotifyService = require('./zaloNotifyService');
 
 // Cấu hình VAPID cho Web Push Notification (PWA Chuẩn W3C)
 const VAPID_FILE = path.join(__dirname, 'data', 'vapid_keys.json');
@@ -870,6 +871,13 @@ app.post('/api/documents/:id/reject', (req, res) => {
     });
 
     dataStore.updateDocument(id, doc);
+
+    // Tự động bắn tin Zalo 1-1 thông báo hồ sơ bị trả về kèm lý do
+    try {
+      zaloNotifyService.notifyDocumentRejected(doc, user, trimmedReason).catch(err => {
+        console.warn('[ZaloNotify] Lỗi gửi thông báo Zalo khi trả về:', err.message);
+      });
+    } catch (zErr) {}
 
     res.json({
       success: true,
@@ -2734,13 +2742,18 @@ app.post('/api/documents', requireAuth, async (req, res) => {
     }
   }
 
-  // Gửi Web Push Notification nếu là Báo cáo có chỉ định người ký duyệt
+  // Gửi Web Push Notification và Zalo 1-1 nếu là Báo cáo có chỉ định người ký duyệt
   if (docCategory === 'REPORT' && nextSignerId) {
     notifyUserWebPush(nextSignerId, {
       title: 'Báo cáo cần ký duyệt',
       body: `${currentUser.name} đã gửi báo cáo "${newDoc.title}" cho thầy/cô ký duyệt.`,
       url: `/?docId=${newDoc.id}`
     });
+    try {
+      zaloNotifyService.notifyDocumentSubmitted(newDoc, currentUser, nextSignerId).catch(err => {
+        console.warn('[ZaloNotify] Lỗi gửi Zalo khi tạo báo cáo mới:', err.message);
+      });
+    } catch (zErr) {}
   }
 
   console.log(`[Document] Giáo viên ${currentUser.name} (${currentUser.department}) vừa tạo hồ sơ (${docCategory}): "${newDoc.title}" (File: ${newDoc.fileName})`);
@@ -2878,6 +2891,11 @@ app.post('/api/documents/:id/forward-sign', requireAuth, async (req, res) => {
       body: `${currentUser.name} đã ký và chuyển tiếp báo cáo "${doc.title}" cho thầy/cô ký duyệt.`,
       url: `/?docId=${doc.id}`
     });
+    try {
+      zaloNotifyService.notifyDocumentSubmitted(doc, currentUser, nextSignerId).catch(err => {
+        console.warn('[ZaloNotify] Lỗi gửi Zalo khi chuyển tiếp:', err.message);
+      });
+    } catch (zErr) {}
   } else {
     // Thông báo cho tác giả khi đã đủ các chữ ký
     if (doc.authorId) {
@@ -2945,6 +2963,13 @@ app.post('/api/documents/:id/confirm-complete', requireAuth, async (req, res) =>
         url: `/?docId=${doc.id}`
       });
     }
+
+    // 5. Bắn tin Zalo 1-1 thông báo hồ sơ đã được duyệt & đóng dấu hoàn thành
+    try {
+      zaloNotifyService.notifyDocumentCompleted(doc, currentUser, driveRes ? driveRes.viewUrl : '').catch(err => {
+        console.warn('[ZaloNotify] Lỗi gửi Zalo khi hoàn tất hồ sơ:', err.message);
+      });
+    } catch (zErr) {}
 
     res.json({
       success: true,
