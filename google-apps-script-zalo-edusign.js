@@ -708,8 +708,16 @@ function getChatIdByPhone(phoneNumber) {
 function normalizePhone(p) {
   if (!p) return "";
   var clean = String(p).replace(/[^0-9]/g, "");
-  if (clean.startsWith("84") && clean.length === 11) {
+  if (clean.startsWith("84") && clean.length >= 10) {
     clean = "0" + clean.slice(2);
+  }
+  // Tự động bù số 0 ở đầu nếu Google Sheets cắt mất số 0 (ví dụ 905123456 -> 0905123456)
+  if (clean.length === 9 && !clean.startsWith("0")) {
+    clean = "0" + clean;
+  }
+  // Số máy bàn có mã vùng bị cắt số 0 (ví dụ 2553850001 -> 02553850001)
+  if (clean.length === 10 && !clean.startsWith("0") && clean.startsWith("2")) {
+    clean = "0" + clean;
   }
   return clean;
 }
