@@ -482,35 +482,59 @@ function handleEduSignNotification(data) {
                   "🌐 Thầy/Cô có thể tra cứu và tải báo cáo tại:\n👉 " + viewUrl;
   }
 
-  // 3. Trường hợp: CÓ HỒ SƠ MỚI CẦN DUYỆT KÝ (Trình ký) -> Bắn tin cho người duyệt tiếp theo
+  // 3. Trường hợp: GIÁO VIÊN TỰ KÝ GIÁO ÁN / HỒ SƠ CÁ NHÂN HOÀN TẤT
+  else if (eventType === "PERSONAL_SIGNED" || eventType === "CREATED") {
+    targetPhone = authorPhone;
+    messageText = "╔════════════════════════════════════════╗\n" +
+                  "  🎉 KÝ SỐ HỒ SƠ / GIÁO ÁN THÀNH CÔNG\n" +
+                  "╚════════════════════════════════════════╝\n\n" +
+                  "📄 Kế hoạch/Giáo án: " + docTitle + "\n" +
+                  (docId ? ("🆔 Mã hồ sơ: " + docId + "\n") : "") +
+                  "👤 Giáo viên: " + senderName + "\n" +
+                  "⏰ Thời gian: " + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + "\n\n" +
+                  "✅ Thầy/Cô đã ký số điện tử thành công vào tệp tài liệu này!";
+  }
+
+  // 4. Trường hợp: CÓ HỒ SƠ MỚI CẦN DUYỆT KÝ (Trình ký)
   else if (eventType === "SUBMITTED" || eventType === "FORWARDED") {
     targetPhone = recipientPhone;
     messageText = "╔════════════════════════════════════════╗\n" +
                   "  📋 THÔNG BÁO CÓ HỒ SƠ CẦN KÝ DUYỆT\n" +
                   "╚════════════════════════════════════════╝\n\n" +
                   "📄 Hồ sơ: " + docTitle + "\n" +
+                  (docId ? ("🆔 Mã hồ sơ: " + docId + "\n") : "") +
                   "👤 Người trình ký: " + senderName + "\n" +
                   "⏰ Thời gian: " + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + "\n\n" +
                   "👉 Kính mời Thầy/Cô truy cập hệ thống EduSign để kiểm tra và ký duyệt.";
+
+    // ĐỒNG THỜI: Bắn tin xác nhận tức thì cho Người tạo (Tác giả) để biết hồ sơ đã được nộp thành công!
+    if (authorPhone) {
+      var authorChatId = getChatIdByPhone(authorPhone);
+      if (authorChatId) {
+        var authorConfirmMsg = "╔════════════════════════════════════════╗\n" +
+                               "  🎉 XÁC NHẬN: TẠO HỒ SƠ THÀNH CÔNG\n" +
+                               "╚════════════════════════════════════════╝\n\n" +
+                               "📄 Hồ sơ: " + docTitle + "\n" +
+                               (docId ? ("🆔 Mã hồ sơ: " + docId + "\n") : "") +
+                               (data.recipientName ? ("👤 Chuyển tiếp tới: " + data.recipientName + "\n") : "") +
+                               "⏰ Thời gian: " + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + "\n\n" +
+                               "✅ Hồ sơ đã được khởi tạo và chuyển tiếp thành công trên hệ thống Ký số THCS Chu Văn An!";
+        sendZaloBotReply(authorChatId, authorConfirmMsg);
+      }
+    }
   }
 
-  if (!targetPhone) {
-    return { success: false, message: "Không có số điện thoại người nhận để gửi thông báo Zalo." };
+  var anySent = false;
+  if (targetPhone) {
+    // Tra cứu Zalo Chat ID từ số điện thoại
+    var targetChatId = getChatIdByPhone(targetPhone);
+    if (targetChatId && messageText) {
+      sendZaloBotReply(targetChatId, messageText);
+      anySent = true;
+    }
   }
 
-  // Tra cứu Zalo Chat ID từ số điện thoại
-  var targetChatId = getChatIdByPhone(targetPhone);
-  if (!targetChatId) {
-    return {
-      success: true,
-      messageSent: false,
-      note: "Giáo viên với SĐT [" + targetPhone + "] chưa bấm Start hoặc liên kết Zalo Bot."
-    };
-  }
-
-  // Bắn tin nhắn qua Zalo Bot API
-  sendZaloBotReply(targetChatId, messageText);
-  return { success: true, messageSent: true, targetChatId: targetChatId };
+  return { success: true, messageSent: anySent, targetPhone: targetPhone, authorPhone: authorPhone };
 }
 
 // ====================================================================================================

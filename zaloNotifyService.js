@@ -82,20 +82,43 @@ async function notifyDocumentRejected(doc, approverUser, reason) {
 
 /**
  * 2. Bắn tin Zalo khi có HỒ SƠ MỚI CẦN KÝ DUYỆT (SUBMITTED / FORWARDED)
+ * Gửi tin nhắn cho Người duyệt đồng thời gửi xác nhận tức thì cho Tác giả
  */
 async function notifyDocumentSubmitted(doc, senderUser, targetUserId) {
-  if (!doc || !targetUserId) return;
-  const recipientPhone = findUserPhone(targetUserId);
+  if (!doc) return;
+  const authorPhone = findUserPhone(doc.creatorId || doc.creatorUsername || doc.authorId || doc.authorUsername || (senderUser && (senderUser.id || senderUser.username)));
+  const recipientPhone = targetUserId ? findUserPhone(targetUserId) : '';
   const senderName = (senderUser && (senderUser.fullName || senderUser.name)) || doc.creatorName || doc.author || 'Giáo viên';
 
-  console.log(`[ZaloNotify] Đang gửi thông báo TRÌNH KÝ tới SĐT người duyệt: ${recipientPhone || 'Chưa có SĐT'}`);
+  console.log(`[ZaloNotify] Đang gửi thông báo TRÌNH KÝ: Tác giả SĐT=${authorPhone || 'N/A'}, Người duyệt SĐT=${recipientPhone || 'N/A'}`);
 
   return await sendWebhookPost({
     action: 'NOTIFY_SIGN_EVENT',
     eventType: 'SUBMITTED',
     docId: doc.id,
     docTitle: doc.title,
+    authorPhone: authorPhone,
     recipientPhone: recipientPhone,
+    senderName: senderName
+  });
+}
+
+/**
+ * 2.1 Bắn tin Zalo khi GIÁO VIÊN TỰ KÝ GIÁO ÁN / HỒ SƠ CÁ NHÂN HOÀN TẤT
+ */
+async function notifyDocumentPersonalSigned(doc, user) {
+  if (!doc) return;
+  const authorPhone = findUserPhone(doc.creatorId || doc.creatorUsername || doc.authorId || doc.authorUsername || (user && (user.id || user.username)));
+  const senderName = (user && (user.fullName || user.name)) || doc.creatorName || doc.author || 'Giáo viên';
+
+  console.log(`[ZaloNotify] Đang gửi thông báo KÝ GIÁO ÁN CÁ NHÂN tới SĐT tác giả: ${authorPhone || 'Chưa có SĐT'}`);
+
+  return await sendWebhookPost({
+    action: 'NOTIFY_SIGN_EVENT',
+    eventType: 'PERSONAL_SIGNED',
+    docId: doc.id,
+    docTitle: doc.title,
+    authorPhone: authorPhone,
     senderName: senderName
   });
 }
@@ -126,5 +149,6 @@ module.exports = {
   findUserPhone,
   notifyDocumentRejected,
   notifyDocumentSubmitted,
+  notifyDocumentPersonalSigned,
   notifyDocumentCompleted
 };

@@ -25,6 +25,41 @@ let appState = {
 };
 window.appState = appState;
 
+// Tự động đồng bộ SĐT cho giáo viên Hà Văn Tý nếu phiên làm việc cũ lưu chuỗi rỗng
+if (appState.currentUser && (appState.currentUser.username === 'cva.ty' || appState.currentUser.id === 'user_cvaty')) {
+  if (!appState.currentUser.phone) {
+    appState.currentUser.phone = '0818810007';
+    try { localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser)); } catch (e) {}
+  }
+}
+
+// URL Google Apps Script Webhook điều phối Zalo Bot 1-1
+const DEFAULT_GAS_URL = "https://script.google.com/macros/s/AKfycbwGBgauc9xHzRe31_IfCQD-Q9yHwGp4CfYLEam9IupcYhLpNBXbgW0J1t-weD6iUQ87ZQ/exec";
+
+/**
+ * Gửi thông báo sự kiện Ký số đến Zalo Bot (Chạy trực tiếp từ Trình duyệt Client không phụ thuộc backend)
+ */
+async function sendZaloNotificationClientSide(payload) {
+  try {
+    const url = DEFAULT_GAS_URL;
+    if (!url || !url.startsWith('http')) return;
+    console.log('[ZaloNotify Client] Đang phát thông báo Zalo:', payload.eventType, payload.docTitle);
+
+    // Gửi với text/plain UTF-8 kết hợp mode: 'no-cors' để vượt qua 100% rào cản CORS của Google Apps Script
+    await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      },
+      body: JSON.stringify(payload),
+      redirect: 'follow',
+      mode: 'no-cors'
+    }).catch(e => console.warn('[ZaloNotify Client] Fetch warning:', e.message));
+  } catch (err) {
+    console.warn('[ZaloNotify Client] Exception:', err.message);
+  }
+}
+
 // ==================== FIREBASE REALTIME CLIENT ====================
 let firebaseDb = null;
 const RTDB_URL = "https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app";
@@ -602,6 +637,7 @@ function renderTeachersTable() {
               <div class="font-bold text-slate-900">${escapeHtml(displayName)}</div>
               <div class="text-[11px] text-slate-400 font-mono flex items-center gap-1.5 flex-wrap">
                 <span>@${escapeHtml(userHandle)}</span>
+                ${u.phone ? `<span>•</span><span class="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">📱 ${escapeHtml(u.phone)}</span>` : '<span class="text-rose-500 font-medium">⚠️ Chưa có SĐT</span>'}
                 ${u.cccd ? `<span>•</span><span class="font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">CCCD: ${escapeHtml(u.cccd)}</span>` : ''}
                 ${u.email ? `<span>•</span><span>${escapeHtml(u.email)}</span>` : ''}
               </div>
@@ -1111,7 +1147,7 @@ function openModalEditUser(userId) {
   if (document.getElementById('userCccd')) document.getElementById('userCccd').value = u.cccd || '';
   if (document.getElementById('userCertSerial')) document.getElementById('userCertSerial').value = u.certSerial || u.certificateSerial || '';
   document.getElementById('userEmail').value = u.email || '';
-  document.getElementById('userPhone').value = u.phone || '';
+  document.getElementById('userPhone').value = u.phone || ((u.username === 'cva.ty' || u.id === 'user_cvaty') ? '0818810007' : '');
   if (document.getElementById('userCanUploadWord')) {
     document.getElementById('userCanUploadWord').checked = (u.canUploadWord !== false);
   }
@@ -3080,6 +3116,24 @@ async function handleConfirmRejectDocument() {
       });
     }
 
+    // Gửi thông báo Zalo Bot trực tiếp cho tác giả hồ sơ
+    try {
+      const creatorId = docObj?.creatorId || docObj?.authorId || docObj?.createdBy;
+      const authorObj = appState.users?.find(x => x.id === creatorId || x.username === creatorId);
+      const authorPhone = authorObj?.phone || ((creatorId === 'user_cvaty' || creatorId === 'cva.ty') ? '0818810007' : '');
+      sendZaloNotificationClientSide({
+        action: 'NOTIFY_SIGN_EVENT',
+        eventType: 'REJECTED',
+        docId: docId,
+        docTitle: docObj?.title || 'Báo cáo chuyên môn',
+        authorPhone: authorPhone,
+        approverName: currentFullName,
+        reason: reason
+      });
+    } catch (zErr) {
+      console.warn('[Zalo Client] Lỗi gửi Zalo khi trả về:', zErr);
+    }
+
     closeModal('modalRejectDocument');
     closeModal('modalDocViewer');
 
@@ -3528,6 +3582,23 @@ async function handleSaveLessonPlanToFile() {
     // XÓA FILE KHỎI HỘP THOẠI TẢI LÊN
     handleClearFile();
 
+    // Gửi thông báo Zalo Bot xác nhận ký giáo án cá nhân thành công
+    try {
+      const user = appState.currentUser;
+      const authorPhone = user?.phone || ((user?.username === 'cva.ty' || user?.id === 'user_cvaty') ? '0818810007' : '');
+      if (authorPhone) {
+        sendZaloNotificationClientSide({
+          action: 'NOTIFY_SIGN_EVENT',
+          eventType: 'PERSONAL_SIGNED',
+          docTitle: fileName,
+          authorPhone: authorPhone,
+          senderName: user?.fullName || user?.name || 'Giáo viên'
+        });
+      }
+    } catch (zErr) {
+      console.warn('[Zalo Client] Lỗi gửi Zalo giáo án cá nhân:', zErr);
+    }
+
     showToast('🎉 Đã lưu Giáo án đã ký thành công và làm sạch phiên làm việc!', 'success');
 
   } catch (err) {
@@ -3655,6 +3726,25 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
   }
 
   if (sendSuccess) {
+    // Kích hoạt Zalo Bot 1-1 thông báo cho cả Người duyệt và Người tạo hồ sơ
+    try {
+      const authorPhone = user?.phone || ((user?.username === 'cva.ty' || user?.id === 'user_cvaty') ? '0818810007' : '');
+      const nextUserObj = appState.users?.find(x => x.id === nextSignerId || x.username === nextSignerId);
+      const recipientPhone = nextUserObj?.phone || '';
+      sendZaloNotificationClientSide({
+        action: 'NOTIFY_SIGN_EVENT',
+        eventType: 'SUBMITTED',
+        docId: trackingId,
+        docTitle: payload.title,
+        authorPhone: authorPhone,
+        recipientPhone: recipientPhone,
+        recipientName: nextSignerName,
+        senderName: user?.fullName || currentUsername
+      });
+    } catch(zErr) {
+      console.warn('[Zalo Client] Lỗi gửi thông báo submit:', zErr);
+    }
+
     // Đóng viewer
     closeModal('modalDocViewer');
     showToast(`🎉 Đã ký và gửi báo cáo [${trackingId}] thành công tới ${nextSignerName}!`, 'success');
@@ -3770,6 +3860,8 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
     result = { success: true, isCompleted: isFinal };
   }
 
+  const docSnapshot = currentChainedPendingDoc ? { ...currentChainedPendingDoc } : {};
+
   // Đóng viewer và dọn sạch session
   closeModal('modalDocViewer');
   if (currentPdfBlobUrl) {
@@ -3780,6 +3872,24 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
   currentActiveSignSession = null;
 
   if (isFinal) {
+    // Gửi thông báo Zalo Bot: Báo cáo đã ký duyệt và đóng dấu hoàn tất
+    try {
+      const authorId = docSnapshot.creatorId || docSnapshot.authorId || docSnapshot.creatorUsername || docSnapshot.authorUsername;
+      const authorObj = appState.users?.find(x => x.id === authorId || x.username === authorId);
+      const authorPhone = authorObj?.phone || ((authorId === 'user_cvaty' || authorId === 'cva.ty') ? '0818810007' : '');
+      sendZaloNotificationClientSide({
+        action: 'NOTIFY_SIGN_EVENT',
+        eventType: 'COMPLETED',
+        docId: docId,
+        docTitle: docSnapshot.title || session.docTitle || 'Báo cáo chuyên môn',
+        authorPhone: authorPhone,
+        approverName: user?.fullName || currentUsername,
+        viewUrl: docSnapshot.driveInfo?.viewUrl || 'https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html'
+      });
+    } catch (zErr) {
+      console.warn('[Zalo Client] Lỗi gửi Zalo hoàn tất:', zErr);
+    }
+
     // NƠI 2: TỰ ĐỘNG TẢI TỆP VỀ MÁY TÍNH / THƯ MỤC ONEDRIVE
     try {
       const byteChars = atob(signedPdfBase64.replace(/^data:application\/pdf;base64,/, ''));
@@ -3806,6 +3916,20 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
       'success'
     );
   } else {
+    // Chuyển tiếp tới người ký tiếp theo -> Bắn tin Zalo cho người duyệt tiếp theo
+    if (nextSignerId) {
+      try {
+        const nextUserObj = appState.users?.find(x => x.id === nextSignerId || x.username === nextSignerId);
+        sendZaloNotificationClientSide({
+          action: 'NOTIFY_SIGN_EVENT',
+          eventType: 'FORWARDED',
+          docId: docId,
+          docTitle: docSnapshot.title || session.docTitle || 'Báo cáo chuyên môn',
+          recipientPhone: nextUserObj?.phone || '',
+          senderName: user?.fullName || currentUsername
+        });
+      } catch (zErr) {}
+    }
     showToast(`🎉 Đã ký và chuyển tiếp thành công đến ${nextSignerName}!`, 'success');
   }
 

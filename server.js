@@ -2743,15 +2743,23 @@ app.post('/api/documents', requireAuth, async (req, res) => {
   }
 
   // Gửi Web Push Notification và Zalo 1-1 nếu là Báo cáo có chỉ định người ký duyệt
-  if (docCategory === 'REPORT' && nextSignerId) {
-    notifyUserWebPush(nextSignerId, {
-      title: 'Báo cáo cần ký duyệt',
-      body: `${currentUser.name} đã gửi báo cáo "${newDoc.title}" cho thầy/cô ký duyệt.`,
-      url: `/?docId=${newDoc.id}`
-    });
+  if (docCategory === 'REPORT') {
+    if (nextSignerId) {
+      notifyUserWebPush(nextSignerId, {
+        title: 'Báo cáo cần ký duyệt',
+        body: `${currentUser.name} đã gửi báo cáo "${newDoc.title}" cho thầy/cô ký duyệt.`,
+        url: `/?docId=${newDoc.id}`
+      });
+    }
     try {
       zaloNotifyService.notifyDocumentSubmitted(newDoc, currentUser, nextSignerId).catch(err => {
         console.warn('[ZaloNotify] Lỗi gửi Zalo khi tạo báo cáo mới:', err.message);
+      });
+    } catch (zErr) {}
+  } else if (docCategory === 'PERSONAL') {
+    try {
+      zaloNotifyService.notifyDocumentPersonalSigned(newDoc, currentUser).catch(err => {
+        console.warn('[ZaloNotify] Lỗi gửi Zalo khi tạo giáo án cá nhân:', err.message);
       });
     } catch (zErr) {}
   }
@@ -2773,6 +2781,65 @@ app.post('/api/documents', requireAuth, async (req, res) => {
     data: newDoc,
     doc: newDoc
   });
+});
+
+// Endpoint chuyển tiếp báo cáo mới từ Client (hỗ trợ EduSign Web Client)
+app.post('/api/documents/forward', requireAuth, async (req, res) => {
+  try {
+    const { id, title, docType, fileBase64, nextSignerId, nextSignerName, note, signerCert } = req.body;
+    const currentUser = req.user;
+    const docId = id || `BC-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
+    const nowStr = new Date().toISOString();
+
+    const newDoc = {
+      id: docId,
+      title: title || 'Báo cáo chuyên môn',
+      docType: docType || 'REPORT',
+      category: 'REPORT',
+      status: nextSignerId ? 'WAITING_NEXT_SIGN' : 'SUBMITTED',
+      fileBase64: fileBase64 || null,
+      creatorId: currentUser.id || currentUser.username,
+      creatorName: currentUser.name || currentUser.fullName || currentUser.username,
+      creatorDept: currentUser.department || 'Tổ chuyên môn',
+      author: currentUser.name || currentUser.fullName,
+      authorId: currentUser.id || currentUser.username,
+      assignedTo: nextSignerId || null,
+      assignedToName: nextSignerName || null,
+      currentSignerId: nextSignerId || null,
+      currentSignerName: nextSignerName || null,
+      note: note || '',
+      signatures: [{
+        step: 1,
+        role: currentUser.roleTitle || 'Giáo viên lập báo cáo',
+        signerId: currentUser.id || currentUser.username,
+        signerName: currentUser.name || currentUser.fullName || currentUser.username,
+        signedAt: nowStr,
+        certSerial: (signerCert && signerCert.serialNumber) || currentUser.certSerial || '7C4C44A8671300AE',
+        note: note || ''
+      }],
+      createdAt: nowStr,
+      updatedAt: nowStr
+    };
+
+    dataStore.addDocument(newDoc);
+
+    // Gửi thông báo Zalo 1-1 cho cả Người duyệt và Người lập hồ sơ
+    try {
+      zaloNotifyService.notifyDocumentSubmitted(newDoc, currentUser, nextSignerId).catch(err => {
+        console.warn('[ZaloNotify] Lỗi gửi Zalo forward:', err.message);
+      });
+    } catch (zErr) {}
+
+    res.json({
+      success: true,
+      message: `Đã khởi tạo và chuyển tiếp báo cáo [${docId}] thành công!`,
+      data: newDoc,
+      doc: newDoc
+    });
+  } catch (err) {
+    console.error('[forward] Lỗi tạo báo cáo:', err);
+    res.status(500).json({ success: false, message: 'Lỗi server khi chuyển tiếp báo cáo: ' + err.message });
+  }
 });
 
 // Ký tiếp và chuyển tiếp hồ sơ báo cáo (Tab 2: Ký luân chuyển nhiều bên)
