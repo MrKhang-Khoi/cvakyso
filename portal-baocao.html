@@ -153,7 +153,7 @@
     </div>
 
     <!-- BẢNG DANH SÁCH BÁO CÁO -->
-    <div class="glass-card rounded-2xl overflow-hidden flex flex-col">
+    <div class="glass-card rounded-2xl overflow-hidden flex flex-col shadow-sm">
       <div class="p-4 sm:p-5 border-b border-slate-200/80 flex items-center justify-between flex-wrap gap-2">
         <div class="flex items-center gap-2">
           <i data-lucide="files" class="w-5 h-5 text-blue-600"></i>
@@ -172,26 +172,53 @@
         </div>
       </div>
 
+      <!-- Batch Actions Bar (Dành cho Quản trị viên / Khi chọn nhiều mục) -->
+      <div id="batchActionBar" class="hidden px-4 sm:px-6 py-2.5 bg-amber-50/90 border-b border-amber-200/80 flex items-center justify-between flex-wrap gap-2.5 text-xs transition-all">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="font-bold text-amber-900 flex items-center gap-1.5">
+            <i data-lucide="check-square" class="w-4 h-4 text-amber-600"></i>
+            Đã chọn: <span id="selectedCountText" class="px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 font-extrabold text-[11px]">0</span> hồ sơ
+          </span>
+          <span class="text-slate-300">|</span>
+          <button type="button" onclick="selectAllCurrentPageReports(true)" class="text-blue-700 hover:text-blue-800 hover:underline font-semibold cursor-pointer">Chọn tất cả trang này</button>
+          <span class="text-slate-300">•</span>
+          <button type="button" onclick="selectAllCurrentPageReports(false)" class="text-slate-600 hover:text-slate-800 hover:underline font-semibold cursor-pointer">Bỏ chọn</button>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button type="button" id="btnBatchDelete" onclick="confirmBatchDeleteReports()" class="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            <span>Xóa các mục đã chọn</span>
+          </button>
+          <button type="button" id="btnClearAll" onclick="confirmClearAllReports()" class="px-3.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 font-bold transition flex items-center gap-1.5 cursor-pointer" title="Xóa toàn bộ báo cáo trong kho dữ liệu (Admin)">
+            <i data-lucide="alert-octagon" class="w-3.5 h-3.5 text-rose-600"></i>
+            <span>Xóa Tất Cả Báo Cáo</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Table Container -->
       <div class="overflow-x-auto custom-scrollbar">
-        <table class="w-full text-left border-collapse">
+        <table class="w-full text-left border-collapse min-w-[1050px]">
           <thead>
-            <tr class="bg-slate-100/70 border-b border-slate-200 text-[11px] sm:text-xs font-bold text-slate-600 uppercase tracking-wider">
-              <th class="py-3 px-4 w-12 text-center">STT</th>
-              <th class="py-3 px-4">Mã Báo Cáo</th>
-              <th class="py-3 px-4 min-w-[200px]">Tiêu Đề Báo Cáo</th>
-              <th class="py-3 px-4">Tác Giả / SĐT</th>
-              <th class="py-3 px-4">Tổ Chuyên Môn</th>
-              <th class="py-3 px-4">Người Phê Duyệt</th>
-              <th class="py-3 px-4">Ngày Ký</th>
-              <th class="py-3 px-4 text-center">Trạng Thái</th>
-              <th class="py-3 px-4 text-center w-28">Thao Tác</th>
+            <tr class="bg-slate-100/80 border-b border-slate-200 text-[11px] sm:text-xs font-bold text-slate-600 uppercase tracking-wider">
+              <th class="py-3.5 px-4 w-10 text-center">
+                <input type="checkbox" id="headerSelectAllCb" onchange="toggleSelectAllReports(this.checked)" class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer" title="Chọn / Bỏ chọn tất cả">
+              </th>
+              <th class="py-3.5 px-3 w-12 text-center">STT</th>
+              <th class="py-3.5 px-4 min-w-[190px]">Mã Báo Cáo</th>
+              <th class="py-3.5 px-4 min-w-[240px]">Tiêu Đề Báo Cáo</th>
+              <th class="py-3.5 px-4 min-w-[150px]">Tác Giả / SĐT</th>
+              <th class="py-3.5 px-4 min-w-[130px]">Tổ Chuyên Môn</th>
+              <th class="py-3.5 px-4 min-w-[150px]">Người Phê Duyệt</th>
+              <th class="py-3.5 px-4 min-w-[130px]">Ngày Ký</th>
+              <th class="py-3.5 px-4 text-center min-w-[180px]">Trạng Thái</th>
+              <th class="py-3.5 px-4 text-center w-28">Thao Tác</th>
             </tr>
           </thead>
           <tbody id="reportTableBody" class="divide-y divide-slate-100 text-xs sm:text-sm text-slate-700">
             <!-- Render danh sách động -->
             <tr>
-              <td colspan="9" class="py-12 text-center text-slate-400">
+              <td colspan="10" class="py-12 text-center text-slate-400">
                 <div class="flex flex-col items-center justify-center gap-3">
                   <div class="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
                   <p class="font-medium text-xs">Đang kết nối kho dữ liệu Google Drive & Sheets...</p>
@@ -331,6 +358,69 @@
     </div>
   </div>
 
+  <!-- MODAL XÁC NHẬN XÓA HÀNG LOẠT BÁO CÁO ĐÃ CHỌN -->
+  <div id="modalConfirmBatchDelete" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-200">
+      <div class="flex items-center gap-3 pb-3 border-b border-slate-100 text-rose-600">
+        <div class="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0">
+          <i data-lucide="trash-2" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-slate-900 text-base">Xác Nhận Xóa Hàng Loạt</h3>
+          <p class="text-xs text-slate-400">Dành riêng cho Quản trị viên</p>
+        </div>
+      </div>
+      <div class="mt-4 space-y-3 text-xs text-slate-600">
+        <p>Thầy/Cô có chắc chắn muốn xóa <strong id="batchDeleteCount" class="text-rose-600 font-bold text-sm">0</strong> hồ sơ báo cáo chuyên môn đã chọn không?</p>
+        <div id="batchDeleteListPreview" class="max-h-36 overflow-y-auto custom-scrollbar bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono text-[11px] text-slate-700 space-y-1">
+          <!-- Danh sách ID cần xóa -->
+        </div>
+        <p class="text-[11px] text-rose-600 font-medium">⚠️ Hành động này sẽ xóa các báo cáo đã chọn khỏi Google Sheets và Firebase.</p>
+      </div>
+      <div class="mt-6 flex justify-end gap-2">
+        <button onclick="closeBatchDeleteModal()" class="px-4 py-2.5 text-xs font-semibold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition">Hủy bỏ</button>
+        <button id="btnExecuteBatchDelete" onclick="executeBatchDeleteReports()" class="px-4 py-2.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow transition flex items-center gap-1.5">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          <span>Xác Nhận Xóa</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL XÁC NHẬN XÓA TẤT CẢ BÁO CÁO -->
+  <div id="modalConfirmClearAll" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-200">
+      <div class="flex items-center gap-3 pb-3 border-b border-slate-100 text-rose-600">
+        <div class="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0">
+          <i data-lucide="alert-octagon" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-slate-900 text-base">CẢNH BÁO: XÓA TOÀN BỘ</h3>
+          <p class="text-xs text-rose-500 font-semibold">Hành động nguy hiểm cao</p>
+        </div>
+      </div>
+      <div class="mt-4 space-y-3 text-xs text-slate-600 leading-relaxed">
+        <p class="text-slate-800 font-semibold">
+          Thầy/Cô đang chuẩn bị <span class="text-rose-600 uppercase font-bold">XÓA SẠCH TOÀN BỘ</span> tất cả báo cáo chuyên môn trong kho lưu trữ điện tử của nhà trường!
+        </p>
+        <p class="bg-rose-50 border border-rose-200 rounded-xl p-3 text-rose-900 text-[11px]">
+          ⚠️ Sau khi xóa, tất cả dữ liệu báo cáo trong Google Sheets và Cổng tra cứu sẽ bị làm sạch. Thao tác này <strong>KHÔNG THỂ HOÀN TÁC</strong>!
+        </p>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">Để xác nhận, vui lòng nhập chữ <strong>XAC NHAN XOA</strong> vào ô bên dưới:</label>
+          <input type="text" id="inputConfirmClearAllKeyword" placeholder="XAC NHAN XOA" class="w-full px-3.5 py-2.5 text-xs font-mono border border-slate-300 rounded-xl focus:ring-2 focus:ring-rose-500 focus:outline-none">
+        </div>
+      </div>
+      <div class="mt-6 flex justify-end gap-2">
+        <button onclick="closeClearAllModal()" class="px-4 py-2.5 text-xs font-semibold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition">Hủy bỏ</button>
+        <button id="btnExecuteClearAll" onclick="executeClearAllReports()" class="px-4 py-2.5 text-xs font-semibold text-white bg-rose-700 hover:bg-rose-800 rounded-xl shadow transition flex items-center gap-1.5">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          <span>Xóa Toàn Bộ Kho Báo Cáo</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- SCRIPT XỬ LÝ DỮ LIỆU ĐỘC LẬP -->
   <script>
     // Webhook URL mặc định kết nối tới Google Apps Script đã triển khai
@@ -346,6 +436,7 @@
     let isPortalAdmin = false;
     let pendingDeleteDocId = null;
     let currentReportsData = [];
+    let selectedReportIds = new Set();
 
     // Kiểm tra quyền Admin khi tải trang
     function checkAdminAuth() {
@@ -363,6 +454,7 @@
         } catch (e) {}
       }
       updateAdminUI();
+      updateBatchActionBar();
     }
 
     function updateAdminUI() {
@@ -405,8 +497,9 @@
         sessionStorage.setItem('edusign_portal_admin', 'true');
         closeAdminModal();
         updateAdminUI();
+        updateBatchActionBar();
         renderTableRows(currentReportsData, (currentPage - 1) * currentLimit);
-        alert('🛡️ Đã xác thực thành công quyền Quản trị viên!\nBây giờ Thầy/Cô có thể quản lý và xóa hồ sơ báo cáo thừa khỏi hệ thống.');
+        alert('🛡️ Đã xác thực thành công quyền Quản trị viên!\nBây giờ Thầy/Cô có thể quản lý, chọn xóa hàng loạt hoặc dọn dẹp kho báo cáo.');
       } else {
         errEl.classList.remove('hidden');
       }
@@ -417,10 +510,76 @@
         isPortalAdmin = false;
         sessionStorage.removeItem('edusign_portal_admin');
         updateAdminUI();
+        selectedReportIds.clear();
+        updateBatchActionBar();
         renderTableRows(currentReportsData, (currentPage - 1) * currentLimit);
       }
     }
 
+    // ====================================================================================================
+    // QUẢN LÝ CHỌN HÀNG LOẠT (BATCH ACTIONS & CHECKBOXES)
+    // ====================================================================================================
+    function onReportCheckboxChange(el) {
+      const docId = el.getAttribute('data-doc-id');
+      if (!docId) return;
+      if (el.checked) {
+        selectedReportIds.add(docId);
+      } else {
+        selectedReportIds.delete(docId);
+      }
+      updateBatchActionBar();
+    }
+
+    function toggleSelectAllReports(checked) {
+      const cbs = document.querySelectorAll('.report-row-cb');
+      cbs.forEach(cb => {
+        cb.checked = checked;
+        const docId = cb.getAttribute('data-doc-id');
+        if (docId) {
+          if (checked) selectedReportIds.add(docId);
+          else selectedReportIds.delete(docId);
+        }
+      });
+      updateBatchActionBar();
+    }
+
+    function selectAllCurrentPageReports(select) {
+      const headerCb = document.getElementById('headerSelectAllCb');
+      if (headerCb) headerCb.checked = select;
+      toggleSelectAllReports(select);
+    }
+
+    function updateBatchActionBar() {
+      const bar = document.getElementById('batchActionBar');
+      const countEl = document.getElementById('selectedCountText');
+      const btnBatch = document.getElementById('btnBatchDelete');
+      const btnClear = document.getElementById('btnClearAll');
+      const headerCb = document.getElementById('headerSelectAllCb');
+
+      const count = selectedReportIds.size;
+      if (countEl) countEl.textContent = count;
+
+      if (isPortalAdmin || count > 0) {
+        if (bar) bar.classList.remove('hidden');
+      } else {
+        if (bar) bar.classList.add('hidden');
+      }
+
+      if (btnBatch) {
+        btnBatch.disabled = (count === 0);
+      }
+      if (btnClear) {
+        btnClear.style.display = isPortalAdmin ? 'inline-flex' : 'none';
+      }
+
+      const allCbs = document.querySelectorAll('.report-row-cb');
+      if (headerCb && allCbs.length > 0) {
+        const allChecked = Array.from(allCbs).every(cb => cb.checked);
+        headerCb.checked = allChecked;
+      }
+    }
+
+    // Xóa đơn lẻ 1 báo cáo
     function confirmDeleteReport(docId, docTitle) {
       if (!isPortalAdmin) {
         openAdminModal();
@@ -450,7 +609,7 @@
       const gasUrl = getWebhookUrl();
       try {
         const c1 = new AbortController();
-        const t1 = setTimeout(() => c1.abort(), 3000);
+        const t1 = setTimeout(() => c1.abort(), 4000);
         await fetch(`${gasUrl}?action=DELETE_REPORT&docId=${encodeURIComponent(docId)}`, { signal: c1.signal }).catch(() => {});
         clearTimeout(t1);
       } catch (e) {
@@ -460,7 +619,7 @@
       try {
         const rtdbUrl = 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
         const c2 = new AbortController();
-        const t2 = setTimeout(() => c2.abort(), 2000);
+        const t2 = setTimeout(() => c2.abort(), 3000);
         await Promise.allSettled([
           fetch(`${rtdbUrl}/documents/${docId}.json`, { method: 'DELETE', signal: c2.signal }),
           fetch(`${rtdbUrl}/archives/${docId}.json`, { method: 'DELETE', signal: c2.signal })
@@ -471,6 +630,7 @@
       }
 
       currentReportsData = currentReportsData.filter(item => (item.docId || item.id) !== docId);
+      selectedReportIds.delete(docId);
       totalItems = Math.max(0, totalItems - 1);
 
       if (btn) {
@@ -479,11 +639,148 @@
       }
 
       closeDeleteModal();
+      updateBatchActionBar();
       renderTableRows(currentReportsData, (currentPage - 1) * currentLimit);
       renderPagination(totalItems, currentPage, currentLimit);
       lucide.createIcons();
 
       alert(`🗑️ Đã xóa báo cáo [${docId}] thành công khỏi kho lưu trữ!`);
+    }
+
+    // Xóa hàng loạt các báo cáo đã chọn
+    function confirmBatchDeleteReports() {
+      if (!isPortalAdmin) {
+        openAdminModal();
+        return;
+      }
+      const count = selectedReportIds.size;
+      if (count === 0) {
+        alert('Vui lòng tích chọn ít nhất 1 hồ sơ báo cáo để xóa!');
+        return;
+      }
+      document.getElementById('batchDeleteCount').textContent = count;
+      const preview = document.getElementById('batchDeleteListPreview');
+      preview.innerHTML = Array.from(selectedReportIds).map(id => `<div>• <span class="font-bold text-slate-900">${id}</span></div>`).join('');
+      document.getElementById('modalConfirmBatchDelete').classList.remove('hidden');
+    }
+
+    function closeBatchDeleteModal() {
+      document.getElementById('modalConfirmBatchDelete').classList.add('hidden');
+    }
+
+    async function executeBatchDeleteReports() {
+      const list = Array.from(selectedReportIds);
+      if (list.length === 0) return;
+
+      const btn = document.getElementById('btnExecuteBatchDelete');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Đang xóa...</span>';
+      }
+
+      const gasUrl = getWebhookUrl();
+      try {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 6000);
+        await fetch(`${gasUrl}?action=BATCH_DELETE_REPORTS&docIds=${encodeURIComponent(list.join(','))}`, { signal: c.signal }).catch(() => {});
+        clearTimeout(t);
+      } catch (e) {
+        console.warn('[Batch Delete] GAS error:', e.message);
+      }
+
+      // Xóa đồng thời trên Firebase RTDB
+      try {
+        const rtdbUrl = 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+        const deletePromises = list.flatMap(id => [
+          fetch(`${rtdbUrl}/documents/${id}.json`, { method: 'DELETE' }).catch(() => {}),
+          fetch(`${rtdbUrl}/archives/${id}.json`, { method: 'DELETE' }).catch(() => {})
+        ]);
+        await Promise.allSettled(deletePromises);
+      } catch (fbErr) {
+        console.warn('[Batch Delete] Firebase error:', fbErr.message);
+      }
+
+      currentReportsData = currentReportsData.filter(d => !selectedReportIds.has(d.docId || d.id));
+      totalItems = Math.max(0, totalItems - list.length);
+      selectedReportIds.clear();
+
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i><span>Xác Nhận Xóa</span>';
+      }
+
+      closeBatchDeleteModal();
+      updateBatchActionBar();
+      renderTableRows(currentReportsData, (currentPage - 1) * currentLimit);
+      renderPagination(totalItems, currentPage, currentLimit);
+      lucide.createIcons();
+
+      alert(`🗑️ Đã xóa thành công ${list.length} báo cáo khỏi kho dữ liệu!`);
+    }
+
+    // Xóa toàn bộ kho báo cáo (Admin)
+    function confirmClearAllReports() {
+      if (!isPortalAdmin) {
+        openAdminModal();
+        return;
+      }
+      document.getElementById('inputConfirmClearAllKeyword').value = '';
+      document.getElementById('modalConfirmClearAll').classList.remove('hidden');
+    }
+
+    function closeClearAllModal() {
+      document.getElementById('modalConfirmClearAll').classList.add('hidden');
+    }
+
+    async function executeClearAllReports() {
+      const kw = (document.getElementById('inputConfirmClearAllKeyword').value || '').trim().toUpperCase();
+      if (kw !== 'XAC NHAN XOA') {
+        alert('⚠️ Thầy/Cô cần nhập chính xác từ khóa "XAC NHAN XOA" để xác nhận xóa toàn bộ!');
+        return;
+      }
+
+      const btn = document.getElementById('btnExecuteClearAll');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Đang dọn dẹp...</span>';
+      }
+
+      const gasUrl = getWebhookUrl();
+      try {
+        const c = new AbortController();
+        const t = setTimeout(() => c.abort(), 7000);
+        await fetch(`${gasUrl}?action=CLEAR_ALL_REPORTS`, { signal: c.signal }).catch(() => {});
+        clearTimeout(t);
+      } catch (e) {
+        console.warn('[Clear All] GAS error:', e.message);
+      }
+
+      try {
+        const rtdbUrl = 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+        await Promise.allSettled([
+          fetch(`${rtdbUrl}/documents.json`, { method: 'DELETE' }).catch(() => {}),
+          fetch(`${rtdbUrl}/archives.json`, { method: 'DELETE' }).catch(() => {})
+        ]);
+      } catch (fbErr) {
+        console.warn('[Clear All] Firebase error:', fbErr.message);
+      }
+
+      currentReportsData = [];
+      totalItems = 0;
+      selectedReportIds.clear();
+
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i><span>Xóa Toàn Bộ Kho Báo Cáo</span>';
+      }
+
+      closeClearAllModal();
+      updateBatchActionBar();
+      renderTableRows([], 0);
+      renderPagination(0, 1, currentLimit);
+      lucide.createIcons();
+
+      alert('🧹 Đã xóa sạch toàn bộ kho lưu trữ báo cáo chuyên môn!');
     }
 
     // Khởi tạo giao diện
@@ -508,7 +805,7 @@
       const tbody = document.getElementById("reportTableBody");
       tbody.innerHTML = `
         <tr>
-          <td colspan="9" class="py-12 text-center text-slate-400">
+          <td colspan="10" class="py-12 text-center text-slate-400">
             <div class="flex flex-col items-center justify-center gap-2">
               <div class="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
               <p class="text-xs font-medium">Đang tải dữ liệu từ Google Sheets...</p>
@@ -527,8 +824,21 @@
         if (refreshIcon) refreshIcon.classList.remove("animate-spin");
 
         if (json && json.success) {
-          totalItems = json.total || 0;
-          currentReportsData = json.data || [];
+          const rawData = json.data || [];
+          
+          // KHỬ TRÙNG LẶP THEO docId (Chống nhân bản nhiều dòng cho cùng 1 báo cáo)
+          const seen = new Set();
+          const unique = [];
+          for (const d of rawData) {
+            const k = String(d.docId || d.id || '').trim();
+            if (!k || !seen.has(k)) {
+              if (k) seen.add(k);
+              unique.push(d);
+            }
+          }
+
+          currentReportsData = unique;
+          totalItems = json.total || unique.length;
           renderTableRows(currentReportsData, (page - 1) * currentLimit);
           renderPagination(totalItems, page, currentLimit);
         } else {
@@ -550,7 +860,7 @@
       if (!items || items.length === 0) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="9" class="py-10 text-center text-slate-400">
+            <td colspan="10" class="py-10 text-center text-slate-400">
               <div class="flex flex-col items-center justify-center gap-2">
                 <i data-lucide="inbox" class="w-8 h-8 text-slate-300"></i>
                 <p class="text-xs font-semibold">Không tìm thấy báo cáo chuyên môn nào phù hợp.</p>
@@ -565,62 +875,92 @@
       let html = "";
       items.forEach((item, index) => {
         const stt = offset + index + 1;
-        const isApproved = (item.status && item.status.includes("ĐÃ KÝ")) || item.status === "COMPLETED";
-        const isReturned = (item.status && item.status.includes("TRẢ VỀ")) || item.status === "REJECTED";
+        const rawStatus = String(item.status || "");
+        
+        // LOGIC TRẠNG THÁI VĂN BẢN ĐỒNG BỘ CHUẨN VỚI H2:
+        // - Chỉ khi có con dấu nhà trường mới là "ĐÃ KÝ DUYỆT & ĐÓNG DẤU" (xanh lá)
+        // - Nếu mới ký duyệt tổ trưởng / BGH nhưng chưa đóng dấu -> "Đã duyệt (Chờ đóng dấu)" (xanh dương)
+        const isApprovedAndSealed = (rawStatus === "ĐÃ KÝ DUYỆT & ĐÓNG DẤU" || rawStatus === "COMPLETED") || Boolean(item.hasSchoolSeal);
+        const isPendingSeal = rawStatus.includes("Chờ đóng dấu") || rawStatus.includes("CHO_DONG_DAU") || rawStatus.includes("CHỜ DUYỆT") || (!isApprovedAndSealed && rawStatus.includes("ĐÃ"));
+        const isReturned = rawStatus.includes("TRẢ VỀ") || rawStatus === "REJECTED";
 
         let badgeClass = "bg-amber-50 text-amber-700 border-amber-200";
         let statusText = item.status || "Đang xử lý";
-        let statusIcon = `<i data-lucide="clock" class="w-3 h-3 inline mr-1"></i>`;
+        let statusIcon = `<i data-lucide="clock" class="w-3.5 h-3.5 inline mr-1 text-amber-500"></i>`;
 
-        if (isApproved) {
-          badgeClass = "bg-emerald-50 text-emerald-700 border-emerald-200";
-          statusIcon = `<i data-lucide="check-circle-2" class="w-3 h-3 inline mr-1"></i>`;
+        if (isApprovedAndSealed) {
+          badgeClass = "bg-emerald-50 text-emerald-700 border-emerald-200 shadow-2xs";
+          statusIcon = `<i data-lucide="check-circle-2" class="w-3.5 h-3.5 inline mr-1 text-emerald-600"></i>`;
+          statusText = "ĐÃ KÝ DUYỆT & ĐÓNG DẤU";
         } else if (isReturned) {
-          badgeClass = "bg-rose-50 text-rose-700 border-rose-200";
-          statusIcon = `<i data-lucide="alert-triangle" class="w-3 h-3 inline mr-1"></i>`;
+          badgeClass = "bg-rose-50 text-rose-700 border-rose-200 shadow-2xs";
+          statusIcon = `<i data-lucide="alert-triangle" class="w-3.5 h-3.5 inline mr-1 text-rose-600"></i>`;
+          statusText = "BỊ TRẢ VỀ";
+        } else if (isPendingSeal) {
+          badgeClass = "bg-sky-50 text-sky-700 border-sky-200 shadow-2xs";
+          statusIcon = `<i data-lucide="shield-alert" class="w-3.5 h-3.5 inline mr-1 text-sky-600"></i>`;
+          statusText = "Đã duyệt (Chờ đóng dấu)";
         }
 
         const safeDocId = (item.docId || item.id || 'N/A').replace(/'/g, "\\'");
         const safeViewUrl = item.viewUrl ? item.viewUrl.replace(/'/g, "\\'") : "";
         const safeTitle = (item.title || "Báo cáo").replace(/'/g, "\\'");
+        const isChecked = selectedReportIds.has(item.docId || item.id);
 
         html += `
           <tr class="hover:bg-blue-50/40 transition">
-            <td class="py-3.5 px-4 text-center font-bold text-slate-400">${stt}</td>
-            <td class="py-3.5 px-4 font-mono font-bold text-xs text-blue-700 whitespace-nowrap">${item.docId || item.id || 'N/A'}</td>
-            <td class="py-3.5 px-4 font-medium text-slate-900">
+            <!-- Cột Checkbox -->
+            <td class="py-3.5 px-4 text-center">
+              <input type="checkbox" class="report-row-cb rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer" data-doc-id="${safeDocId}" onchange="onReportCheckboxChange(this)" ${isChecked ? 'checked' : ''}>
+            </td>
+            <!-- STT -->
+            <td class="py-3.5 px-3 text-center font-bold text-slate-400">${stt}</td>
+            <!-- Mã Báo Cáo: Hiển thị đầy đủ, không bị cắt mép -->
+            <td class="py-3.5 px-4 font-mono font-bold text-xs text-blue-700 whitespace-nowrap">
+              <span class="px-2.5 py-1 bg-blue-50 border border-blue-200/80 rounded-lg inline-block select-all shadow-2xs">
+                ${item.docId || item.id || 'N/A'}
+              </span>
+            </td>
+            <!-- Tiêu Đề Báo Cáo -->
+            <td class="py-3.5 px-4 font-medium text-slate-900 min-w-[240px]">
               <div class="line-clamp-2" title="${item.title || ''}">${item.title || 'Báo cáo không tên'}</div>
             </td>
+            <!-- Tác Giả -->
             <td class="py-3.5 px-4 whitespace-nowrap">
               <div class="font-semibold text-slate-800">${item.author || 'N/A'}</div>
               <div class="text-[11px] text-slate-400">${item.phone || ''}</div>
             </td>
+            <!-- Tổ Chuyên Môn -->
             <td class="py-3.5 px-4 whitespace-nowrap">
-              <span class="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-medium border border-slate-200">
+              <span class="px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-200">
                 ${item.department || 'Chuyên môn'}
               </span>
             </td>
+            <!-- Người Phê Duyệt -->
             <td class="py-3.5 px-4 font-medium text-slate-800 whitespace-nowrap">${item.approver || 'Ban Giám hiệu'}</td>
+            <!-- Ngày Ký -->
             <td class="py-3.5 px-4 text-slate-500 whitespace-nowrap text-xs">${item.signDate || 'N/A'}</td>
+            <!-- Trạng Thái Đồng Bộ Chuẩn H2 -->
             <td class="py-3.5 px-4 text-center whitespace-nowrap">
-              <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${badgeClass}">
+              <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border ${badgeClass}">
                 ${statusIcon} ${statusText}
               </span>
             </td>
+            <!-- Thao Tác -->
             <td class="py-3.5 px-4 text-center whitespace-nowrap">
               <div class="inline-flex items-center gap-1.5">
                 ${item.viewUrl ? `
-                  <button onclick="openPdfModal('${safeViewUrl}', '${safeTitle}')" class="p-1.5 text-blue-600 hover:text-white hover:bg-blue-600 rounded-lg transition border border-blue-200 shadow-sm" title="Xem trước báo cáo">
+                  <button onclick="openPdfModal('${safeViewUrl}', '${safeTitle}')" class="p-1.5 text-blue-600 hover:text-white hover:bg-blue-600 rounded-lg transition border border-blue-200 shadow-sm cursor-pointer" title="Xem trước báo cáo">
                     <i data-lucide="eye" class="w-4 h-4"></i>
                   </button>
                 ` : ''}
                 ${item.downloadUrl || item.viewUrl ? `
-                  <a href="${item.downloadUrl || item.viewUrl}" target="_blank" class="p-1.5 text-emerald-600 hover:text-white hover:bg-emerald-600 rounded-lg transition border border-emerald-200 shadow-sm" title="Tải báo cáo về máy">
+                  <a href="${item.downloadUrl || item.viewUrl}" target="_blank" class="p-1.5 text-emerald-600 hover:text-white hover:bg-emerald-600 rounded-lg transition border border-emerald-200 shadow-sm cursor-pointer" title="Tải báo cáo về máy">
                     <i data-lucide="download" class="w-4 h-4"></i>
                   </a>
                 ` : ''}
                 ${isPortalAdmin ? `
-                  <button onclick="confirmDeleteReport('${safeDocId}', '${safeTitle}')" class="btn-delete-report p-1.5 text-rose-600 hover:text-white hover:bg-rose-600 rounded-lg transition border border-rose-200 shadow-sm" title="Xóa báo cáo này (Dành riêng cho Admin)">
+                  <button onclick="confirmDeleteReport('${safeDocId}', '${safeTitle}')" class="btn-delete-report p-1.5 text-rose-600 hover:text-white hover:bg-rose-600 rounded-lg transition border border-rose-200 shadow-sm cursor-pointer" title="Xóa báo cáo này (Admin)">
                     <i data-lucide="trash-2" class="w-4 h-4"></i>
                   </button>
                 ` : ''}
@@ -646,7 +986,7 @@
 
       // Nút Trước
       btns += `
-        <button onclick="loadReports(${page - 1})" ${page <= 1 ? 'disabled class="px-2.5 py-1 text-slate-300 cursor-not-allowed"' : 'class="px-2.5 py-1 text-slate-700 hover:bg-slate-200 rounded-lg transition"'}>
+        <button onclick="loadReports(${page - 1})" ${page <= 1 ? 'disabled class="px-2.5 py-1 text-slate-300 cursor-not-allowed"' : 'class="px-2.5 py-1 text-slate-700 hover:bg-slate-200 rounded-lg transition cursor-pointer"'}>
           <i data-lucide="chevron-left" class="w-4 h-4"></i>
         </button>
       `;
@@ -654,8 +994,8 @@
       // Các trang
       for (let p = 1; p <= totalPages; p++) {
         if (p === 1 || p === totalPages || (p >= page - 1 && p <= page + 1)) {
-          const active = (p === page) ? "bg-blue-600 text-white font-bold" : "text-slate-700 hover:bg-slate-200";
-          btns += `<button onclick="loadReports(${p})" class="px-3 py-1 rounded-lg text-xs font-semibold ${active} transition">${p}</button>`;
+          const active = (p === page) ? "bg-blue-600 text-white font-bold shadow-xs" : "text-slate-700 hover:bg-slate-200";
+          btns += `<button onclick="loadReports(${p})" class="px-3 py-1 rounded-lg text-xs font-semibold ${active} transition cursor-pointer">${p}</button>`;
         } else if (p === page - 2 || p === page + 2) {
           btns += `<span class="px-1 text-slate-400">...</span>`;
         }
@@ -663,7 +1003,7 @@
 
       // Nút Sau
       btns += `
-        <button onclick="loadReports(${page + 1})" ${page >= totalPages ? 'disabled class="px-2.5 py-1 text-slate-300 cursor-not-allowed"' : 'class="px-2.5 py-1 text-slate-700 hover:bg-slate-200 rounded-lg transition"'}>
+        <button onclick="loadReports(${page + 1})" ${page >= totalPages ? 'disabled class="px-2.5 py-1 text-slate-300 cursor-not-allowed"' : 'class="px-2.5 py-1 text-slate-700 hover:bg-slate-200 rounded-lg transition cursor-pointer"'}>
           <i data-lucide="chevron-right" class="w-4 h-4"></i>
         </button>
       `;
@@ -673,17 +1013,29 @@
     }
 
     function renderFallbackMockData() {
-      totalItems = 3;
       const mockData = [
+        {
+          id: "BC-2026-TONTIN-810808",
+          title: "KHGD (PL3) Tin 8-26-27 (NLS, AI).pdf",
+          author: "HA VAN TY",
+          phone: "0818.810.007",
+          department: "Tổ Toán - Tin",
+          approver: "Nguyễn Văn Hiến",
+          signDate: "14/9/2026 23:13",
+          status: "Đã duyệt (Chờ đóng dấu)",
+          viewUrl: "https://drive.google.com",
+          downloadUrl: "https://drive.google.com"
+        },
         {
           id: "BC-2026-TOAN-TIN-882190",
           title: "Báo cáo sơ kết chuyên đề đổi mới phương pháp dạy học Tin học 9",
           author: "Hà Văn Tý",
           phone: "0912.345.678",
-          department: "Toán - Tin",
-          approver: "Ngô Thị Liền (Phó Hiệu trưởng)",
+          department: "Tổ Toán - Tin",
+          approver: "Trường THCS Chu Văn An",
           signDate: "10/09/2026 15:30",
           status: "ĐÃ KÝ DUYỆT & ĐÓNG DẤU",
+          hasSchoolSeal: true,
           viewUrl: "https://drive.google.com",
           downloadUrl: "https://drive.google.com"
         },
@@ -693,9 +1045,10 @@
           author: "Ban Giám hiệu",
           phone: "0255.385.0001",
           department: "Ban Giám hiệu",
-          approver: "Hiệu trưởng",
+          approver: "Trường THCS Chu Văn An",
           signDate: "08/09/2026 09:15",
           status: "ĐÃ KÝ DUYỆT & ĐÓNG DẤU",
+          hasSchoolSeal: true,
           viewUrl: "https://drive.google.com",
           downloadUrl: "https://drive.google.com"
         },
@@ -712,6 +1065,7 @@
           downloadUrl: ""
         }
       ];
+      totalItems = mockData.length;
       currentReportsData = mockData;
       renderTableRows(mockData, 0);
       renderPagination(totalItems, 1, 20);

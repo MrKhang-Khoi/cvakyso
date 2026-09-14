@@ -3424,9 +3424,12 @@ function renderSchoolReportsTable() {
                 <span>Đóng dấu</span>
               </button>
             ` : ''}
-            ${(driveUrl || (doc.fileBase64 && isCompleted)) ? `
+            ${(driveUrl || (doc.fileBase64 && isCompleted) || doc.fileBase64) ? `
               <button onclick="handleOpenReportDriveLink('${escapeHtml(doc.id)}')" title="Mở tệp trên Google Drive" class="px-2 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[11px] transition flex items-center gap-1 cursor-pointer">
                 <span>📁</span>
+              </button>
+              <button onclick="handleSaveReportToLocalFolder('${escapeHtml(doc.id)}', event)" title="Lưu tệp về thư mục máy tính (tự động ghi nhớ thư mục, giữ Shift để đổi thư mục)" class="px-2 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] transition flex items-center gap-1 cursor-pointer">
+                <svg class="w-3.5 h-3.5 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
               </button>
             ` : ''}
             ${(isAdminOrBgh || isReturned || isCreator) ? `
@@ -3937,6 +3940,218 @@ async function handleOpenReportDriveLink(docId) {
   }
 }
 
+// ====================================================================================================
+// 💾 QUẢN LÝ LƯU TỆP VỀ THƯ MỤC CỤC BỘ MÁY TÍNH & GHI NHỚ THƯ MỤC (H2)
+// ====================================================================================================
+function getEduSignIDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('EduSignLocalFolderDB', 1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('handles')) {
+        db.createObjectStore('handles');
+      }
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function getSavedFolderHandle() {
+  try {
+    const db = await getEduSignIDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction('handles', 'readonly');
+      const store = tx.objectStore('handles');
+      const req = store.get('saved_directory_handle');
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch (e) {
+    return null;
+  }
+}
+
+async function saveFolderHandleToIDB(handle) {
+  try {
+    const db = await getEduSignIDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction('handles', 'readwrite');
+      const store = tx.objectStore('handles');
+      store.put(handle, 'saved_directory_handle');
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    });
+  } catch (e) {
+    return false;
+  }
+}
+
+async function clearSavedFolderHandle() {
+  try {
+    const db = await getEduSignIDB();
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').delete('saved_directory_handle');
+    localStorage.removeItem('edusign_saved_folder_name');
+  } catch (e) {}
+}
+
+async function handleSaveReportToLocalFolder(docId, event) {
+  if (event) {
+    event.stopPropagation();
+  }
+
+  let doc = (currentCachedSchoolReports && currentCachedSchoolReports.find(d => d.id === docId)) ||
+            (currentCachedAdminReports && currentCachedAdminReports.find(d => d.id === docId)) ||
+            (window.teacherSentDocs && window.teacherSentDocs.find(d => d.id === docId)) ||
+            (window.teacherPendingDocs && window.teacherPendingDocs.find(d => d.id === docId)) ||
+            (window.allDocuments && window.allDocuments.find(d => d.id === docId));
+
+  if (!doc) {
+    showToast('Không tìm thấy thông tin hồ sơ để lưu!', 'warning');
+    return;
+  }
+
+  // Lấy dữ liệu PDF Blob
+  let pdfBlob = null;
+  const base64Data = doc.signedPdfBase64 || doc.fileBase64;
+  if (base64Data && typeof base64Data === 'string' && base64Data.length > 50) {
+    try {
+      const cleanB64 = base64Data.replace(/^data:application\/pdf;base64,/, '').replace(/^data:[^;]+;base64,/, '');
+      const byteCharacters = atob(cleanB64);
+      const byteNumbers = new Uint8Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      pdfBlob = new Blob([byteNumbers], { type: 'application/pdf' });
+    } catch (bErr) {
+      console.warn('Lỗi chuyển base64 sang Blob:', bErr.message);
+    }
+  }
+
+  if (!pdfBlob) {
+    try {
+      showToast('Đang tải dữ liệu tệp PDF...', 'info');
+      const fileEndpoint = API_BASE ? `${API_BASE}/api/documents/${docId}/file?_t=${Date.now()}` : `/api/documents/${docId}/file?_t=${Date.now()}`;
+      const fileHeaders = {
+        'x-user-id': user?.id || '',
+        ...(appState.token ? { 'Authorization': `Bearer ${appState.token}` } : {})
+      };
+      const fileRes = await fetch(fileEndpoint, { headers: fileHeaders });
+      if (fileRes.ok) {
+        const blobData = await fileRes.blob();
+        if (blobData && blobData.size > 50) {
+          pdfBlob = blobData;
+        }
+      }
+    } catch (fErr) {
+      console.warn('Lỗi nạp tệp từ máy chủ:', fErr.message);
+    }
+  }
+
+  if (!pdfBlob && (doc.googleDriveUrl || doc.driveInfo?.fileId)) {
+    try {
+      const gId = (doc.googleDriveUrl || '').match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || doc.driveInfo?.fileId;
+      if (gId) {
+        showToast('Đang nạp tệp từ Google Drive...', 'info');
+        const gUrl = `https://drive.usercontent.google.com/download?id=${gId}&export=download`;
+        const gRes = await fetch(gUrl).catch(() => null);
+        if (gRes && gRes.ok) {
+          const gBlob = await gRes.blob();
+          if (gBlob && gBlob.size > 50) {
+            pdfBlob = gBlob;
+          }
+        }
+      }
+    } catch (gErr) {
+      console.warn('Lỗi tải tệp Drive:', gErr.message);
+    }
+  }
+
+  if (!pdfBlob) {
+    showToast('⚠️ Không tìm thấy nội dung tệp PDF để lưu về máy tính!', 'error');
+    return;
+  }
+
+  // Chuẩn hóa tên tệp hợp lệ
+  let rawTitle = doc.title || doc.name || doc.id || 'BaoCao';
+  if (!rawTitle.toLowerCase().endsWith('.pdf')) {
+    rawTitle += '.pdf';
+  }
+  const cleanFilename = rawTitle.replace(/[\\/:*?"<>|]/g, '_').trim();
+
+  // Kiểm tra hỗ trợ File System Access API
+  const supportsFSA = typeof window.showDirectoryPicker === 'function';
+  const forcePickNew = Boolean(event && event.shiftKey);
+
+  if (supportsFSA) {
+    try {
+      let dirHandle = null;
+      if (!forcePickNew) {
+        dirHandle = await getSavedFolderHandle();
+      }
+
+      // Nếu đã có thư mục lưu trước đó, kiểm tra quyền ghi
+      if (dirHandle) {
+        try {
+          let perm = await dirHandle.queryPermission({ mode: 'readwrite' });
+          if (perm !== 'granted') {
+            perm = await dirHandle.requestPermission({ mode: 'readwrite' });
+          }
+          if (perm !== 'granted') {
+            dirHandle = null;
+          }
+        } catch (pErr) {
+          dirHandle = null;
+        }
+      }
+
+      // Nếu chưa có hoặc chưa cấp quyền hoặc người dùng giữ Shift để đổi thư mục:
+      if (!dirHandle) {
+        showToast('📂 Vui lòng chọn thư mục trên máy tính của Thầy/Cô để lưu báo cáo...', 'info', 4000);
+        dirHandle = await window.showDirectoryPicker({
+          mode: 'readwrite',
+          startIn: 'documents'
+        });
+        if (dirHandle) {
+          await saveFolderHandleToIDB(dirHandle);
+          localStorage.setItem('edusign_saved_folder_name', dirHandle.name);
+        }
+      }
+
+      if (dirHandle) {
+        showToast(`Đang lưu vào thư mục "${dirHandle.name}"...`, 'info', 2000);
+        const fileHandle = await dirHandle.getFileHandle(cleanFilename, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(pdfBlob);
+        await writable.close();
+
+        showToast(`💾 Đã lưu thành công tệp [${cleanFilename}] vào thư mục "${dirHandle.name}"! (Hệ thống đã ghi nhớ thư mục này, giữ Shift khi bấm để đổi thư mục khác)`, 'success', 6000);
+        return;
+      }
+    } catch (pickerErr) {
+      if (pickerErr.name === 'AbortError') {
+        showToast('Đã hủy chọn thư mục lưu.', 'info');
+        return;
+      }
+      console.warn('Lỗi File System Access API, chuyển sang chế độ tải về thông thường:', pickerErr);
+    }
+  }
+
+  // Fallback tải về truyền thống qua trình duyệt
+  const blobUrl = URL.createObjectURL(pdfBlob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = cleanFilename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(blobUrl);
+  }, 1500);
+  showToast(`💾 Đang tải tệp [${cleanFilename}] về máy tính!`, 'success', 4000);
+}
+
 // Định nghĩa toàn cục displayPdfInViewer để phòng ngừa mọi lời gọi cũ
 function displayPdfInViewer(fileOrBase64, title = 'Báo cáo', unused = null, enableSigning = false) {
   if (!fileOrBase64) return;
@@ -4209,9 +4424,12 @@ function renderAdminReportsTable() {
                 <span>Đóng dấu</span>
               </button>
             ` : ''}
-            ${(driveUrl || (doc.fileBase64 && isCompleted)) ? `
+            ${(driveUrl || (doc.fileBase64 && isCompleted) || doc.fileBase64) ? `
               <button onclick="handleOpenReportDriveLink('${escapeHtml(doc.id)}')" title="Mở tệp trên Google Drive" class="px-2 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[11px] transition flex items-center gap-1 cursor-pointer">
                 <span>📁</span>
+              </button>
+              <button onclick="handleSaveReportToLocalFolder('${escapeHtml(doc.id)}', event)" title="Lưu tệp về thư mục máy tính (tự động ghi nhớ thư mục, giữ Shift để đổi thư mục)" class="px-2 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] transition flex items-center gap-1 cursor-pointer">
+                <svg class="w-3.5 h-3.5 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
               </button>
             ` : ''}
             <button onclick="handleDeleteReportInline('${escapeHtml(doc.id)}', '${escapeHtml(doc.title || '')}')" title="Xóa báo cáo này" class="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition cursor-pointer">

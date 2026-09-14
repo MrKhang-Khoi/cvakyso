@@ -236,6 +236,32 @@ function doGet(e) {
     }
   }
 
+  if (action === "BATCH_DELETE_REPORTS") {
+    try {
+      var docIdsRaw = params.docIds || "";
+      var docIdsList = Array.isArray(docIdsRaw) ? docIdsRaw : docIdsRaw.split(",").map(function(s) { return s.trim(); }).filter(Boolean);
+      var batchResult = batchDeleteReportsFromSheet(docIdsList);
+      return ContentService.createTextOutput(JSON.stringify(batchResult)).setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: err.toString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
+  if (action === "CLEAR_ALL_REPORTS") {
+    try {
+      var clearResult = clearAllReportsFromSheet();
+      return ContentService.createTextOutput(JSON.stringify(clearResult)).setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: err.toString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   // B. Tra cứu TKB nhanh qua đường dẫn URL (?query=tkb 6a1 hoặc ?action=TEST_TOMORROW)
   var query = params.query || params.text || "";
   var chatId = params.chat_id || params.chatId || "";
@@ -296,6 +322,18 @@ function doPost(e) {
       var delDocId = postData.docId || (postData.parameter && postData.parameter.docId);
       var delResult = deleteReportFromSheet(delDocId);
       return ContentService.createTextOutput(JSON.stringify(delResult)).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === "BATCH_DELETE_REPORTS") {
+      var docIds = postData.docIds || (postData.parameter && postData.parameter.docIds);
+      var docIdsList = Array.isArray(docIds) ? docIds : String(docIds || "").split(",").map(function(s) { return s.trim(); }).filter(Boolean);
+      var batchResult = batchDeleteReportsFromSheet(docIdsList);
+      return ContentService.createTextOutput(JSON.stringify(batchResult)).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === "CLEAR_ALL_REPORTS") {
+      var clearResult = clearAllReportsFromSheet();
+      return ContentService.createTextOutput(JSON.stringify(clearResult)).setMimeType(ContentService.MimeType.JSON);
     }
 
     // ----------------------------------------------------------------------------------
@@ -1405,17 +1443,36 @@ function handleReportArchive(data) {
       }
     }
 
-    sheet.appendRow([
-      docId, title, author, authorPhone, department,
-      approver, signDate, status, viewUrl, downloadUrl, note
-    ]);
+    // Kiểm tra xem báo cáo docId này đã tồn tại trong Sheet hay chưa (tránh trùng lặp khi ký nhiều bước)
+    var dataRows = sheet.getDataRange().getValues();
+    var existingRowIndex = -1;
+    for (var r = 1; r < dataRows.length; r++) {
+      if (String(dataRows[r][0]).trim() === String(docId).trim()) {
+        existingRowIndex = r + 1; // 1-indexed trong Google Sheets
+        break;
+      }
+    }
+
+    if (existingRowIndex > 0) {
+      // CẬP NHẬT đè lên dòng đã có: cập nhật trạng thái mới nhất, người duyệt mới nhất, ngày giờ mới nhất
+      sheet.getRange(existingRowIndex, 1, 1, 11).setValues([[
+        docId, title, author, authorPhone, department,
+        approver, signDate, status, viewUrl, downloadUrl, note
+      ]]);
+    } else {
+      sheet.appendRow([
+        docId, title, author, authorPhone, department,
+        approver, signDate, status, viewUrl, downloadUrl, note
+      ]);
+    }
 
     return {
       success: true,
       docId: docId,
       viewUrl: viewUrl,
       downloadUrl: downloadUrl,
-      message: "Luu tru bao cao thanh cong!"
+      updated: (existingRowIndex > 0),
+      message: (existingRowIndex > 0) ? "Đã cập nhật trạng thái báo cáo thành công!" : "Lưu trữ báo cáo thành công!"
     };
   } catch (err) {
     return { success: false, error: err.toString() };
@@ -1431,13 +1488,21 @@ function fetchReportsFromSheet(params) {
   var search = (params.search || "").toLowerCase().trim();
   var authorFilter = (params.author || "").toLowerCase().trim();
   var deptFilter = (params.dept || "").toLowerCase().trim();
+  var statusFilter = (params.status || "").toLowerCase().trim();
   var page = parseInt(params.page || "1", 10);
   var limit = parseInt(params.limit || "10", 10);
 
+  // Gom theo docId duy nhất để loại bỏ hoàn toàn các bản ghi trùng lặp trong quá khứ
+  var seenDocIds = {};
   var filtered = [];
+
   for (var i = data.length - 1; i >= 1; i--) {
     var row = data[i];
-    var docId = String(row[0] || "");
+    var docId = String(row[0] || "").trim();
+    if (!docId) continue;
+    if (seenDocIds[docId]) continue; // Đã lấy bản ghi mới nhất ở dưới cùng
+    seenDocIds[docId] = true;
+
     var title = String(row[1] || "");
     var author = String(row[2] || "");
     var phone = String(row[3] || "");
@@ -1455,6 +1520,7 @@ function fetchReportsFromSheet(params) {
     }
     if (authorFilter && author.toLowerCase().indexOf(authorFilter) === -1) continue;
     if (deptFilter && department.toLowerCase().indexOf(deptFilter) === -1) continue;
+    if (statusFilter && status.toLowerCase().indexOf(statusFilter) === -1) continue;
 
     filtered.push({
       docId: docId,
@@ -1493,23 +1559,68 @@ function deleteReportFromSheet(docId) {
   if (!sheet) return { success: false, error: "Không tìm thấy Sheet Sổ Lưu Báo Cáo" };
 
   var data = sheet.getDataRange().getValues();
-  var deleted = false;
-  var rowDeleted = -1;
+  var countDeleted = 0;
 
-  for (var i = 1; i < data.length; i++) {
+  // Lặp ngược từ dưới lên trên để xóa sạch tất cả dòng có cùng docId
+  for (var i = data.length - 1; i >= 1; i--) {
     if (String(data[i][0]).trim() === String(docId).trim()) {
       sheet.deleteRow(i + 1); // 1-indexed trong Google Sheets
-      deleted = true;
-      rowDeleted = i + 1;
-      break;
+      countDeleted++;
     }
   }
 
-  if (!deleted) {
+  if (countDeleted === 0) {
     return { success: false, error: "Không tìm thấy báo cáo có mã " + docId };
   }
 
-  return { success: true, docId: docId, row: rowDeleted, message: "Đã xóa báo cáo thành công khỏi kho lưu trữ!" };
+  return { success: true, docId: docId, count: countDeleted, message: "Đã xóa " + countDeleted + " dòng báo cáo thành công khỏi kho lưu trữ!" };
+}
+
+/**
+ * Xóa nhiều báo cáo đã chọn cùng lúc
+ */
+function batchDeleteReportsFromSheet(docIds) {
+  if (!docIds || !Array.isArray(docIds) || docIds.length === 0) {
+    return { success: false, error: "Danh sách mã báo cáo rỗng" };
+  }
+  var ss = getDatabaseSpreadsheet();
+  if (!ss) return { success: false, error: "Không thể mở cơ sở dữ liệu Spreadsheet" };
+  var sheet = ss.getSheetByName(CONFIG.SHEET_REPORTS);
+  if (!sheet) return { success: false, error: "Không tìm thấy Sheet Sổ Lưu Báo Cáo" };
+
+  var data = sheet.getDataRange().getValues();
+  var idMap = {};
+  for (var k = 0; k < docIds.length; k++) {
+    idMap[String(docIds[k]).trim()] = true;
+  }
+
+  var countDeleted = 0;
+  for (var i = data.length - 1; i >= 1; i--) {
+    var id = String(data[i][0]).trim();
+    if (idMap[id]) {
+      sheet.deleteRow(i + 1);
+      countDeleted++;
+    }
+  }
+
+  return { success: true, count: countDeleted, message: "Đã xóa thành công " + countDeleted + " báo cáo được chọn!" };
+}
+
+/**
+ * Xóa toàn bộ kho báo cáo (Giữ lại dòng tiêu đề cột)
+ */
+function clearAllReportsFromSheet() {
+  var ss = getDatabaseSpreadsheet();
+  if (!ss) return { success: false, error: "Không thể mở cơ sở dữ liệu Spreadsheet" };
+  var sheet = ss.getSheetByName(CONFIG.SHEET_REPORTS);
+  if (!sheet) return { success: false, error: "Không tìm thấy Sheet Sổ Lưu Báo Cáo" };
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    sheet.deleteRows(2, lastRow - 1);
+  }
+
+  return { success: true, message: "Đã xóa sạch toàn bộ kho dữ liệu báo cáo chuyên môn!" };
 }
 
 // ====================================================================================================

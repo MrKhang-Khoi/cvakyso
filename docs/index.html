@@ -1215,6 +1215,13 @@
             <span id="btnToggleSignatureText">Đặt Chữ Ký Số</span>
           </button>
 
+          <!-- Nút Xác nhận Ký số ngay -->
+          <button type="button" id="btnViewerConfirmSign" onclick="handleViewerConfirmSignClick()" 
+            class="px-4 py-1.5 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span id="btnViewerConfirmSignText">Ký Số Ngay</span>
+          </button>
+
           <!-- Nút Đóng dấu nhà trường: CHỈ HIỂN THỊ KHI ĐƯỢC PHÂN QUYỀN (canStampSeal hoặc BGH/Admin) -->
           <button type="button" id="btnToggleSealPlacement" onclick="toggleSealPlacementMode()" 
             class="hidden px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer">
@@ -1227,13 +1234,6 @@
             class="hidden px-3.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer" title="Trả lại hồ sơ cho người gửi nếu có sai sót">
             <svg class="w-4 h-4 text-rose-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
             <span>Trả về</span>
-          </button>
-
-          <!-- Nút Xác nhận Ký số ngay -->
-          <button type="button" id="btnViewerConfirmSign" onclick="handleViewerConfirmSignClick()" 
-            class="px-4 py-1.5 rounded-xl bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            <span id="btnViewerConfirmSignText">Ký Số Ngay</span>
           </button>
 
           <!-- Nút Đóng -->
