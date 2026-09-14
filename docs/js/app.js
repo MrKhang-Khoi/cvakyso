@@ -3547,8 +3547,19 @@ async function handleTeacherBatchDeleteReports() {
 }
 
 async function handleViewReportPdfInline(docId) {
-  const doc = (currentCachedSchoolReports && currentCachedSchoolReports.find(d => d.id === docId)) ||
-              (currentCachedAdminReports && currentCachedAdminReports.find(d => d.id === docId));
+  let doc = (currentCachedSchoolReports && currentCachedSchoolReports.find(d => d.id === docId)) ||
+            (currentCachedAdminReports && currentCachedAdminReports.find(d => d.id === docId)) ||
+            (window.teacherSentDocs && window.teacherSentDocs.find(d => d.id === docId)) ||
+            (window.teacherPendingDocs && window.teacherPendingDocs.find(d => d.id === docId)) ||
+            (window.allDocuments && window.allDocuments.find(d => d.id === docId));
+
+  if (!doc && typeof teacherSentDocs !== 'undefined') {
+    doc = teacherSentDocs.find(d => d.id === docId);
+  }
+  if (!doc && typeof teacherPendingDocs !== 'undefined') {
+    doc = teacherPendingDocs.find(d => d.id === docId);
+  }
+
   if (!doc) {
     showToast('Không tìm thấy thông tin báo cáo này!', 'warning');
     return;
@@ -3556,8 +3567,25 @@ async function handleViewReportPdfInline(docId) {
 
   showToast('Đang mở văn bản báo cáo...', 'info');
 
-  if (doc.fileBase64) {
-    displayPdfInViewer(doc.fileBase64, doc.title || 'BaoCao', null, false);
+  const base64Data = doc.signedPdfBase64 || doc.fileBase64;
+  let pdfBlob = null;
+
+  if (base64Data && typeof base64Data === 'string' && base64Data.length > 50) {
+    try {
+      const cleanB64 = base64Data.replace(/^data:application\/pdf;base64,/, '').replace(/^data:[^;]+;base64,/, '');
+      const byteCharacters = atob(cleanB64);
+      const byteNumbers = new Uint8Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      pdfBlob = new Blob([byteNumbers], { type: 'application/pdf' });
+    } catch (bErr) {
+      console.warn('Lỗi chuyển đổi Base64 sang Blob:', bErr.message);
+    }
+  }
+
+  if (pdfBlob) {
+    openDocumentViewer(doc.title || 'Báo cáo chuyên môn', pdfBlob, false);
     // Ẩn các thanh ký duyệt vì đây là chế độ xem báo cáo lưu trữ
     const chainedBar = document.getElementById('viewerChainedSignBar');
     if (chainedBar) chainedBar.classList.add('hidden');
@@ -3568,11 +3596,72 @@ async function handleViewReportPdfInline(docId) {
     return;
   }
 
-  // Nếu không có base64 cục bộ thì mở URL file từ Drive
-  if (doc.driveInfo && doc.driveInfo.viewUrl) {
-    window.open(doc.driveInfo.viewUrl, '_blank');
+  // Nếu không có base64 cục bộ, thử tải từ endpoint /api/documents/:id/file của máy chủ
+  try {
+    const fileEndpoint = API_BASE ? `${API_BASE}/api/documents/${docId}/file?_t=${Date.now()}` : `/api/documents/${docId}/file?_t=${Date.now()}`;
+    const fileHeaders = {
+      'x-user-id': appState.currentUser?.id || '',
+      ...(appState.token ? { 'Authorization': `Bearer ${appState.token}` } : {})
+    };
+    const fileRes = await fetch(fileEndpoint, { headers: fileHeaders });
+    if (fileRes.ok) {
+      const blobData = await fileRes.blob();
+      if (blobData && blobData.size > 50) {
+        openDocumentViewer(doc.title || 'Báo cáo chuyên môn', blobData, false);
+        const chainedBar = document.getElementById('viewerChainedSignBar');
+        if (chainedBar) chainedBar.classList.add('hidden');
+        const btnSign = document.getElementById('btnViewerConfirmSign');
+        if (btnSign) btnSign.classList.add('hidden');
+        const btnReject = document.getElementById('btnViewerRejectDoc');
+        if (btnReject) btnReject.classList.add('hidden');
+        return;
+      }
+    }
+  } catch (fErr) {
+    console.warn('Lỗi nạp tệp từ máy chủ:', fErr.message);
+  }
+
+  // Nếu không có base64 cục bộ hoặc API thất bại, mở link Google Drive (nếu có)
+  const driveUrl = (doc.driveInfo && doc.driveInfo.viewUrl) || doc.googleDriveUrl;
+  if (driveUrl) {
+    const previewUrl = driveUrl.replace(/\/view(\?.*)?$/, '/preview');
+    window.open(previewUrl, '_blank');
   } else {
     showModalAlert('Không có bản xem trước', 'Hồ sơ này không đính kèm nội dung tệp PDF hoặc tệp đang được lưu trữ trên Cloud.', 'info');
+  }
+}
+
+// Định nghĩa toàn cục displayPdfInViewer để phòng ngừa mọi lời gọi cũ
+function displayPdfInViewer(fileOrBase64, title = 'Báo cáo', unused = null, enableSigning = false) {
+  if (!fileOrBase64) return;
+  let pdfBlob = null;
+  if (fileOrBase64 instanceof Blob) {
+    pdfBlob = fileOrBase64;
+  } else if (typeof fileOrBase64 === 'string') {
+    try {
+      const cleanB64 = fileOrBase64.replace(/^data:[^;]+;base64,/, '');
+      const byteCharacters = atob(cleanB64);
+      const byteNumbers = new Uint8Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      pdfBlob = new Blob([byteNumbers], { type: 'application/pdf' });
+    } catch (e) {
+      console.warn('Lỗi chuyển base64 sang Blob trong displayPdfInViewer:', e.message);
+    }
+  } else if (fileOrBase64 && fileOrBase64.dataUrl) {
+    try {
+      const cleanB64 = fileOrBase64.dataUrl.replace(/^data:[^;]+;base64,/, '');
+      const byteCharacters = atob(cleanB64);
+      const byteNumbers = new Uint8Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      pdfBlob = new Blob([byteNumbers], { type: 'application/pdf' });
+    } catch (e) {}
+  }
+  if (pdfBlob) {
+    openDocumentViewer(title || 'Báo cáo', pdfBlob, enableSigning);
   }
 }
 
