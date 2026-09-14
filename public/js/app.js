@@ -5038,7 +5038,62 @@ function handleOpenSaveLessonPlanModal(signedPdfBase64, session) {
   openModal('modalSaveLessonPlan');
 }
 
+// ==================== QUẢN LÝ LOADING OVERLAY KHI KÝ VĂN BẢN TRONG VIEWER ====================
+function showViewerSigningLoader(statusText = 'Đang niêm phong chữ ký số vào văn bản...', titleText = 'Đang Niêm Phong Chữ Ký Số') {
+  const overlay = document.getElementById('viewerSigningOverlay');
+  const titleEl = document.getElementById('viewerSigningTitle');
+  const textEl = document.getElementById('viewerSigningStatusText');
+  const spinner = document.getElementById('viewerSigningSpinnerRing');
+  const icon = document.getElementById('viewerSigningIcon');
+  const btnConfirm = document.getElementById('btnViewerConfirmSign');
+  const btnReject = document.getElementById('btnViewerRejectDoc');
+
+  if (btnConfirm) btnConfirm.disabled = true;
+  if (btnReject) btnReject.disabled = true;
+
+  if (titleEl) titleEl.textContent = titleText;
+  if (textEl) textEl.textContent = statusText;
+  if (spinner) spinner.classList.remove('hidden');
+  if (icon) icon.textContent = '✍️';
+  if (overlay) overlay.classList.remove('hidden');
+}
+
+function updateViewerSigningLoader(statusText, titleText) {
+  const titleEl = document.getElementById('viewerSigningTitle');
+  const textEl = document.getElementById('viewerSigningStatusText');
+  if (titleText && titleEl) titleEl.textContent = titleText;
+  if (statusText && textEl) textEl.textContent = statusText;
+}
+
+function hideViewerSigningLoader(successText = null, callback = null) {
+  const overlay = document.getElementById('viewerSigningOverlay');
+  const titleEl = document.getElementById('viewerSigningTitle');
+  const textEl = document.getElementById('viewerSigningStatusText');
+  const spinner = document.getElementById('viewerSigningSpinnerRing');
+  const icon = document.getElementById('viewerSigningIcon');
+  const btnConfirm = document.getElementById('btnViewerConfirmSign');
+  const btnReject = document.getElementById('btnViewerRejectDoc');
+
+  if (btnConfirm) btnConfirm.disabled = false;
+  if (btnReject) btnReject.disabled = false;
+
+  if (successText) {
+    if (spinner) spinner.classList.add('hidden');
+    if (icon) icon.textContent = '✅';
+    if (titleEl) titleEl.textContent = 'Ký Số & Niêm Phong Thành Công!';
+    if (textEl) textEl.textContent = successText;
+    setTimeout(() => {
+      if (overlay) overlay.classList.add('hidden');
+      if (typeof callback === 'function') callback();
+    }, 800);
+  } else {
+    if (overlay) overlay.classList.add('hidden');
+    if (typeof callback === 'function') callback();
+  }
+}
+
 async function handleForwardNewReportDocument(signedPdfBase64, session) {
+  showViewerSigningLoader('Đang khởi tạo báo cáo và chuyển tiếp đến người duyệt...', 'Đang Trình Ký Báo Cáo');
   showToast('Đang chuyển tiếp báo cáo đến đồng nghiệp...', 'info');
   const selNext = document.getElementById('selectNextSigner');
   const nextSignerId = selNext?.value;
@@ -5162,30 +5217,36 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
       console.warn('[Zalo Client] Lỗi gửi thông báo submit:', zErr);
     }
 
-    // Đóng viewer
-    closeModal('modalDocViewer');
-    showToast(`🎉 Đã ký và gửi báo cáo [${trackingId}] thành công tới ${nextSignerName}!`, 'success');
-    if (currentPdfBlobUrl) {
-      try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) {}
-      currentPdfBlobUrl = null;
-    }
-    currentActiveSignSession = null;
+    hideViewerSigningLoader('🎉 Đã ký số và khởi tạo quy trình thành công!', () => {
+      // Đóng viewer
+      closeModal('modalDocViewer');
+      showToast(`🎉 Đã ký và gửi báo cáo [${trackingId}] thành công tới ${nextSignerName}!`, 'success');
+      if (currentPdfBlobUrl) {
+        try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) {}
+        currentPdfBlobUrl = null;
+      }
+      currentActiveSignSession = null;
 
-    // XÓA FILE ĐÃ KÝ KHỎI HỘP THOẠI TẢI LÊN
-    handleClearFile();
+      // XÓA FILE ĐÃ KÝ KHỎI HỘP THOẠI TẢI LÊN
+      handleClearFile();
 
-    showModalAlert(
-      'Chuyển tiếp thành công',
-      `🎉 Thầy/Cô đã ký số và chuyển tiếp báo cáo thành công tới <strong>${escapeHtml(nextSignerName)}</strong>!<br><br>Hồ sơ đã được đưa vào danh sách chờ ký của đồng nghiệp.`,
-      'success'
-    );
+      showModalAlert(
+        'Chuyển tiếp thành công',
+        `🎉 Thầy/Cô đã ký số và chuyển tiếp báo cáo thành công tới <strong>${escapeHtml(nextSignerName)}</strong>!<br><br>Hồ sơ đã được đưa vào danh sách chờ ký của đồng nghiệp.`,
+        'success'
+      );
 
-    loadTeacherPendingDocuments(true);
-    loadTeacherSentDocuments(true);
+      loadTeacherPendingDocuments(true);
+      loadTeacherSentDocuments(true);
+    });
+  } else {
+    hideViewerSigningLoader();
+    showToast('Không thể gửi báo cáo. Vui lòng thử lại!', 'error');
   }
 }
 
 async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
+  showViewerSigningLoader('Đang cập nhật chữ ký số vào quy trình hồ sơ...', 'Đang Niêm Phong Chữ Ký');
   showToast('Đang cập nhật chữ ký số vào quy trình hồ sơ...', 'info');
   const isFinal = Boolean(document.getElementById('cbViewerIsFinalSigner')?.checked);
   const isRealSchoolSeal = Boolean(session.isSchoolSeal);
@@ -5287,6 +5348,7 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
 
   // Tự động đẩy tệp PDF đã hoàn tất / đóng dấu lên Google Drive của trường
   if (isFinal || isRealSchoolSeal) {
+    updateViewerSigningLoader('Đang đồng bộ báo cáo lên Google Drive nhà trường...', 'Đang Lưu Trữ');
     syncDocumentToGoogleDrive(docSnapshot, signedPdfBase64).then(dr => {
       if (dr && dr.viewUrl) {
         console.log('[handleChainedPendingDocumentSignStep] Đã đồng bộ Google Drive thành công:', dr.viewUrl);
@@ -5294,86 +5356,93 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
     }).catch(e => console.warn('[handleChainedPendingDocumentSignStep] Lỗi đồng bộ Google Drive:', e.message));
   }
 
-  // Đóng viewer và dọn sạch session
-  closeModal('modalDocViewer');
-  if (currentPdfBlobUrl) {
-    try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) {}
-    currentPdfBlobUrl = null;
-  }
-  currentChainedPendingDoc = null;
-  currentActiveSignSession = null;
-
-  if (isFinal) {
-    // Gửi thông báo Zalo Bot: Báo cáo đã ký duyệt và đóng dấu hoàn tất
-    try {
-      const authorId = docSnapshot.creatorId || docSnapshot.authorId || docSnapshot.creatorUsername || docSnapshot.authorUsername;
-      const authorObj = appState.users?.find(x => x.id === authorId || x.username === authorId);
-      const authorPhone = authorObj?.phone || ((authorId === 'user_cvaty' || authorId === 'cva.ty') ? '0818810007' : '');
-      sendZaloNotificationClientSide({
-        action: 'NOTIFY_SIGN_EVENT',
-        eventType: 'COMPLETED',
-        docId: docId,
-        docTitle: docSnapshot.title || session.docTitle || 'Báo cáo chuyên môn',
-        authorPhone: authorPhone,
-        approverName: user?.fullName || currentUsername,
-        viewUrl: docSnapshot.driveInfo?.viewUrl || 'https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html'
-      });
-    } catch (zErr) {
-      console.warn('[Zalo Client] Lỗi gửi Zalo hoàn tất:', zErr);
+  hideViewerSigningLoader(isFinal ? '🎉 Báo cáo đã hoàn tất và niêm phong thành công!' : '🎉 Đã ký duyệt và chuyển tiếp thành công!', () => {
+    // Đóng viewer và dọn sạch session
+    closeModal('modalDocViewer');
+    if (currentPdfBlobUrl) {
+      try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) {}
+      currentPdfBlobUrl = null;
     }
+    currentChainedPendingDoc = null;
+    currentActiveSignSession = null;
 
-    // NƠI 2: TỰ ĐỘNG TẢI TỆP VỀ MÁY TÍNH / THƯ MỤC ONEDRIVE
-    try {
-      const byteChars = atob(signedPdfBase64.replace(/^data:application\/pdf;base64,/, ''));
-      const byteNums = new Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
-      const blob = new Blob([new Uint8Array(byteNums)], { type: 'application/pdf' });
-      const dlUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = dlUrl;
-      a.download = `[THCS_CVA]_${(session.docTitle || 'BaoCao').replace(/\.pdf$/i, '')}_HoanTat.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(dlUrl);
-      }, 1000);
-    } catch (e) {}
-
-    showModalAlert(
-      'Hoàn tất quy trình ký & Lưu 2 nơi',
-      '🎉 Chúc mừng! Thầy/Cô đã ký xác nhận hoàn thành báo cáo chuyên môn.<br><br>' +
-      '✅ <strong>Nơi 1:</strong> Đã tự động lưu trữ vào Google Drive nhà trường.<br>' +
-      '✅ <strong>Nơi 2:</strong> Bản sao hoàn tất đã được tải về máy tính (thư mục OneDrive/Downloads).',
-      'success'
-    );
-  } else {
-    // Chuyển tiếp tới người ký tiếp theo -> Bắn tin Zalo cho người duyệt tiếp theo
-    if (nextSignerId) {
+    if (isFinal) {
+      // Gửi thông báo Zalo Bot: Báo cáo đã ký duyệt và đóng dấu hoàn tất
       try {
-        const nextUserObj = appState.users?.find(x => x.id === nextSignerId || x.username === nextSignerId);
+        const authorId = docSnapshot.creatorId || docSnapshot.authorId || docSnapshot.creatorUsername || docSnapshot.authorUsername;
+        const authorObj = appState.users?.find(x => x.id === authorId || x.username === authorId);
+        const authorPhone = authorObj?.phone || ((authorId === 'user_cvaty' || authorId === 'cva.ty') ? '0818810007' : '');
         sendZaloNotificationClientSide({
           action: 'NOTIFY_SIGN_EVENT',
-          eventType: 'FORWARDED',
+          eventType: 'COMPLETED',
           docId: docId,
           docTitle: docSnapshot.title || session.docTitle || 'Báo cáo chuyên môn',
-          recipientPhone: nextUserObj?.phone || '',
-          senderName: user?.fullName || currentUsername
+          authorPhone: authorPhone,
+          approverName: user?.fullName || currentUsername,
+          viewUrl: docSnapshot.driveInfo?.viewUrl || 'https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html'
         });
-      } catch (zErr) {}
-    }
-    showToast(`🎉 Đã ký và chuyển tiếp thành công đến ${nextSignerName}!`, 'success');
-  }
+      } catch (zErr) {
+        console.warn('[Zalo Client] Lỗi gửi Zalo hoàn tất:', zErr);
+      }
 
-  // Tải lại danh sách hồ sơ cho tất cả các luồng
-  loadTeacherPendingDocuments(true);
-  loadTeacherSentDocuments(true);
-  if (typeof loadTeacherReturnedDocuments === 'function') {
-    loadTeacherReturnedDocuments(true);
-  }
-  if (typeof loadSchoolReports === 'function') {
-    loadSchoolReports(true);
-  }
+      // NƠI 2: TỰ ĐỘNG TẢI TỆP VỀ MÁY TÍNH / THƯ MỤC ONEDRIVE
+      try {
+        const byteChars = atob(signedPdfBase64.replace(/^data:application\/pdf;base64,/, ''));
+        const byteNums = new Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+        const blob = new Blob([new Uint8Array(byteNums)], { type: 'application/pdf' });
+        const dlUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = dlUrl;
+        a.download = `[THCS_CVA]_${(session.docTitle || 'BaoCao').replace(/\.pdf$/i, '')}_HoanTat.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(dlUrl);
+        }, 1000);
+      } catch (e) {}
+
+      showModalAlert(
+        'Hoàn tất quy trình ký & Lưu 2 nơi',
+        '🎉 Chúc mừng! Thầy/Cô đã ký xác nhận hoàn thành báo cáo chuyên môn.<br><br>' +
+        '✅ <strong>Nơi 1:</strong> Đã tự động lưu trữ vào Google Drive nhà trường.<br>' +
+        '✅ <strong>Nơi 2:</strong> Bản sao hoàn tất đã được tải về máy tính (thư mục OneDrive/Downloads).',
+        'success'
+      );
+    } else {
+      // Chuyển tiếp tới người ký tiếp theo -> Bắn tin Zalo cho người duyệt tiếp theo
+      if (nextSignerId) {
+        try {
+          const nextUserObj = appState.users?.find(x => x.id === nextSignerId || x.username === nextSignerId);
+          sendZaloNotificationClientSide({
+            action: 'NOTIFY_SIGN_EVENT',
+            eventType: 'FORWARDED',
+            docId: docId,
+            docTitle: docSnapshot.title || session.docTitle || 'Báo cáo chuyên môn',
+            recipientPhone: nextUserObj?.phone || '',
+            senderName: user?.fullName || currentUsername
+          });
+        } catch (zErr) {}
+      }
+      showToast(`🎉 Đã ký và chuyển tiếp thành công đến ${nextSignerName}!`, 'success');
+      showModalAlert(
+        'Chuyển tiếp thành công',
+        `🎉 Thầy/Cô đã ký số và chuyển tiếp thành công hồ sơ tới <strong>${escapeHtml(nextSignerName)}</strong>!<br><br>Hồ sơ đã được gửi đến danh sách chờ ký của đồng nghiệp.`,
+        'success'
+      );
+    }
+
+    // Tải lại danh sách hồ sơ cho tất cả các luồng
+    loadTeacherPendingDocuments(true);
+    loadTeacherSentDocuments(true);
+    if (typeof loadTeacherReturnedDocuments === 'function') {
+      loadTeacherReturnedDocuments(true);
+    }
+    if (typeof loadSchoolReports === 'function') {
+      loadSchoolReports(true);
+    }
+  });
 }
 
 // ==================== XỬ LÝ KÝ SỐ & ĐỊNH VỊ CHỮ KÝ TRÊN PDF ====================

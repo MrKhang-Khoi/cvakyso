@@ -224,6 +224,18 @@ function doGet(e) {
     }
   }
 
+  if (action === "DELETE_REPORT") {
+    try {
+      var delResult = deleteReportFromSheet(params.docId);
+      return ContentService.createTextOutput(JSON.stringify(delResult)).setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+      return ContentService.createTextOutput(JSON.stringify({
+        success: false,
+        error: err.toString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+
   // B. Tra cứu TKB nhanh qua đường dẫn URL (?query=tkb 6a1 hoặc ?action=TEST_TOMORROW)
   var query = params.query || params.text || "";
   var chatId = params.chat_id || params.chatId || "";
@@ -278,6 +290,12 @@ function doPost(e) {
     if (action === "UPLOAD_SIGNED_DOC" || action === "ARCHIVE_REPORT") {
       var archiveResult = handleReportArchive(postData);
       return ContentService.createTextOutput(JSON.stringify(archiveResult)).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === "DELETE_REPORT") {
+      var delDocId = postData.docId || (postData.parameter && postData.parameter.docId);
+      var delResult = deleteReportFromSheet(delDocId);
+      return ContentService.createTextOutput(JSON.stringify(delResult)).setMimeType(ContentService.MimeType.JSON);
     }
 
     // ----------------------------------------------------------------------------------
@@ -1464,6 +1482,36 @@ function fetchReportsFromSheet(params) {
   };
 }
 
+/**
+ * Xóa báo cáo khỏi Sheet lưu trữ (Chỉ dành cho Quản trị viên Admin)
+ */
+function deleteReportFromSheet(docId) {
+  if (!docId) return { success: false, error: "Thiếu mã báo cáo docId" };
+  var ss = getDatabaseSpreadsheet();
+  if (!ss) return { success: false, error: "Không thể mở cơ sở dữ liệu Spreadsheet" };
+  var sheet = ss.getSheetByName(CONFIG.SHEET_REPORTS);
+  if (!sheet) return { success: false, error: "Không tìm thấy Sheet Sổ Lưu Báo Cáo" };
+
+  var data = sheet.getDataRange().getValues();
+  var deleted = false;
+  var rowDeleted = -1;
+
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]).trim() === String(docId).trim()) {
+      sheet.deleteRow(i + 1); // 1-indexed trong Google Sheets
+      deleted = true;
+      rowDeleted = i + 1;
+      break;
+    }
+  }
+
+  if (!deleted) {
+    return { success: false, error: "Không tìm thấy báo cáo có mã " + docId };
+  }
+
+  return { success: true, docId: docId, row: rowDeleted, message: "Đã xóa báo cáo thành công khỏi kho lưu trữ!" };
+}
+
 // ====================================================================================================
 // 🛠️ 16. CÁC HÀM TIỆN ÍCH TRỢ GIÚP (HELPERS & NLP MATCHER ENGINE)
 // ====================================================================================================
@@ -1887,6 +1935,8 @@ if (typeof module !== "undefined" && module.exports) {
     handleFindFreeTeacherQuery: handleFindFreeTeacherQuery,
     handleNewTimetableAnnouncement: handleNewTimetableAnnouncement,
     processUnifiedZaloMessage: processUnifiedZaloMessage,
-    handleEduSignNotification: handleEduSignNotification
+    handleEduSignNotification: handleEduSignNotification,
+    fetchReportsFromSheet: fetchReportsFromSheet,
+    deleteReportFromSheet: deleteReportFromSheet
   };
 }

@@ -69,6 +69,22 @@
           <i data-lucide="arrow-left" class="w-4 h-4"></i>
           Về Phần Mềm Ký Số
         </a>
+        <!-- Nút Quyền Quản Trị / Trạng thái Admin -->
+        <div id="adminAuthContainer" class="flex items-center">
+          <button id="btnAdminLogin" onclick="openAdminModal()" class="inline-flex items-center gap-2 px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-xl transition shadow-sm">
+            <i data-lucide="shield" class="w-4 h-4 text-amber-600"></i>
+            <span>Quyền Quản Trị</span>
+          </button>
+          <div id="adminBadgeActive" class="hidden items-center gap-2">
+            <span class="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-300 rounded-xl shadow-sm">
+              <i data-lucide="shield-check" class="w-4 h-4 text-emerald-600"></i>
+              <span>Admin: Bật</span>
+            </span>
+            <button onclick="handleLogoutAdmin()" title="Thoát quyền Quản trị viên" class="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 rounded-xl transition">
+              <i data-lucide="log-out" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
         <button id="btnRefresh" onclick="loadReports(1)" class="inline-flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition shadow-sm hover:shadow">
           <i data-lucide="refresh-cw" id="iconRefresh" class="w-4 h-4"></i>
           Làm Mới Dữ Liệu
@@ -251,6 +267,70 @@
     </div>
   </div>
 
+  <!-- MODAL XÁC THỰC QUẢN TRỊ VIÊN -->
+  <div id="modalAdminAuth" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-200">
+      <div class="flex items-center justify-between pb-4 border-b border-slate-100">
+        <div class="flex items-center gap-2 text-slate-900">
+          <div class="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center">
+            <i data-lucide="shield-alert" class="w-5 h-5"></i>
+          </div>
+          <h3 class="font-bold text-base">Xác Thực Quyền Quản Trị</h3>
+        </div>
+        <button onclick="closeAdminModal()" class="text-slate-400 hover:text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="mt-4 space-y-3">
+        <p class="text-xs text-slate-500 leading-relaxed">
+          Tính năng quản lý và xóa hồ sơ báo cáo chuyên môn chỉ dành riêng cho <strong>Ban Giám hiệu</strong> hoặc <strong>Quản trị viên nhà trường</strong>.
+        </p>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1.5">Mật khẩu Quản trị (Admin PIN):</label>
+          <div class="relative">
+            <input type="password" id="adminPasswordInput" class="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:bg-white focus:outline-none transition"
+                   placeholder="Nhập mật khẩu quản trị..." onkeydown="if(event.key==='Enter') handleAdminLogin()">
+          </div>
+          <p id="adminAuthError" class="text-xs text-rose-500 font-medium mt-1.5 hidden">Mật khẩu quản trị không chính xác!</p>
+        </div>
+      </div>
+      <div class="mt-6 flex justify-end gap-2">
+        <button onclick="closeAdminModal()" class="px-4 py-2.5 text-xs font-semibold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition">Hủy bỏ</button>
+        <button onclick="handleAdminLogin()" class="px-4 py-2.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow transition">Xác Nhận Admin</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL XÁC NHẬN XÓA BÁO CÁO -->
+  <div id="modalConfirmDelete" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-200">
+      <div class="flex items-center gap-3 pb-3 border-b border-slate-100 text-rose-600">
+        <div class="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0">
+          <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-slate-900 text-base">Xác Nhận Xóa Báo Cáo</h3>
+          <p class="text-xs text-slate-400">Dành riêng cho Quản trị viên</p>
+        </div>
+      </div>
+      <div class="mt-4 space-y-2.5 text-xs text-slate-600">
+        <p>Thầy/Cô có chắc chắn muốn xóa hồ sơ báo cáo chuyên môn này khỏi kho lưu trữ điện tử không?</p>
+        <div class="bg-rose-50/70 border border-rose-200/80 rounded-xl p-3 text-rose-900 font-medium space-y-1">
+          <div><strong>Mã báo cáo:</strong> <span id="delDocId" class="font-mono font-bold"></span></div>
+          <div class="line-clamp-2"><strong>Tiêu đề:</strong> <span id="delDocTitle"></span></div>
+        </div>
+        <p class="text-[11px] text-slate-400 italic">⚠️ Dữ liệu sau khi xóa sẽ được loại bỏ khỏi Sổ Lưu Báo Cáo và Cổng tra cứu.</p>
+      </div>
+      <div class="mt-6 flex justify-end gap-2">
+        <button onclick="closeDeleteModal()" class="px-4 py-2.5 text-xs font-semibold text-slate-600 bg-slate-100 rounded-xl hover:bg-slate-200 transition">Hủy bỏ</button>
+        <button id="btnExecuteDelete" onclick="executeDeleteReport()" class="px-4 py-2.5 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow transition flex items-center gap-1.5">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          <span>Xóa Vĩnh Viễn</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- SCRIPT XỬ LÝ DỮ LIỆU ĐỘC LẬP -->
   <script>
     // Webhook URL mặc định kết nối tới Google Apps Script đã triển khai
@@ -263,11 +343,154 @@
     let currentPage = 1;
     let totalItems = 0;
     let currentLimit = 20;
+    let isPortalAdmin = false;
+    let pendingDeleteDocId = null;
+    let currentReportsData = [];
+
+    // Kiểm tra quyền Admin khi tải trang
+    function checkAdminAuth() {
+      if (sessionStorage.getItem('edusign_portal_admin') === 'true') {
+        isPortalAdmin = true;
+      } else {
+        try {
+          const uStr = localStorage.getItem('edusign_user');
+          if (uStr) {
+            const u = JSON.parse(uStr);
+            if (u && (u.role === 'ADMIN' || u.role === 'BGH' || u.canStampSeal)) {
+              isPortalAdmin = true;
+            }
+          }
+        } catch (e) {}
+      }
+      updateAdminUI();
+    }
+
+    function updateAdminUI() {
+      const btnLogin = document.getElementById('btnAdminLogin');
+      const badgeActive = document.getElementById('adminBadgeActive');
+      if (isPortalAdmin) {
+        if (btnLogin) btnLogin.classList.add('hidden');
+        if (badgeActive) {
+          badgeActive.classList.remove('hidden');
+          badgeActive.classList.add('flex');
+        }
+      } else {
+        if (btnLogin) btnLogin.classList.remove('hidden');
+        if (badgeActive) {
+          badgeActive.classList.add('hidden');
+          badgeActive.classList.remove('flex');
+        }
+      }
+    }
+
+    function openAdminModal() {
+      document.getElementById('adminPasswordInput').value = '';
+      document.getElementById('adminAuthError').classList.add('hidden');
+      document.getElementById('modalAdminAuth').classList.remove('hidden');
+      setTimeout(() => {
+        const inp = document.getElementById('adminPasswordInput');
+        if (inp) inp.focus();
+      }, 100);
+    }
+
+    function closeAdminModal() {
+      document.getElementById('modalAdminAuth').classList.add('hidden');
+    }
+
+    function handleAdminLogin() {
+      const pwd = document.getElementById('adminPasswordInput').value.trim();
+      const errEl = document.getElementById('adminAuthError');
+      if (pwd === 'admin123' || pwd === 'cva@admin2026' || pwd === '123456') {
+        isPortalAdmin = true;
+        sessionStorage.setItem('edusign_portal_admin', 'true');
+        closeAdminModal();
+        updateAdminUI();
+        renderTableRows(currentReportsData, (currentPage - 1) * currentLimit);
+        alert('🛡️ Đã xác thực thành công quyền Quản trị viên!\nBây giờ Thầy/Cô có thể quản lý và xóa hồ sơ báo cáo thừa khỏi hệ thống.');
+      } else {
+        errEl.classList.remove('hidden');
+      }
+    }
+
+    function handleLogoutAdmin() {
+      if (confirm('Thầy/Cô có muốn thoát khỏi chế độ Quản trị viên?')) {
+        isPortalAdmin = false;
+        sessionStorage.removeItem('edusign_portal_admin');
+        updateAdminUI();
+        renderTableRows(currentReportsData, (currentPage - 1) * currentLimit);
+      }
+    }
+
+    function confirmDeleteReport(docId, docTitle) {
+      if (!isPortalAdmin) {
+        openAdminModal();
+        return;
+      }
+      pendingDeleteDocId = docId;
+      document.getElementById('delDocId').textContent = docId;
+      document.getElementById('delDocTitle').textContent = docTitle;
+      document.getElementById('modalConfirmDelete').classList.remove('hidden');
+    }
+
+    function closeDeleteModal() {
+      document.getElementById('modalConfirmDelete').classList.add('hidden');
+      pendingDeleteDocId = null;
+    }
+
+    async function executeDeleteReport() {
+      const docId = pendingDeleteDocId;
+      if (!docId) return;
+
+      const btn = document.getElementById('btnExecuteDelete');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Đang xóa...</span>';
+      }
+
+      const gasUrl = getWebhookUrl();
+      try {
+        const c1 = new AbortController();
+        const t1 = setTimeout(() => c1.abort(), 3000);
+        await fetch(`${gasUrl}?action=DELETE_REPORT&docId=${encodeURIComponent(docId)}`, { signal: c1.signal }).catch(() => {});
+        clearTimeout(t1);
+      } catch (e) {
+        console.warn('[Delete Report] GAS error:', e.message);
+      }
+
+      try {
+        const rtdbUrl = 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+        const c2 = new AbortController();
+        const t2 = setTimeout(() => c2.abort(), 2000);
+        await Promise.allSettled([
+          fetch(`${rtdbUrl}/documents/${docId}.json`, { method: 'DELETE', signal: c2.signal }),
+          fetch(`${rtdbUrl}/archives/${docId}.json`, { method: 'DELETE', signal: c2.signal })
+        ]);
+        clearTimeout(t2);
+      } catch (fbErr) {
+        console.warn('[Delete Report] Firebase error:', fbErr.message);
+      }
+
+      currentReportsData = currentReportsData.filter(item => (item.docId || item.id) !== docId);
+      totalItems = Math.max(0, totalItems - 1);
+
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i><span>Xóa Vĩnh Viễn</span>';
+      }
+
+      closeDeleteModal();
+      renderTableRows(currentReportsData, (currentPage - 1) * currentLimit);
+      renderPagination(totalItems, currentPage, currentLimit);
+      lucide.createIcons();
+
+      alert(`🗑️ Đã xóa báo cáo [${docId}] thành công khỏi kho lưu trữ!`);
+    }
 
     // Khởi tạo giao diện
     document.addEventListener("DOMContentLoaded", () => {
       lucide.createIcons();
       document.getElementById("webhookInput").value = getWebhookUrl();
+      checkAdminAuth();
       loadReports(1);
     });
 
@@ -305,7 +528,8 @@
 
         if (json && json.success) {
           totalItems = json.total || 0;
-          renderTableRows(json.data || [], (page - 1) * currentLimit);
+          currentReportsData = json.data || [];
+          renderTableRows(currentReportsData, (page - 1) * currentLimit);
           renderPagination(totalItems, page, currentLimit);
         } else {
           throw new Error((json && json.error) || "Không thể nạp dữ liệu từ Google Sheets");
@@ -356,6 +580,7 @@
           statusIcon = `<i data-lucide="alert-triangle" class="w-3 h-3 inline mr-1"></i>`;
         }
 
+        const safeDocId = (item.docId || item.id || 'N/A').replace(/'/g, "\\'");
         const safeViewUrl = item.viewUrl ? item.viewUrl.replace(/'/g, "\\'") : "";
         const safeTitle = (item.title || "Báo cáo").replace(/'/g, "\\'");
 
@@ -393,6 +618,11 @@
                   <a href="${item.downloadUrl || item.viewUrl}" target="_blank" class="p-1.5 text-emerald-600 hover:text-white hover:bg-emerald-600 rounded-lg transition border border-emerald-200 shadow-sm" title="Tải báo cáo về máy">
                     <i data-lucide="download" class="w-4 h-4"></i>
                   </a>
+                ` : ''}
+                ${isPortalAdmin ? `
+                  <button onclick="confirmDeleteReport('${safeDocId}', '${safeTitle}')" class="btn-delete-report p-1.5 text-rose-600 hover:text-white hover:bg-rose-600 rounded-lg transition border border-rose-200 shadow-sm" title="Xóa báo cáo này (Dành riêng cho Admin)">
+                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                  </button>
                 ` : ''}
               </div>
             </td>
@@ -482,6 +712,7 @@
           downloadUrl: ""
         }
       ];
+      currentReportsData = mockData;
       renderTableRows(mockData, 0);
       renderPagination(totalItems, 1, 20);
     }

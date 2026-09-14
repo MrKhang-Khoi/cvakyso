@@ -1338,10 +1338,38 @@
         <!-- Khung hiển thị các trang PDF dạng Canvas trực quan để kéo thả tự do trên mọi trang -->
         <div id="viewerPdfPagesContainer" class="w-full flex flex-col items-center gap-6 relative"></div>
 
-        <!-- Loading spinner -->
+        <!-- Loading spinner khi nạp tài liệu ban đầu -->
         <div id="viewerLoadingSpinner" class="hidden absolute inset-0 bg-white/70 backdrop-blur-xs flex flex-col items-center justify-center gap-2 z-20">
           <div class="w-8 h-8 border-3 border-brand-600 border-t-transparent rounded-full animate-spin"></div>
           <span class="text-xs text-slate-600 font-medium">Đang nạp nội dung tài liệu...</span>
+        </div>
+
+        <!-- Lớp phủ Loading khi ký số & chuyển tiếp luân chuyển (Khắc phục triệt để hiện tượng đứng yên giao diện) -->
+        <div id="viewerSigningOverlay" class="hidden absolute inset-0 bg-slate-950/75 backdrop-blur-md flex flex-col items-center justify-center p-6 z-50 text-white select-none transition-all duration-300">
+          <div class="bg-white/10 border border-white/20 rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl backdrop-blur-xl flex flex-col items-center text-center space-y-4">
+            <!-- Vòng xoay Neon Pulse / Icon tích xanh -->
+            <div class="relative flex items-center justify-center w-20 h-20">
+              <div id="viewerSigningSpinnerRing" class="w-16 h-16 border-4 border-indigo-400/30 border-t-indigo-400 rounded-full animate-spin"></div>
+              <div id="viewerSigningIconContainer" class="absolute inset-0 flex items-center justify-center text-3xl">
+                <span id="viewerSigningIcon">✍️</span>
+              </div>
+            </div>
+            <!-- Tiêu đề & Thông điệp trạng thái -->
+            <div class="space-y-1.5 w-full">
+              <h4 id="viewerSigningTitle" class="text-base sm:text-lg font-extrabold text-white">Đang Niêm Phong Chữ Ký Số</h4>
+              <p id="viewerSigningStatusText" class="text-xs sm:text-sm text-indigo-200 font-medium animate-pulse">
+                Đang cập nhật chữ ký số vào quy trình luân chuyển...
+              </p>
+            </div>
+            <!-- Thanh tiến trình nhịp điệu (Pulse Bar) -->
+            <div id="viewerSigningProgressBar" class="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
+              <div class="bg-gradient-to-r from-indigo-500 via-sky-400 to-indigo-500 h-full w-full animate-[pulse_1.5s_infinite]"></div>
+            </div>
+            <!-- Ghi chú bảo mật -->
+            <div class="text-[11px] text-slate-300/80 pt-1">
+              <span>Hệ thống đang mã hóa và lưu trữ an toàn. Vui lòng không đóng trình duyệt.</span>
+            </div>
+          </div>
         </div>
 
         <!-- Tấm chắn bảo vệ chống kẹt chuột khi kéo thả -->
