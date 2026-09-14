@@ -5721,12 +5721,21 @@ function toggleSealPlacementMode(forceState) {
 
     // Ảnh con dấu đỏ điện tử của nhà trường
     const schoolSealSrc = localStorage.getItem('edusign_school_seal') || './school_seal.png';
+    const visibleWrapper = getCurrentlyVisiblePageWrapper() || document.querySelector('.pdf-page-wrapper');
+    const ptW = visibleWrapper ? (parseFloat(visibleWrapper.getAttribute('data-page-width')) || 595.28) : 595.28;
+    const curScale = visibleWrapper ? (visibleWrapper.offsetWidth / ptW) : 1.33;
+    const sealDisplayPx = Math.round(105 * curScale * (currentStampScale || 1.0));
+
     if (dragImg) {
       dragImg.src = schoolSealSrc;
       dragImg.classList.remove('hidden');
       dragImg.alt = 'Con dấu đỏ nhà trường';
-      dragImg.classList.remove('max-h-20');
-      dragImg.classList.add('max-h-28', 'w-28', 'h-28');
+      dragImg.classList.remove('max-h-20', 'max-h-28', 'w-auto', 'w-28', 'h-28');
+      dragImg.style.width = `${sealDisplayPx}px`;
+      dragImg.style.height = `${sealDisplayPx}px`;
+      dragImg.style.maxHeight = 'none';
+      dragImg.style.maxWidth = 'none';
+      dragImg.classList.add('object-contain', 'rounded-full');
     }
     if (defaultBox) defaultBox.classList.add('hidden');
 
@@ -5735,7 +5744,8 @@ function toggleSealPlacementMode(forceState) {
     if (bar) bar.classList.remove('hidden');
     if (stamp) {
       stamp.classList.remove('hidden');
-      stamp.style.width = '120px';
+      stamp.style.width = `${sealDisplayPx}px`;
+      stamp.style.height = `${sealDisplayPx}px`;
       stamp.className = 'absolute z-40 cursor-move select-none group';
     }
     if (btnConfirm) {
@@ -5747,7 +5757,6 @@ function toggleSealPlacementMode(forceState) {
     if (btnSigText) btnSigText.textContent = 'Đặt Chữ Ký Số';
 
     // Đặt con dấu vào trang hiện tại (nơi ký duyệt)
-    const visibleWrapper = getCurrentlyVisiblePageWrapper();
     const targetPage = visibleWrapper ? (parseInt(visibleWrapper.getAttribute('data-page'), 10) || 1) : (currentStampPage === 'last' ? (currentDocTotalPages || 1) : (currentStampPage || 1));
     placeSignatureOnPage(targetPage, 'principal', false);
     showToast('🔴 Đã kích hoạt chế độ Đóng dấu nhà trường. Vui lòng kéo thả con dấu đỏ vào đúng vị trí trên văn bản!', 'info');
@@ -5756,11 +5765,16 @@ function toggleSealPlacementMode(forceState) {
     isSigPlacementActive = false;
 
     if (dragImg) {
-      dragImg.classList.remove('max-h-28', 'w-28', 'h-28');
-      dragImg.classList.add('max-h-20');
+      dragImg.style.width = '';
+      dragImg.style.height = '';
+      dragImg.style.maxHeight = `${Math.round(80 * (currentStampScale || 1.0))}px`;
+      dragImg.style.maxWidth = '';
+      dragImg.classList.remove('rounded-full', 'max-h-28', 'w-28', 'h-28');
+      dragImg.classList.add('max-h-20', 'w-auto');
     }
     if (stamp) {
-      stamp.style.width = '160px';
+      stamp.style.width = `${Math.round(160 * (currentStampScale || 1.0))}px`;
+      stamp.style.height = '';
       stamp.classList.add('hidden');
     }
     if (bar) bar.classList.add('hidden');
@@ -5811,20 +5825,35 @@ function setSignatureScale(scale) {
   if (range) range.value = Math.round(currentStampScale * 100);
 
   const isSeal = (currentSigningAction === 'SEAL');
-  if (stamp) {
-    stamp.style.width = Math.round((isSeal ? 120 : 160) * currentStampScale) + 'px';
-  }
-  if (img) {
-    img.style.maxHeight = Math.round((isSeal ? 120 : 80) * currentStampScale) + 'px';
-    if (isSeal) {
-      img.style.width = Math.round(120 * currentStampScale) + 'px';
-      img.style.height = Math.round(120 * currentStampScale) + 'px';
-    } else {
+  if (isSeal) {
+    const visibleWrapper = getCurrentlyVisiblePageWrapper() || document.querySelector('.pdf-page-wrapper');
+    const ptW = visibleWrapper ? (parseFloat(visibleWrapper.getAttribute('data-page-width')) || 595.28) : 595.28;
+    const curScale = visibleWrapper ? (visibleWrapper.offsetWidth / ptW) : 1.33;
+    const sealDisplayPx = Math.round(105 * curScale * currentStampScale);
+    if (stamp) {
+      stamp.style.width = sealDisplayPx + 'px';
+      stamp.style.height = sealDisplayPx + 'px';
+    }
+    if (img) {
+      img.style.width = sealDisplayPx + 'px';
+      img.style.height = sealDisplayPx + 'px';
+      img.style.maxHeight = 'none';
+      img.style.maxWidth = 'none';
+    }
+  } else {
+    if (stamp) {
+      stamp.style.width = Math.round(160 * currentStampScale) + 'px';
+      stamp.style.height = '';
+    }
+    if (img) {
       img.style.width = '';
       img.style.height = '';
+      img.style.maxHeight = Math.round(80 * currentStampScale) + 'px';
+      img.style.maxWidth = '';
     }
   }
   updateStampCoordsDisplay();
+  updateStampPlacementFromPosition();
 }
 
 function adjustSignatureScale(delta) {

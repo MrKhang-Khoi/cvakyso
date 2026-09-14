@@ -885,8 +885,18 @@ namespace RealPdfSigner
                     float manualY;
                     if (reqX.HasValue && reqX.Value >= 0 && reqY.HasValue && reqY.Value >= 0)
                     {
-                        manualX = Math.Max(5f, Math.Min(pW - w - 5f, reqX.Value));
-                        manualY = Math.Max(5f, Math.Min(pH - h - 5f, reqY.Value));
+                        float calcX = reqX.Value;
+                        float calcY = reqY.Value;
+                        if (reqW.HasValue && reqW.Value > 0 && Math.Abs(w - reqW.Value) > 2f)
+                        {
+                            calcX = reqX.Value + (reqW.Value - w) / 2f;
+                        }
+                        if (reqH.HasValue && reqH.Value > 0 && Math.Abs(h - reqH.Value) > 2f)
+                        {
+                            calcY = reqY.Value + (reqH.Value - h) / 2f;
+                        }
+                        manualX = Math.Max(5f, Math.Min(pW - w - 5f, calcX));
+                        manualY = Math.Max(5f, Math.Min(pH - h - 5f, calcY));
                     }
                     else if (reqXPercent.HasValue && reqYPercent.HasValue)
                     {
@@ -1024,6 +1034,10 @@ namespace RealPdfSigner
                 {
                     float midY = (targetRoleY.Value + targetNameY.Value) / 2f;
                     stampY = midY - (h / 2f);
+                    if (isSealRole && stampY + h > targetRoleY.Value)
+                    {
+                        stampY = Math.Max(targetNameY.Value + 2f, targetRoleY.Value - h - 2f);
+                    }
                     float anchorX = targetNameX ?? targetRoleX ?? defaultX;
                     stampX = anchorX - (w * 0.15f);
                 }

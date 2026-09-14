@@ -527,10 +527,22 @@ async function generateSignedPdf(doc) {
             let sealX = (pW * 0.18);
             let sealY = (pW > pH ? 260 : 105);
 
-            const principalAnchor = await findSmartSignatureAnchor(sourcePdfBuffer, 'Ban Giám hiệu', 'principal');
-            if (principalAnchor && principalAnchor.found) {
-              sealX = principalAnchor.x;
-              sealY = principalAnchor.y;
+            if (doc.signCoordinates && doc.signCoordinates.isManualDrag && typeof doc.signCoordinates.x === 'number' && typeof doc.signCoordinates.y === 'number') {
+              sealX = doc.signCoordinates.x;
+              sealY = doc.signCoordinates.y;
+              if (typeof doc.signCoordinates.width === 'number' && Math.abs(sealSize - doc.signCoordinates.width) > 2) {
+                sealX += (doc.signCoordinates.width - sealSize) / 2;
+              }
+              if (typeof doc.signCoordinates.height === 'number' && Math.abs(sealSize - doc.signCoordinates.height) > 2) {
+                sealY += (doc.signCoordinates.height - sealSize) / 2;
+              }
+              console.log(`[pdfSignerService] 🎯 Con dấu kéo thả thủ công: Trang ${targetPageNum}, X=${sealX}, Y=${sealY}`);
+            } else {
+              const principalAnchor = await findSmartSignatureAnchor(sourcePdfBuffer, 'Ban Giám hiệu', 'principal');
+              if (principalAnchor && principalAnchor.found) {
+                sealX = principalAnchor.x;
+                sealY = principalAnchor.y;
+              }
             }
 
             lastDocPage.drawImage(pngSeal, {
