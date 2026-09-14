@@ -3424,10 +3424,10 @@ function renderSchoolReportsTable() {
                 <span>Đóng dấu</span>
               </button>
             ` : ''}
-            ${driveUrl ? `
-              <a href="${driveUrl}" target="_blank" title="Mở trên Google Drive" class="px-2 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[11px] transition flex items-center gap-1">
+            ${(driveUrl || (doc.fileBase64 && isCompleted)) ? `
+              <button onclick="handleOpenReportDriveLink('${escapeHtml(doc.id)}')" title="Mở tệp trên Google Drive" class="px-2 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[11px] transition flex items-center gap-1 cursor-pointer">
                 <span>📁</span>
-              </a>
+              </button>
             ` : ''}
             ${(isAdminOrBgh || isReturned || isCreator) ? `
               <button onclick="handleDeleteReportInline('${escapeHtml(doc.id)}', '${escapeHtml(doc.title || '')}')" title="Xóa báo cáo này" class="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition cursor-pointer">
@@ -3768,6 +3768,160 @@ async function handleOpenReportToStampSeal(docId) {
   }, 400);
 }
 
+// Đồng bộ tự động tệp PDF đã ký / đã đóng dấu lên Google Drive trường
+async function syncDocumentToGoogleDrive(doc, fileBase64) {
+  if (!doc || !fileBase64) return null;
+  const safeDocTitle = (doc.title || doc.id || 'BaoCao').replace(/\.pdf$/i, '').trim();
+  const safeDocId = (doc.id || '').replace(/[^a-zA-Z0-9_\-]/g, '').trim();
+  const schoolYear = doc.schoolYear || 'Năm học 2026 - 2027';
+  const teacherName = (doc.creatorName || doc.authorName || doc.author || 'GiaoVien').trim();
+  const dept = doc.creatorDept || doc.department || 'CVA';
+  const safeFileName = safeDocId 
+    ? `[${dept}]_[${safeDocId}]_${safeDocTitle}_DaKy.pdf`
+    : `[${dept}]_${safeDocTitle}_DaKy.pdf`;
+  const folderPath = `${schoolYear} / ${teacherName}`;
+
+  let driveResult = null;
+
+  // 1. Thử gọi API Backend nếu có server
+  try {
+    const driveEndpoint = API_BASE ? `${API_BASE}/api/drive/upload` : '/api/drive/upload';
+    const driveRes = await fetch(driveEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${appState.token || ''}`
+      },
+      body: JSON.stringify({
+        doc: {
+          id: doc.id,
+          title: doc.title,
+          author: teacherName,
+          authorName: teacherName,
+          department: dept,
+          schoolYear: schoolYear
+        },
+        fileBase64: fileBase64
+      })
+    });
+    const resJson = await driveRes.json().catch(() => ({}));
+    if (driveRes.ok && resJson.success && resJson.data) {
+      driveResult = resJson.data;
+    }
+  } catch (backendErr) {
+    console.warn('[syncDocumentToGoogleDrive] Backend API upload lỗi:', backendErr.message);
+  }
+
+  // 2. Dự phòng: Đẩy trực tiếp qua Google Apps Script Webhook (áp dụng cả khi chạy GitHub Pages / Render sleep)
+  if (!driveResult) {
+    try {
+      const gasWebhookUrl = 'https://script.google.com/macros/s/AKfycbwGBgauc9xHzRe31_IfCQD-Q9yHwGp4CfYLEam9IupcYhLpNBXbgW0J1t-weD6iUQ87ZQ/exec';
+      const cleanBase64 = fileBase64.replace(/^data:application\/pdf;base64,/, '').replace(/^data:[^;]+;base64,/, '');
+      const payload = JSON.stringify({
+        action: 'UPLOAD_SIGNED_DOC',
+        fileName: safeFileName,
+        folderPath: folderPath,
+        schoolFolderId: 'THCS_CHU_VAN_AN_ARCHIVE_2026',
+        docId: doc.id,
+        docTitle: doc.title,
+        author: teacherName,
+        department: dept,
+        fileBase64: cleanBase64
+      });
+
+      const gasRes = await fetch(gasWebhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: payload
+      });
+      const gasJson = await gasRes.json().catch(() => ({}));
+      if (gasJson && (gasJson.success || gasJson.fileId)) {
+        driveResult = {
+          success: true,
+          isRealCloud: true,
+          fileId: gasJson.fileId,
+          fileName: safeFileName,
+          viewUrl: gasJson.viewUrl || `https://drive.google.com/file/d/${gasJson.fileId}/view?usp=drivesdk`,
+          downloadUrl: gasJson.downloadUrl || null,
+          folderPath: gasJson.folderPath || folderPath,
+          uploadedAt: new Date().toISOString().replace('T', ' ').substring(0, 19),
+          mode: 'REAL_GOOGLE_DRIVE'
+        };
+      }
+    } catch (gasErr) {
+      console.warn('[syncDocumentToGoogleDrive] Google Apps Script Webhook lỗi:', gasErr.message);
+    }
+  }
+
+  // 3. Cập nhật kết quả vào Firebase RTDB & bộ nhớ đệm
+  if (driveResult && driveResult.viewUrl) {
+    doc.googleDriveUrl = driveResult.viewUrl;
+    doc.driveInfo = driveResult;
+    try {
+      if (firebaseDb) {
+        await firebaseDb.ref(`documents/${doc.id}`).update({
+          googleDriveUrl: driveResult.viewUrl,
+          driveInfo: driveResult
+        });
+      } else {
+        await fetch(`${RTDB_URL}/documents/${doc.id}.json`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            googleDriveUrl: driveResult.viewUrl,
+            driveInfo: driveResult
+          })
+        });
+      }
+    } catch (fbErr) {
+      console.warn('[syncDocumentToGoogleDrive] Lỗi ghi Firebase:', fbErr.message);
+    }
+  }
+
+  return driveResult;
+}
+
+async function handleOpenReportDriveLink(docId) {
+  let doc = (currentCachedSchoolReports && currentCachedSchoolReports.find(d => d.id === docId)) ||
+            (currentCachedAdminReports && currentCachedAdminReports.find(d => d.id === docId)) ||
+            (window.teacherSentDocs && window.teacherSentDocs.find(d => d.id === docId)) ||
+            (window.teacherPendingDocs && window.teacherPendingDocs.find(d => d.id === docId)) ||
+            (window.allDocuments && window.allDocuments.find(d => d.id === docId));
+
+  if (!doc) {
+    showToast('Không tìm thấy thông tin hồ sơ!', 'warning');
+    return;
+  }
+
+  const hasSchoolSeal = Boolean(doc.hasSchoolSeal || (Array.isArray(doc.signatures) && doc.signatures.some(s => s.isSchoolSeal === true || s.role === 'CON_DAU_NHA_TRUONG')));
+  const isCompleted = (doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ')));
+  const base64Data = doc.signedPdfBase64 || doc.fileBase64;
+
+  // Kiểm tra xem liên kết Drive hiện tại có bị cũ hơn thời điểm đóng dấu / ký duyệt hay không
+  const driveUploadedAt = doc.driveInfo?.uploadedAt ? new Date(doc.driveInfo.uploadedAt).getTime() : 0;
+  const sealedAtTime = doc.sealedAt ? new Date(doc.sealedAt).getTime() : (doc.completedAt ? new Date(doc.completedAt).getTime() : 0);
+  const isOutdatedDrive = (hasSchoolSeal || isCompleted) && base64Data && (driveUploadedAt < sealedAtTime);
+
+  if (isOutdatedDrive || (!doc.googleDriveUrl && !doc.driveInfo?.viewUrl && base64Data)) {
+    showToast('Đang kiểm tra & đồng bộ tệp PDF đã đóng dấu lên Google Drive...', 'info');
+    const newDrive = await syncDocumentToGoogleDrive(doc, base64Data);
+    if (newDrive && newDrive.viewUrl) {
+      showToast('✅ Đã đồng bộ văn bản có con dấu lên Google Drive!', 'success');
+      const previewUrl = newDrive.viewUrl.replace(/\/view(\?.*)?$/, '/preview');
+      window.open(previewUrl, '_blank');
+      return;
+    }
+  }
+
+  const targetUrl = doc.googleDriveUrl || doc.driveInfo?.viewUrl || '';
+  if (targetUrl) {
+    const previewUrl = targetUrl.replace(/\/view(\?.*)?$/, '/preview');
+    window.open(previewUrl, '_blank');
+  } else {
+    showModalAlert('Chưa có liên kết Drive', 'Hồ sơ này chưa được đồng bộ lên Google Drive. Vui lòng bấm nút "Xem" để xem tệp trực tiếp.', 'info');
+  }
+}
+
 // Định nghĩa toàn cục displayPdfInViewer để phòng ngừa mọi lời gọi cũ
 function displayPdfInViewer(fileOrBase64, title = 'Báo cáo', unused = null, enableSigning = false) {
   if (!fileOrBase64) return;
@@ -4040,10 +4194,10 @@ function renderAdminReportsTable() {
                 <span>Đóng dấu</span>
               </button>
             ` : ''}
-            ${driveUrl ? `
-              <a href="${driveUrl}" target="_blank" title="Mở trên Google Drive" class="px-2 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[11px] transition flex items-center gap-1">
+            ${(driveUrl || (doc.fileBase64 && isCompleted)) ? `
+              <button onclick="handleOpenReportDriveLink('${escapeHtml(doc.id)}')" title="Mở tệp trên Google Drive" class="px-2 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[11px] transition flex items-center gap-1 cursor-pointer">
                 <span>📁</span>
-              </a>
+              </button>
             ` : ''}
             <button onclick="handleDeleteReportInline('${escapeHtml(doc.id)}', '${escapeHtml(doc.title || '')}')" title="Xóa báo cáo này" class="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition cursor-pointer">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
@@ -5038,6 +5192,7 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
 async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
   showToast('Đang cập nhật chữ ký số vào quy trình hồ sơ...', 'info');
   const isFinal = Boolean(document.getElementById('cbViewerIsFinalSigner')?.checked);
+  const isRealSchoolSeal = Boolean(session.isSchoolSeal);
   const selNext = document.getElementById('selectViewerNextSigner');
   const nextSignerId = isFinal ? null : (selNext?.value || null);
   const nextSignerName = isFinal ? '' : (selNext?.options[selNext.selectedIndex]?.text?.split('(')[0]?.trim() || '');
@@ -5133,6 +5288,15 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
   }
 
   const docSnapshot = currentChainedPendingDoc ? { ...currentChainedPendingDoc } : {};
+
+  // Tự động đẩy tệp PDF đã hoàn tất / đóng dấu lên Google Drive của trường
+  if (isFinal || isRealSchoolSeal) {
+    syncDocumentToGoogleDrive(docSnapshot, signedPdfBase64).then(dr => {
+      if (dr && dr.viewUrl) {
+        console.log('[handleChainedPendingDocumentSignStep] Đã đồng bộ Google Drive thành công:', dr.viewUrl);
+      }
+    }).catch(e => console.warn('[handleChainedPendingDocumentSignStep] Lỗi đồng bộ Google Drive:', e.message));
+  }
 
   // Đóng viewer và dọn sạch session
   closeModal('modalDocViewer');

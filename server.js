@@ -1150,7 +1150,17 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
       signerCert = null
     } = req.body;
 
-    const doc = dataStore.getDocumentById(id);
+    let doc = dataStore.getDocumentById(id);
+    if (!doc) {
+      try {
+        const fbUrl = `https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/documents/${encodeURIComponent(id)}.json`;
+        const fbRes = await fetch(fbUrl);
+        if (fbRes.ok) {
+          const fbDoc = await fbRes.json();
+          if (fbDoc && fbDoc.id) doc = fbDoc;
+        }
+      } catch (fbErr) {}
+    }
     if (!doc) {
       return res.status(404).json({ success: false, message: 'Không tìm thấy hồ sơ.' });
     }
@@ -1232,6 +1242,29 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
         doc.googleDriveFolder = driveResult.folderPath;
         doc.googleDriveFileName = driveResult.fileName;
         doc.driveInfo = driveResult;
+
+        // Đồng bộ ngay thông tin Google Drive hoàn tất lên Firebase Realtime Database
+        try {
+          const fbUrl = `https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/documents/${encodeURIComponent(doc.id)}.json`;
+          await fetch(fbUrl, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              googleDriveUrl: doc.googleDriveUrl,
+              googleDriveFolder: doc.googleDriveFolder,
+              googleDriveFileName: doc.googleDriveFileName,
+              driveInfo: doc.driveInfo,
+              hasSchoolSeal: doc.hasSchoolSeal,
+              status: doc.status,
+              completedAt: doc.completedAt,
+              sealedAt: isRealSchoolSeal ? nowStr : (doc.sealedAt || null),
+              signatures: currentSignatures,
+              updatedAt: nowStr
+            })
+          });
+        } catch (fbSyncErr) {
+          console.warn('[server.js sign-step] Cảnh báo đồng bộ Firebase RTDB:', fbSyncErr.message);
+        }
       } catch (driveErr) {
         console.warn('[KÝ SỐ server.js] Cảnh báo lưu Google Drive:', driveErr.message);
       }
@@ -3643,6 +3676,21 @@ app.post('/api/drive/test', requireAdmin, async (req, res) => {
     }
   } catch (err) {
     res.status(500).json({ success: false, message: 'Kiểm thử kết nối Google Drive thất bại: ' + err.message });
+  }
+});
+
+// Upload tệp đã ký hoặc đã đóng dấu lên Google Drive từ client hoặc tiến trình ký
+app.post('/api/drive/upload', async (req, res) => {
+  try {
+    const { doc, fileBase64 } = req.body;
+    if (!doc || !fileBase64) {
+      return res.status(400).json({ success: false, message: 'Thiếu thông tin doc hoặc fileBase64' });
+    }
+    const result = await googleDriveService.uploadToGoogleDrive(doc, fileBase64);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.warn('[server.js /api/drive/upload] Lỗi tải Drive:', err.message);
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
