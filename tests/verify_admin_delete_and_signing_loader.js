@@ -24,6 +24,11 @@ console.log('✅ Unit test deleteReportFromSheet passed!');
   console.log('Truy cập:', portalPath);
   await page.goto(portalPath, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1000);
+  await page.evaluate(() => {
+    if (!window.currentReportsData || window.currentReportsData.length === 0) {
+      if (typeof renderFallbackMockData === 'function') renderFallbackMockData();
+    }
+  });
 
   // 1. Kiểm tra trạng thái ban đầu: Guest mode
   const btnAdminLogin = page.locator('#btnAdminLogin');

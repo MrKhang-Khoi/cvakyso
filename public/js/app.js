@@ -7161,21 +7161,11 @@ async function executeLocalAgentSigning() {
   const statusLabel = document.getElementById('signProgressStatusLabel');
   if (statusLabel) statusLabel.textContent = 'Đang niêm phong chữ ký số PAdES X.509 qua EduSign Agent...';
 
-  // Dừng ngay đồng hồ đếm ngược và đóng modal xác thực để người dùng thấy rõ Loader trên Viewer
-  if (vgcaCountdownTimer) {
-    clearInterval(vgcaCountdownTimer);
-    vgcaCountdownTimer = null;
-  }
-  closeModal('modalSignProgress');
-
-  // Kích hoạt ngay Loader phủ mờ Document Viewer với hiệu ứng xoay Neon Pulse
-  showViewerSigningLoader('Đang kết nối EduSign Agent và niêm phong chữ ký số PAdES X.509...', 'Đang Ký Số & Niêm Phong');
-
   const btnConfirmPhone = document.getElementById('btnSignProgressConfirmPhone');
   const btnConfirmUsb = document.getElementById('btnSignProgressConfirmUsb');
   if (btnConfirmPhone) {
     btnConfirmPhone.disabled = true;
-    btnConfirmPhone.innerHTML = '<svg class="w-4 h-4 animate-spin inline-block mr-1.5" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Đang niêm phong chữ ký số...</span>';
+    btnConfirmPhone.innerHTML = '<svg class="w-4 h-4 animate-spin inline-block mr-1.5" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Đang niêm phong qua EduSign Agent...</span>';
   }
   if (btnConfirmUsb) {
     btnConfirmUsb.disabled = true;
@@ -7314,21 +7304,29 @@ async function executeLocalAgentSigning() {
       throw new Error(data.message || 'EduSign Agent trả về kết quả ký không thành công');
     }
 
+    // Dừng đồng hồ đếm ngược và đóng modal xác thực thiết bị sau khi Agent đã ký thành công
+    if (vgcaCountdownTimer) {
+      clearInterval(vgcaCountdownTimer);
+      vgcaCountdownTimer = null;
+    }
+    closeModal('modalSignProgress');
+
     currentSignedPdfBase64 = data.signedPdfBase64;
 
-    // BƯỚC 6: PHÂN NHÁNH XỬ LÝ THEO LOẠI HỒ SƠ
+    // BƯỚC 6: PHÂN NHÁNH XỬ LÝ THEO LOẠI HỒ SƠ & HIỂN THỊ LOADING OVERLAY TRÊN VIEWER
     if (currentChainedPendingDoc) {
       // Đang ký hồ sơ chờ ký (Báo cáo liên hoàn)
-      updateViewerSigningLoader('Đang cập nhật chữ ký số vào quy trình hồ sơ...', 'Đang Ký Duyệt Hồ Sơ');
+      showViewerSigningLoader('Đang cập nhật chữ ký số vào quy trình hồ sơ...', 'Đang Ký Duyệt Hồ Sơ');
       await handleChainedPendingDocumentSignStep(data.signedPdfBase64, session);
     } else {
       const docTypeChoice = document.querySelector('input[name="docTypeChoice"]:checked')?.value || 'LESSON_PLAN';
       if (docTypeChoice === 'REPORT') {
         // Khởi tạo Báo cáo mới & chuyển tiếp đến đồng nghiệp
-        updateViewerSigningLoader('Đang khởi tạo báo cáo và chuyển tiếp đến người duyệt...', 'Đang Trình Ký Báo Cáo');
+        showViewerSigningLoader('Đang khởi tạo báo cáo và chuyển tiếp đến người duyệt...', 'Đang Trình Ký Báo Cáo');
         await handleForwardNewReportDocument(data.signedPdfBase64, session);
       } else {
-        // Giáo án (Kế hoạch bài dạy): Mở modal cho giáo viên tự chọn đường dẫn lưu tệp
+        // Giáo án (Kế hoạch bài dạy): Hiển thị tích xanh hoàn tất trước khi mở modal lưu tệp
+        showViewerSigningLoader('Đang hoàn tất niêm phong Kế hoạch bài dạy...', 'Đang Niêm Phong Chữ Ký');
         hideViewerSigningLoader('🎉 Đã niêm phong chữ ký số vào Kế hoạch bài dạy!', () => {
           handleOpenSaveLessonPlanModal(data.signedPdfBase64, session);
         });
