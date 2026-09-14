@@ -3289,15 +3289,19 @@ function renderSchoolReportsTable() {
 
     // 3. Lọc Trạng thái
     if (statusFilter) {
-      if (statusFilter === 'COMPLETED') {
-        const isComp = doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ'));
+      const isComp = doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ'));
+      const isRet = doc.status === 'RETURNED' || doc.status === 'REJECTED';
+      const hasSeal = Boolean(doc.hasSchoolSeal || (Array.isArray(doc.signatures) && doc.signatures.some(s => s.isSchoolSeal === true || s.role === 'CON_DAU_NHA_TRUONG')));
+
+      if (statusFilter === 'SEALED') {
+        if (!isComp || !hasSeal) return false;
+      } else if (statusFilter === 'WAIT_SEAL') {
+        if (!isComp || hasSeal) return false;
+      } else if (statusFilter === 'COMPLETED') {
         if (!isComp) return false;
       } else if (statusFilter === 'PENDING') {
-        const isComp = doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ'));
-        const isRet = doc.status === 'RETURNED' || doc.status === 'REJECTED';
         if (isComp || isRet) return false;
       } else if (statusFilter === 'RETURNED') {
-        const isRet = doc.status === 'RETURNED' || doc.status === 'REJECTED';
         if (!isRet) return false;
       }
     }
@@ -3338,18 +3342,28 @@ function renderSchoolReportsTable() {
   `;
 
   list.forEach((doc, idx) => {
+    const hasSchoolSeal = Boolean(doc.hasSchoolSeal || (Array.isArray(doc.signatures) && doc.signatures.some(s => s.isSchoolSeal === true || s.role === 'CON_DAU_NHA_TRUONG')));
     const isCompleted = (doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ')));
     const isReturned = (doc.status === 'RETURNED' || doc.status === 'REJECTED');
     const isCreator = (doc.creatorId === currentUserId || doc.authorId === currentUserId || doc.creatorUsername === user?.username);
     
     let statusBadge = '';
     if (isCompleted) {
-      statusBadge = `
-        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-          Đã ký duyệt & Đóng dấu
-        </span>
-      `;
+      if (hasSchoolSeal) {
+        statusBadge = `
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Đã đầy đủ chữ ký duyệt và con dấu pháp nhân nhà trường">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            Đã ký duyệt & Đóng dấu
+          </span>
+        `;
+      } else {
+        statusBadge = `
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200" title="Đã được BGH phê duyệt nhưng chưa đóng dấu nhà trường">
+            <span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
+            Đã duyệt (Chờ đóng dấu)
+          </span>
+        `;
+      }
     } else if (isReturned) {
       statusBadge = `
         <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
@@ -3404,6 +3418,12 @@ function renderSchoolReportsTable() {
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
               <span>Xem</span>
             </button>
+            ${(isCompleted && !hasSchoolSeal && (isAdminOrBgh || Boolean(user?.canStampSeal))) ? `
+              <button onclick="handleOpenReportToStampSeal('${escapeHtml(doc.id)}')" title="Đóng dấu số nhà trường bằng USB Token con dấu" class="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[11px] transition flex items-center gap-1 cursor-pointer">
+                <span class="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse"></span>
+                <span>Đóng dấu</span>
+              </button>
+            ` : ''}
             ${driveUrl ? `
               <a href="${driveUrl}" target="_blank" title="Mở trên Google Drive" class="px-2 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[11px] transition flex items-center gap-1">
                 <span>📁</span>
@@ -3631,6 +3651,123 @@ async function handleViewReportPdfInline(docId) {
   }
 }
 
+async function handleOpenReportToStampSeal(docId) {
+  const user = appState.currentUser;
+  const canStamp = (user?.role === 'ADMIN' || user?.role === 'BGH' || Boolean(user?.canStampSeal));
+  if (!canStamp) {
+    showToast('⚠️ Thầy/Cô chưa được phân quyền đóng dấu con dấu nhà trường!', 'warning');
+    return;
+  }
+
+  let doc = (currentCachedSchoolReports && currentCachedSchoolReports.find(d => d.id === docId)) ||
+            (currentCachedAdminReports && currentCachedAdminReports.find(d => d.id === docId)) ||
+            (window.teacherSentDocs && window.teacherSentDocs.find(d => d.id === docId)) ||
+            (window.teacherPendingDocs && window.teacherPendingDocs.find(d => d.id === docId)) ||
+            (window.allDocuments && window.allDocuments.find(d => d.id === docId));
+
+  if (!doc && typeof teacherSentDocs !== 'undefined') {
+    doc = teacherSentDocs.find(d => d.id === docId);
+  }
+  if (!doc && typeof teacherPendingDocs !== 'undefined') {
+    doc = teacherPendingDocs.find(d => d.id === docId);
+  }
+
+  if (!doc) {
+    showToast('Không tìm thấy thông tin báo cáo để đóng dấu!', 'warning');
+    return;
+  }
+
+  showToast('Đang tải văn bản chuẩn bị đóng dấu nhà trường...', 'info');
+
+  let pdfBlob = null;
+  const base64Data = doc.signedPdfBase64 || doc.fileBase64;
+  if (base64Data && typeof base64Data === 'string' && base64Data.length > 50) {
+    try {
+      const cleanB64 = base64Data.replace(/^data:application\/pdf;base64,/, '').replace(/^data:[^;]+;base64,/, '');
+      const byteCharacters = atob(cleanB64);
+      const byteNumbers = new Uint8Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      pdfBlob = new Blob([byteNumbers], { type: 'application/pdf' });
+    } catch (bErr) {
+      console.warn('Lỗi chuyển base64 sang Blob:', bErr.message);
+    }
+  }
+
+  if (!pdfBlob) {
+    try {
+      const fileEndpoint = API_BASE ? `${API_BASE}/api/documents/${docId}/file?_t=${Date.now()}` : `/api/documents/${docId}/file?_t=${Date.now()}`;
+      const fileHeaders = {
+        'x-user-id': user?.id || '',
+        ...(appState.token ? { 'Authorization': `Bearer ${appState.token}` } : {})
+      };
+      const fileRes = await fetch(fileEndpoint, { headers: fileHeaders });
+      if (fileRes.ok) {
+        const blobData = await fileRes.blob();
+        if (blobData && blobData.size > 50) {
+          pdfBlob = blobData;
+        }
+      }
+    } catch (fErr) {
+      console.warn('Lỗi nạp tệp từ máy chủ:', fErr.message);
+    }
+  }
+
+  // Dự phòng tải từ Google Drive nếu có
+  if (!pdfBlob && (doc.googleDriveUrl || doc.driveInfo?.fileId)) {
+    try {
+      const gId = (doc.googleDriveUrl || '').match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || doc.driveInfo?.fileId;
+      if (gId) {
+        showToast('Đang tải tệp từ Google Drive...', 'info');
+        const gUrl = `https://drive.usercontent.google.com/download?id=${gId}&export=download`;
+        const gRes = await fetch(gUrl).catch(() => null);
+        if (gRes && gRes.ok) {
+          const gBlob = await gRes.blob();
+          if (gBlob && gBlob.size > 50) {
+            pdfBlob = gBlob;
+          }
+        }
+      }
+    } catch (gdErr) {
+      console.warn('Lỗi tải trực tiếp từ Google Drive:', gdErr.message);
+    }
+  }
+
+  if (!pdfBlob) {
+    showModalAlert('Không thể mở tệp', 'Không thể tải nội dung tệp PDF của báo cáo này để đóng dấu. Vui lòng kiểm tra lại kết nối hoặc tệp đính kèm.', 'error');
+    return;
+  }
+
+  currentChainedPendingDoc = doc;
+
+  // Mở viewer với chế độ ký duyệt
+  openDocumentViewer(doc.title || 'Báo cáo chuyên môn', pdfBlob, true);
+
+  // Hiển thị thanh ký duyệt
+  const chainedBar = document.getElementById('viewerChainedSignBar');
+  if (chainedBar) chainedBar.classList.remove('hidden');
+  const originLabel = document.getElementById('viewerChainedDocOrigin');
+  if (originLabel) {
+    const sigLen = (doc.signatures && doc.signatures.length) || 1;
+    originLabel.textContent = `Hồ sơ đã duyệt (${sigLen} chữ ký) • Chờ đóng dấu nhà trường`;
+  }
+  const cbFinal = document.getElementById('cbViewerIsFinalSigner');
+  if (cbFinal) {
+    cbFinal.checked = true;
+    if (typeof toggleViewerFinalSignerMode === 'function') toggleViewerFinalSignerMode(true);
+  }
+  const boxNext = document.getElementById('boxViewerNextSigner');
+  if (boxNext) boxNext.classList.add('hidden');
+  const btnSign = document.getElementById('btnViewerConfirmSign');
+  if (btnSign) btnSign.classList.remove('hidden');
+
+  // Tự động kích hoạt chế độ Đóng dấu nhà trường
+  setTimeout(() => {
+    toggleSealPlacementMode(true);
+  }, 400);
+}
+
 // Định nghĩa toàn cục displayPdfInViewer để phòng ngừa mọi lời gọi cũ
 function displayPdfInViewer(fileOrBase64, title = 'Báo cáo', unused = null, enableSigning = false) {
   if (!fileOrBase64) return;
@@ -3748,6 +3885,8 @@ function renderAdminReportsTable() {
   const searchKeyword = (document.getElementById('inputAdminReportSearch')?.value || '').trim().toLowerCase();
   const deptFilter = document.getElementById('selectAdminReportDeptFilter')?.value || '';
   const statusFilter = document.getElementById('selectAdminReportStatusFilter')?.value || '';
+  const user = appState.currentUser;
+  const canStamp = (user?.role === 'ADMIN' || user?.role === 'BGH' || Boolean(user?.canStampSeal));
 
   let list = currentCachedAdminReports.filter(doc => {
     // 1. Lọc từ khóa
@@ -3769,15 +3908,19 @@ function renderAdminReportsTable() {
 
     // 3. Lọc Trạng thái
     if (statusFilter) {
-      if (statusFilter === 'COMPLETED') {
-        const isComp = doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ'));
+      const isComp = doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ'));
+      const isRet = doc.status === 'RETURNED' || doc.status === 'REJECTED';
+      const hasSeal = Boolean(doc.hasSchoolSeal || (Array.isArray(doc.signatures) && doc.signatures.some(s => s.isSchoolSeal === true || s.role === 'CON_DAU_NHA_TRUONG')));
+
+      if (statusFilter === 'SEALED') {
+        if (!isComp || !hasSeal) return false;
+      } else if (statusFilter === 'WAIT_SEAL') {
+        if (!isComp || hasSeal) return false;
+      } else if (statusFilter === 'COMPLETED') {
         if (!isComp) return false;
       } else if (statusFilter === 'PENDING') {
-        const isComp = doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ'));
-        const isRet = doc.status === 'RETURNED' || doc.status === 'REJECTED';
         if (isComp || isRet) return false;
       } else if (statusFilter === 'RETURNED') {
-        const isRet = doc.status === 'RETURNED' || doc.status === 'REJECTED';
         if (!isRet) return false;
       }
     }
@@ -3817,17 +3960,27 @@ function renderAdminReportsTable() {
   `;
 
   list.forEach((doc, idx) => {
+    const hasSchoolSeal = Boolean(doc.hasSchoolSeal || (Array.isArray(doc.signatures) && doc.signatures.some(s => s.isSchoolSeal === true || s.role === 'CON_DAU_NHA_TRUONG')));
     const isCompleted = (doc.status === 'COMPLETED' || (doc.status && doc.status.includes('ĐÃ KÝ')));
     const isReturned = (doc.status === 'RETURNED' || doc.status === 'REJECTED');
 
     let statusBadge = '';
     if (isCompleted) {
-      statusBadge = `
-        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-          Đã duyệt & Đóng dấu
-        </span>
-      `;
+      if (hasSchoolSeal) {
+        statusBadge = `
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Đã đầy đủ chữ ký duyệt và con dấu pháp nhân nhà trường">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            Đã duyệt & Đóng dấu
+          </span>
+        `;
+      } else {
+        statusBadge = `
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200" title="Đã được BGH phê duyệt nhưng chưa đóng dấu nhà trường">
+            <span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
+            Đã duyệt (Chờ đóng dấu)
+          </span>
+        `;
+      }
     } else if (isReturned) {
       statusBadge = `
         <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
@@ -3881,6 +4034,12 @@ function renderAdminReportsTable() {
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
               <span>Xem</span>
             </button>
+            ${(isCompleted && !hasSchoolSeal && canStamp) ? `
+              <button onclick="handleOpenReportToStampSeal('${escapeHtml(doc.id)}')" title="Đóng dấu số nhà trường bằng USB Token con dấu" class="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[11px] transition flex items-center gap-1 cursor-pointer">
+                <span class="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse"></span>
+                <span>Đóng dấu</span>
+              </button>
+            ` : ''}
             ${driveUrl ? `
               <a href="${driveUrl}" target="_blank" title="Mở trên Google Drive" class="px-2 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[11px] transition flex items-center gap-1">
                 <span>📁</span>
@@ -4891,6 +5050,7 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
   const payload = {
     fileBase64: signedPdfBase64,
     isFinal: isFinal,
+    isSchoolSeal: Boolean(session.isSchoolSeal),
     nextSignerId: nextSignerId,
     nextSignerName: nextSignerName,
     note: note,
@@ -4929,24 +5089,28 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
     const doc = currentChainedPendingDoc;
     doc.fileBase64 = signedPdfBase64;
     doc.updatedAt = nowStr;
-    const isBgh = Boolean(user?.role === 'BGH' || user?.role === 'ADMIN' || Boolean(user?.canStampSeal) || user?.departmentId === 'dept_bgh' || session.isSchoolSeal);
+    const isRealSchoolSeal = Boolean(session.isSchoolSeal);
+    const isBgh = Boolean(user?.role === 'BGH' || user?.role === 'ADMIN' || Boolean(user?.canStampSeal) || user?.departmentId === 'dept_bgh');
     if (!Array.isArray(doc.signatures)) doc.signatures = [];
     doc.signatures.push({
       step: doc.signatures.length + 1,
-      signerId: currentUserId,
-      signerName: user?.fullName || currentUsername,
-      signerRole: isBgh ? 'Ban Giám hiệu (Đã đóng dấu)' : (user?.roleTitle || user?.role || 'Giáo viên'),
-      isSchoolSeal: isBgh,
+      signerId: isRealSchoolSeal ? 'school_seal' : currentUserId,
+      signerName: isRealSchoolSeal ? 'TRƯỜNG THCS CHU VĂN AN' : (user?.fullName || currentUsername),
+      signerRole: isRealSchoolSeal ? 'Đã đóng dấu nhà trường' : (isBgh ? 'Ban Giám hiệu phê duyệt' : (user?.roleTitle || user?.role || 'Giáo viên')),
+      isSchoolSeal: isRealSchoolSeal,
       signedAt: nowStr,
-      certSerial: session.cert?.serialNumber || '7C4C44A8671300AE',
+      certSerial: session.cert?.serialNumber || (isRealSchoolSeal ? '189A2218A5A80E4C' : '7C4C44A8671300AE'),
       note: note
     });
 
-    if (isFinal) {
+    if (isFinal || isRealSchoolSeal) {
       doc.status = 'COMPLETED';
       doc.completedAt = nowStr;
-      doc.finalSigner = user?.fullName || currentUsername;
-      doc.hasSchoolSeal = Boolean(isBgh || doc.hasSchoolSeal);
+      doc.finalSigner = isRealSchoolSeal ? 'TRƯỜNG THCS CHU VĂN AN' : (user?.fullName || currentUsername);
+      doc.hasSchoolSeal = Boolean(isRealSchoolSeal || doc.hasSchoolSeal);
+      if (isRealSchoolSeal) {
+        doc.sealedAt = nowStr;
+      }
       doc.assignedTo = null;
       doc.currentSignerId = null;
     } else {

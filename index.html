@@ -441,9 +441,10 @@
               <label class="block text-[11px] font-bold text-slate-600 uppercase tracking-wide mb-1">Trạng thái duyệt</label>
               <select id="selectAdminReportStatusFilter" onchange="renderAdminReportsTable()" class="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-indigo-500 focus:outline-none">
                 <option value="">-- Tất cả trạng thái --</option>
-                <option value="COMPLETED">Đã duyệt & Đóng dấu</option>
-                <option value="PENDING">Đang chờ duyệt</option>
-                <option value="RETURNED">Bị trả về / Cần sửa</option>
+                <option value="SEALED">✅ Đã ký duyệt & Đóng dấu</option>
+                <option value="WAIT_SEAL">🔷 Đã duyệt (Chờ đóng dấu)</option>
+                <option value="PENDING">⏳ Đang chờ duyệt</option>
+                <option value="RETURNED">⚠️ Bị trả về / Cần sửa</option>
               </select>
             </div>
           </div>
@@ -841,7 +842,8 @@
               <label class="block text-[11px] font-bold text-slate-600 uppercase tracking-wide mb-1">Trạng thái duyệt</label>
               <select id="selectReportStatusFilter" onchange="renderSchoolReportsTable()" class="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-1 focus:ring-indigo-500 focus:outline-none">
                 <option value="">-- Tất cả trạng thái --</option>
-                <option value="COMPLETED">✅ Đã ký duyệt & Đóng dấu hoàn tất</option>
+                <option value="SEALED">✅ Đã ký duyệt & Đóng dấu hoàn tất</option>
+                <option value="WAIT_SEAL">🔷 Đã ký duyệt (Chờ đóng dấu đỏ)</option>
                 <option value="PENDING">⏳ Đang chờ ký duyệt liên hoàn</option>
                 <option value="RETURNED">⚠️ Bị trả về / Cần chỉnh sửa</option>
               </select>
@@ -2170,6 +2172,6 @@
   </div>
 
   <!-- Client Application Logic -->
-  <script src="./js/app.js?v=2.8.7&t=20260914_1638"></script>
+  <script src="./js/app.js?v=2.8.8&t=20260914_1952"></script>
 </body>
 </html>

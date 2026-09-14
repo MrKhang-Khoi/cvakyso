@@ -1159,17 +1159,24 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
     const currentSignatures = Array.isArray(doc.signatures) ? doc.signatures : [];
     const currentHistory = Array.isArray(doc.history) ? doc.history : [];
 
-    const isBghSigner = Boolean(
-      (user.role === 'BGH' || user.role === 'ADMIN' || user.canStampSeal === true || user.departmentId === 'dept_bgh' || req.body.isSchoolSeal)
-    );
+    const isRealSchoolSeal = Boolean(req.body.isSchoolSeal === true || req.body.role === 'CON_DAU_NHA_TRUONG' || req.body.signerRole === 'seal');
+    const isBghUser = Boolean(user.role === 'BGH' || user.role === 'ADMIN' || user.canStampSeal === true || user.departmentId === 'dept_bgh');
+
+    let signerRoleText = user.roleTitle || user.role || 'Giáo viên / Lãnh đạo';
+    if (isRealSchoolSeal) {
+      signerRoleText = 'Đã đóng dấu nhà trường';
+    } else if (isBghUser) {
+      signerRoleText = 'Ban Giám hiệu phê duyệt';
+    }
+
     const newSignature = {
       step: currentSignatures.length + 1,
-      signerId: user.id || user.username,
-      signerName: user.fullName || user.username,
-      signerRole: isBghSigner ? 'Ban Giám hiệu (Đã đóng dấu)' : (user.roleTitle || user.role || 'Giáo viên / Lãnh đạo'),
-      isSchoolSeal: isBghSigner,
+      signerId: isRealSchoolSeal ? 'school_seal' : (user.id || user.username),
+      signerName: isRealSchoolSeal ? 'TRƯỜNG THCS CHU VĂN AN' : (user.fullName || user.username),
+      signerRole: signerRoleText,
+      isSchoolSeal: isRealSchoolSeal,
       signedAt: nowStr,
-      certSerial: signerCert?.serialNumber || '7C4C44A8671300AE',
+      certSerial: signerCert?.serialNumber || (isRealSchoolSeal ? '189A2218A5A80E4C' : '7C4C44A8671300AE'),
       certIssuer: signerCert?.issuer || 'Ban Cơ yếu Chính phủ',
       note: (note || '').trim()
     };
@@ -1177,20 +1184,24 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
 
     let driveResult = null;
 
-    if (isFinal) {
+    if (isFinal || isRealSchoolSeal) {
       doc.status = 'COMPLETED';
       doc.completedAt = nowStr;
-      doc.finalSigner = user.fullName || user.username;
-      doc.hasSchoolSeal = Boolean(isBghSigner || doc.hasSchoolSeal);
+      if (isRealSchoolSeal) {
+        doc.hasSchoolSeal = true;
+      } else {
+        doc.finalSigner = user.fullName || user.username;
+        doc.hasSchoolSeal = Boolean(doc.hasSchoolSeal);
+      }
       doc.assignedTo = null;
       doc.currentSignerId = null;
       doc.nextSignerId = null;
 
       currentHistory.push({
-        action: 'KÝ_HOÀN_TẤT_QUY_TRÌNH',
+        action: isRealSchoolSeal ? 'ĐÓNG_DẤU_NHÀ_TRƯỜNG' : 'KÝ_HOÀN_TẤT_QUY_TRÌNH',
         actor: user.fullName || user.username,
         timestamp: nowStr,
-        note: (note || '').trim() || 'Xác nhận hoàn tất văn bản'
+        note: (note || '').trim() || (isRealSchoolSeal ? 'Đã đóng dấu pháp nhân nhà trường' : 'Xác nhận hoàn tất văn bản')
       });
 
       // 1. Google Drive Nhà trường
