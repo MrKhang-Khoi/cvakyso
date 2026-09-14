@@ -2866,7 +2866,7 @@ function renderTeacherSentList(docs) {
       `;
     } else {
       actionButtons += `
-        <button type="button" onclick="viewSentDocumentDetail('${escapeHtml(doc.id)}')"
+        <button type="button" onclick="handleViewReportPdfInline('${escapeHtml(doc.id)}')"
           class="px-3.5 py-2 bg-slate-100 hover:bg-brand-50 hover:text-brand-700 text-slate-700 rounded-xl text-xs font-semibold border border-slate-200 transition flex items-center gap-1.5 cursor-pointer">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
           <span>Xem bản ký hiện tại</span>
@@ -3580,43 +3580,27 @@ async function handleViewReportPdfInline(docId) {
     doc = teacherPendingDocs.find(d => d.id === docId);
   }
 
+  // Nếu chưa có trong cache mảng nào, tải trực tiếp từ Firebase Realtime Database
+  if (!doc) {
+    try {
+      const snap = await fetch(`${RTDB_URL}/documents/${encodeURIComponent(docId)}.json`);
+      if (snap.ok) {
+        doc = await snap.json();
+      }
+    } catch (e) {
+      console.warn('Lỗi fetch doc từ RTDB:', e);
+    }
+  }
+
   if (!doc) {
     showToast('Không tìm thấy thông tin báo cáo này!', 'warning');
     return;
   }
 
-  showToast('Đang mở văn bản báo cáo...', 'info');
+  showToast('Đang nạp văn bản báo cáo mới nhất...', 'info');
 
-  const base64Data = doc.signedPdfBase64 || doc.fileBase64;
-  let pdfBlob = null;
-
-  if (base64Data && typeof base64Data === 'string' && base64Data.length > 50) {
-    try {
-      const cleanB64 = base64Data.replace(/^data:application\/pdf;base64,/, '').replace(/^data:[^;]+;base64,/, '');
-      const byteCharacters = atob(cleanB64);
-      const byteNumbers = new Uint8Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      pdfBlob = new Blob([byteNumbers], { type: 'application/pdf' });
-    } catch (bErr) {
-      console.warn('Lỗi chuyển đổi Base64 sang Blob:', bErr.message);
-    }
-  }
-
-  if (pdfBlob) {
-    openDocumentViewer(doc.title || 'Báo cáo chuyên môn', pdfBlob, false);
-    // Ẩn các thanh ký duyệt vì đây là chế độ xem báo cáo lưu trữ
-    const chainedBar = document.getElementById('viewerChainedSignBar');
-    if (chainedBar) chainedBar.classList.add('hidden');
-    const btnSign = document.getElementById('btnViewerConfirmSign');
-    if (btnSign) btnSign.classList.add('hidden');
-    const btnReject = document.getElementById('btnViewerRejectDoc');
-    if (btnReject) btnReject.classList.add('hidden');
-    return;
-  }
-
-  // Nếu không có base64 cục bộ, thử tải từ endpoint /api/documents/:id/file của máy chủ
+  // 1. ƯU TIÊN HÀNG ĐẦU: Tải bản PDF mới nhất từ máy chủ backend
+  // Máy chủ lưu trữ file thực tế của từng bước ký (Step_X.pdf hoặc Signed_X.pdf) chứa đầy đủ chữ ký của tất cả những người đã ký
   try {
     const fileEndpoint = API_BASE ? `${API_BASE}/api/documents/${docId}/file?_t=${Date.now()}` : `/api/documents/${docId}/file?_t=${Date.now()}`;
     const fileHeaders = {
@@ -3638,10 +3622,38 @@ async function handleViewReportPdfInline(docId) {
       }
     }
   } catch (fErr) {
-    console.warn('Lỗi nạp tệp từ máy chủ:', fErr.message);
+    console.warn('Lỗi nạp tệp từ máy chủ, chuyển sang kiểm tra Base64:', fErr.message);
   }
 
-  // Nếu không có base64 cục bộ hoặc API thất bại, mở link Google Drive (nếu có)
+  // 2. Dự phòng: Kiểm tra dữ liệu base64 cục bộ (nếu có)
+  const base64Data = doc.signedPdfBase64 || doc.fileBase64;
+  let pdfBlob = null;
+  if (base64Data && typeof base64Data === 'string' && base64Data.length > 50) {
+    try {
+      const cleanB64 = base64Data.replace(/^data:application\/pdf;base64,/, '').replace(/^data:[^;]+;base64,/, '');
+      const byteCharacters = atob(cleanB64);
+      const byteNumbers = new Uint8Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      pdfBlob = new Blob([byteNumbers], { type: 'application/pdf' });
+    } catch (bErr) {
+      console.warn('Lỗi chuyển đổi Base64 sang Blob:', bErr.message);
+    }
+  }
+
+  if (pdfBlob) {
+    openDocumentViewer(doc.title || 'Báo cáo chuyên môn', pdfBlob, false);
+    const chainedBar = document.getElementById('viewerChainedSignBar');
+    if (chainedBar) chainedBar.classList.add('hidden');
+    const btnSign = document.getElementById('btnViewerConfirmSign');
+    if (btnSign) btnSign.classList.add('hidden');
+    const btnReject = document.getElementById('btnViewerRejectDoc');
+    if (btnReject) btnReject.classList.add('hidden');
+    return;
+  }
+
+  // 3. Dự phòng cuối cùng: Mở link Google Drive (nếu có)
   const driveUrl = doc.googleDriveUrl || (doc.driveInfo && doc.driveInfo.viewUrl) || '';
   if (driveUrl) {
     const previewUrl = driveUrl.replace(/\/view(\?.*)?$/, '/preview');
@@ -4736,34 +4748,15 @@ async function handleDeleteSentDoc(docId, docTitle) {
 }
 
 function viewSentDocumentDetail(docId) {
-  const doc = teacherSentDocs.find(d => d.id === docId);
-  if (!doc) return;
-
-  if (doc.googleDriveUrl) {
-    const previewUrl = doc.googleDriveUrl.replace(/\/view(\?.*)?$/, '/preview');
-    window.open(previewUrl, '_blank');
-    return;
-  }
-
-  const base64ToShow = doc.signedPdfBase64 || doc.fileBase64;
-  if (base64ToShow) {
-    openDocumentViewer(doc.title, {
-      name: (doc.title || 'BaoCao') + '.pdf',
-      size: Math.round(base64ToShow.length * 0.75),
-      dataUrl: base64ToShow
-    }, false);
-  } else {
-    const url = (API_BASE || '') + `/api/documents/${docId}/file?inline=1`;
-    window.open(url, '_blank');
-  }
+  return handleViewReportPdfInline(docId);
 }
 
 function downloadCompletedDocument(docId) {
-  const doc = teacherSentDocs.find(d => d.id === docId);
-  if (doc && doc.googleDriveUrl) {
-    window.open(doc.googleDriveUrl, '_blank');
-    return;
-  }
+  let doc = (window.teacherSentDocs && window.teacherSentDocs.find(d => d.id === docId)) ||
+            (typeof teacherSentDocs !== 'undefined' && teacherSentDocs.find(d => d.id === docId)) ||
+            (currentCachedSchoolReports && currentCachedSchoolReports.find(d => d.id === docId)) ||
+            (window.allDocuments && window.allDocuments.find(d => d.id === docId));
+
   const base64ToUse = doc ? (doc.signedPdfBase64 || doc.fileBase64) : null;
   if (base64ToUse) {
     const link = document.createElement('a');
