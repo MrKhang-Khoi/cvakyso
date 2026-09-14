@@ -1261,15 +1261,14 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
         const fpath = path.join(uploadDir, fname);
         fs.writeFileSync(fpath, rawBuffer);
         doc.filePath = `uploads/documents/${fname}`;
-        if (isFinal) {
-          doc.realSignedPath = `uploads/documents/${fname}`;
-        }
+        doc.realSignedPath = `uploads/documents/${fname}`;
       } catch (fErr) {
         console.warn('[server.js sign-step] Lỗi lưu file đệm ký bước:', fErr.message);
       }
     }
 
     doc.fileBase64 = fileBase64;
+    doc.signedPdfBase64 = fileBase64;
     doc.signatures = currentSignatures;
     doc.history = currentHistory;
     doc.updatedAt = nowStr;
@@ -1382,28 +1381,53 @@ app.get('/api/documents/:id/file', async (req, res) => {
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
 
-  // 1. Kiểm tra filePath đã lưu (hỗ trợ cả Windows và Linux)
-  let resolvedPath = doc.filePath ? dataStore.resolveFilePath(doc.filePath) : null;
+  // 1. Ưu tiên tìm kiếm tệp đã hoàn tất ký số mới nhất (Signed_*.pdf hoặc realSignedPath)
+  const uploadDir = path.join(__dirname, 'uploads', 'documents');
+  const safeId = req.params.id.replace(/[^a-zA-Z0-9_\-]/g, '_');
+  let resolvedPath = null;
 
-  // 2. Tìm kiếm qua các ứng viên tệp đệm trên đĩa nếu filePath chưa giải quyết được
-  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
-    const uploadDir = path.join(__dirname, 'uploads', 'documents');
-    const safeId = req.params.id.replace(/[^a-zA-Z0-9_\-]/g, '_');
-    const candidates = [
-      doc.realSignedPath ? dataStore.resolveFilePath(doc.realSignedPath) : null,
-      path.join(uploadDir, `doc_${safeId}.pdf`),
-      path.join(uploadDir, `Signed_${safeId}.pdf`),
-      path.join(uploadDir, `Report_${safeId}.pdf`),
-      path.join(uploadDir, `recovered_${safeId}.pdf`),
-      path.join(uploadDir, `recovered_${req.params.id}.pdf`),
-      path.join(uploadDir, `${safeId}.pdf`),
-      doc.driveInfo?.localMirrorPath || null
-    ];
-    for (const cand of candidates) {
-      if (cand && fs.existsSync(cand) && fs.statSync(cand).size > 100) {
-        resolvedPath = cand;
-        break;
-      }
+  const candidates = [
+    doc.realSignedPath ? dataStore.resolveFilePath(doc.realSignedPath) : null,
+    path.join(uploadDir, `Signed_${safeId}.pdf`)
+  ];
+
+  // Thêm các file bước ký Step_safeId_*.pdf theo thứ tự bước lớn nhất
+  const sigCount = Array.isArray(doc.signatures) ? doc.signatures.length : 10;
+  for (let s = sigCount; s >= 1; s--) {
+    candidates.push(path.join(uploadDir, `Step_${safeId}_${s}.pdf`));
+  }
+
+  candidates.push(
+    doc.filePath ? dataStore.resolveFilePath(doc.filePath) : null,
+    path.join(uploadDir, `doc_${safeId}.pdf`),
+    path.join(uploadDir, `Report_${safeId}.pdf`),
+    path.join(uploadDir, `recovered_${safeId}.pdf`),
+    path.join(uploadDir, `recovered_${req.params.id}.pdf`),
+    path.join(uploadDir, `${safeId}.pdf`),
+    doc.driveInfo?.localMirrorPath || null
+  );
+
+  for (const cand of candidates) {
+    if (cand && fs.existsSync(cand) && fs.statSync(cand).size > 100) {
+      resolvedPath = cand;
+      break;
+    }
+  }
+
+  // 2. Tự phục hồi tệp từ fileBase64 / signedPdfBase64 nếu tệp trên đĩa chưa có
+  const b64Payload = doc.fileBase64 || doc.signedPdfBase64;
+  if ((!resolvedPath || !fs.existsSync(resolvedPath)) && b64Payload && b64Payload.length > 50) {
+    try {
+      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+      const cleanB64 = b64Payload.replace(/^data:[^;]+;base64,/, '');
+      const recPath = path.join(uploadDir, `Signed_${safeId}.pdf`);
+      fs.writeFileSync(recPath, Buffer.from(cleanB64, 'base64'));
+      resolvedPath = recPath;
+      doc.realSignedPath = `uploads/documents/Signed_${safeId}.pdf`;
+      doc.filePath = `uploads/documents/Signed_${safeId}.pdf`;
+      dataStore.updateDocument(doc.id, { realSignedPath: doc.realSignedPath, filePath: doc.filePath });
+    } catch (e) {
+      console.warn('[server.js /api/documents/:id/file] Lỗi tự phục hồi tệp từ Base64:', e.message);
     }
   }
 
@@ -1620,19 +1644,30 @@ app.get('/api/documents/:id/download-signed', async (req, res) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
+    const safeId = (doc.id || req.params.id).replace(/[^a-zA-Z0-9_\-]/g, '_');
+
     // 1. Kiểm tra realSignedPath đã lưu (hỗ trợ cả Windows và Linux)
     let resolvedSigned = dataStore.resolveFilePath(doc.realSignedPath);
 
-    // 2. Tự phục hồi tệp ký số nếu container Render bị restart
-    if ((!resolvedSigned || !fs.existsSync(resolvedSigned)) && doc.signedPdfBase64) {
+    // Kiểm tra trực tiếp file Signed_${safeId}.pdf trong thư mục uploads/documents
+    if (!resolvedSigned || !fs.existsSync(resolvedSigned)) {
+      const directSigned = path.join(__dirname, 'uploads', 'documents', `Signed_${safeId}.pdf`);
+      if (fs.existsSync(directSigned) && fs.statSync(directSigned).size > 1000) {
+        resolvedSigned = directSigned;
+      }
+    }
+
+    // 2. Tự phục hồi tệp ký số nếu container Render bị restart hoặc file chưa được ghi ra đĩa
+    const base64ToUse = doc.signedPdfBase64 || (doc.status === 'APPROVED' ? doc.fileBase64 : null);
+    if ((!resolvedSigned || !fs.existsSync(resolvedSigned)) && base64ToUse) {
       try {
-        const cleanSigned = doc.signedPdfBase64.replace(/^data:[^;]+;base64,/, '');
+        const cleanSigned = base64ToUse.replace(/^data:[^;]+;base64,/, '');
         const uploadDir = path.join(__dirname, 'uploads', 'documents');
         if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-        const recoveredPath = path.join(uploadDir, `recovered_signed_${doc.id}.pdf`);
+        const recoveredPath = path.join(uploadDir, `Signed_${safeId}.pdf`);
         fs.writeFileSync(recoveredPath, Buffer.from(cleanSigned, 'base64'));
         resolvedSigned = recoveredPath;
-        dataStore.updateDocument(doc.id, { realSignedPath: `uploads/documents/recovered_signed_${doc.id}.pdf` });
+        dataStore.updateDocument(doc.id, { realSignedPath: `uploads/documents/Signed_${safeId}.pdf` });
       } catch (e) {
         console.error('Lỗi khôi phục tệp ký số từ Base64:', e.message);
       }

@@ -4337,11 +4337,18 @@ function viewSentDocumentDetail(docId) {
   const doc = teacherSentDocs.find(d => d.id === docId);
   if (!doc) return;
 
-  if (doc.fileBase64) {
+  if (doc.googleDriveUrl) {
+    const previewUrl = doc.googleDriveUrl.replace(/\/view(\?.*)?$/, '/preview');
+    window.open(previewUrl, '_blank');
+    return;
+  }
+
+  const base64ToShow = doc.signedPdfBase64 || doc.fileBase64;
+  if (base64ToShow) {
     openDocumentViewer(doc.title, {
       name: (doc.title || 'BaoCao') + '.pdf',
-      size: Math.round(doc.fileBase64.length * 0.75),
-      dataUrl: doc.fileBase64
+      size: Math.round(base64ToShow.length * 0.75),
+      dataUrl: base64ToShow
     }, false);
   } else {
     const url = (API_BASE || '') + `/api/documents/${docId}/file?inline=1`;
@@ -4355,9 +4362,10 @@ function downloadCompletedDocument(docId) {
     window.open(doc.googleDriveUrl, '_blank');
     return;
   }
-  if (doc && doc.fileBase64) {
+  const base64ToUse = doc ? (doc.signedPdfBase64 || doc.fileBase64) : null;
+  if (base64ToUse) {
     const link = document.createElement('a');
-    link.href = doc.fileBase64;
+    link.href = base64ToUse;
     link.download = `${doc.title || 'BaoCao'}_DaKySo.pdf`;
     document.body.appendChild(link);
     link.click();
@@ -5252,19 +5260,16 @@ function openDocumentViewer(fileName, fileObject, enableSigning = false) {
     const totalPages = currentDocTotalPages || 1;
     const pageSel = document.getElementById('sigTargetPageSelect');
     if (pageSel) {
-      if (totalPages > 1) {
-        pageSel.innerHTML = `
-          <option value="last">Trang cuối (${totalPages}/${totalPages} - Nơi ký duyệt)</option>
-          <option value="1">Trang 1 / ${totalPages} (Trang đầu)</option>
-          ${Array.from({length: totalPages - 2}, (_, i) => `<option value="${i + 2}">Trang ${i + 2} / ${totalPages}</option>`).join('')}
-          <option value="custom">Trang cụ thể...</option>
-        `;
-      } else {
-        pageSel.innerHTML = `
-          <option value="last">Trang 1 (Trang duy nhất)</option>
-          <option value="1">Trang 1</option>
-        `;
+      const options = [];
+      options.push(`<option value="last">Trang cuối (${totalPages}/${totalPages} - Nơi ký duyệt)</option>`);
+      for (let p = 1; p <= totalPages; p++) {
+        let note = '';
+        if (p === 1 && totalPages > 1) note = ' (Trang đầu)';
+        else if (p === totalPages) note = ' (Trang cuối)';
+        options.push(`<option value="${p}">Trang ${p} / ${totalPages}${note}</option>`);
       }
+      options.push(`<option value="custom">Trang cụ thể...</option>`);
+      pageSel.innerHTML = options.join('');
       pageSel.value = 'last';
     }
   }).catch(() => {
@@ -5272,19 +5277,16 @@ function openDocumentViewer(fileName, fileObject, enableSigning = false) {
       currentDocTotalPages = totalPages;
       const pageSel = document.getElementById('sigTargetPageSelect');
       if (pageSel) {
-        if (totalPages > 1) {
-          pageSel.innerHTML = `
-            <option value="last">Trang cuối (${totalPages}/${totalPages} - Nơi ký duyệt)</option>
-            <option value="1">Trang 1 / ${totalPages} (Trang đầu)</option>
-            ${Array.from({length: totalPages - 2}, (_, i) => `<option value="${i + 2}">Trang ${i + 2} / ${totalPages}</option>`).join('')}
-            <option value="custom">Trang cụ thể...</option>
-          `;
-        } else {
-          pageSel.innerHTML = `
-            <option value="last">Trang 1 (Trang duy nhất)</option>
-            <option value="1">Trang 1</option>
-          `;
+        const options = [];
+        options.push(`<option value="last">Trang cuối (${totalPages}/${totalPages} - Nơi ký duyệt)</option>`);
+        for (let p = 1; p <= totalPages; p++) {
+          let note = '';
+          if (p === 1 && totalPages > 1) note = ' (Trang đầu)';
+          else if (p === totalPages) note = ' (Trang cuối)';
+          options.push(`<option value="${p}">Trang ${p} / ${totalPages}${note}</option>`);
         }
+        options.push(`<option value="custom">Trang cụ thể...</option>`);
+        pageSel.innerHTML = options.join('');
         pageSel.value = 'last';
       }
     });
