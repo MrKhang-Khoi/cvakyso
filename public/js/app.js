@@ -5725,6 +5725,8 @@ function toggleSealPlacementMode(forceState) {
       dragImg.src = schoolSealSrc;
       dragImg.classList.remove('hidden');
       dragImg.alt = 'Con dấu đỏ nhà trường';
+      dragImg.classList.remove('max-h-20');
+      dragImg.classList.add('max-h-28', 'w-28', 'h-28');
     }
     if (defaultBox) defaultBox.classList.add('hidden');
 
@@ -5733,6 +5735,7 @@ function toggleSealPlacementMode(forceState) {
     if (bar) bar.classList.remove('hidden');
     if (stamp) {
       stamp.classList.remove('hidden');
+      stamp.style.width = '120px';
       stamp.className = 'absolute z-40 cursor-move select-none group';
     }
     if (btnConfirm) {
@@ -5752,8 +5755,15 @@ function toggleSealPlacementMode(forceState) {
     currentSigningAction = 'PERSONAL';
     isSigPlacementActive = false;
 
+    if (dragImg) {
+      dragImg.classList.remove('max-h-28', 'w-28', 'h-28');
+      dragImg.classList.add('max-h-20');
+    }
+    if (stamp) {
+      stamp.style.width = '160px';
+      stamp.classList.add('hidden');
+    }
     if (bar) bar.classList.add('hidden');
-    if (stamp) stamp.classList.add('hidden');
     if (btnSealText) btnSealText.textContent = '🔴 Đóng Dấu Nhà Trường';
     if (btnSigText) btnSigText.textContent = 'Đặt Chữ Ký Số';
     if (btnConfirmText) btnConfirmText.textContent = 'Ký Số Ngay';
@@ -5800,11 +5810,19 @@ function setSignatureScale(scale) {
   if (badge) badge.textContent = Math.round(currentStampScale * 100) + '%';
   if (range) range.value = Math.round(currentStampScale * 100);
 
+  const isSeal = (currentSigningAction === 'SEAL');
   if (stamp) {
-    stamp.style.width = Math.round(160 * currentStampScale) + 'px';
+    stamp.style.width = Math.round((isSeal ? 120 : 160) * currentStampScale) + 'px';
   }
   if (img) {
-    img.style.maxHeight = Math.round(80 * currentStampScale) + 'px';
+    img.style.maxHeight = Math.round((isSeal ? 120 : 80) * currentStampScale) + 'px';
+    if (isSeal) {
+      img.style.width = Math.round(120 * currentStampScale) + 'px';
+      img.style.height = Math.round(120 * currentStampScale) + 'px';
+    } else {
+      img.style.width = '';
+      img.style.height = '';
+    }
   }
   updateStampCoordsDisplay();
 }
@@ -6652,10 +6670,16 @@ async function executeLocalAgentSigning() {
     const pageNum = (targetPage === 'last') ? (currentDocTotalPages > 0 ? currentDocTotalPages : 0) : (parseInt(targetPage, 10) || 1);
 
     // Kế thừa chuẩn tọa độ điểm thực tế (VGCA Sign Tool) từ session hoặc currentStampCoords
+    const isSealAction = !!(session.isSchoolSeal || currentSigningAction === 'SEAL' || (session.signerRole === 'seal'));
+    const sealSizePt = Math.round(105 * (session.scale || 1.0));
     let xPt = (typeof session.x === 'number' && session.x >= 0) ? session.x : (typeof currentStampCoords?.x === 'number' ? currentStampCoords.x : null);
     let yPt = (typeof session.y === 'number' && session.y >= 0) ? session.y : (typeof currentStampCoords?.y === 'number' ? currentStampCoords.y : null);
-    let stampW = (typeof session.width === 'number' && session.width > 0) ? session.width : (typeof currentStampCoords?.width === 'number' ? currentStampCoords.width : Math.round(160 * (session.scale || 1.0) * 0.75));
-    let stampH = (typeof session.height === 'number' && session.height > 0) ? session.height : (typeof currentStampCoords?.height === 'number' ? currentStampCoords.height : Math.round(80 * (session.scale || 1.0) * 0.75));
+    let stampW = (typeof session.width === 'number' && session.width > 0) ? session.width : (typeof currentStampCoords?.width === 'number' ? currentStampCoords.width : (isSealAction ? sealSizePt : Math.round(160 * (session.scale || 1.0) * 0.75)));
+    let stampH = (typeof session.height === 'number' && session.height > 0) ? session.height : (typeof currentStampCoords?.height === 'number' ? currentStampCoords.height : (isSealAction ? sealSizePt : Math.round(80 * (session.scale || 1.0) * 0.75)));
+    if (isSealAction && (stampH < 90 || Math.abs(stampW - stampH) > 20)) {
+      stampW = sealSizePt;
+      stampH = sealSizePt;
+    }
 
     // Nếu chưa có xPt/yPt thì mới fallback tính theo phần trăm trên kích thước trang thực tế
     if (xPt === null || yPt === null) {

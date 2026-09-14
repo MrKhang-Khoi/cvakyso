@@ -523,7 +523,7 @@ async function generateSignedPdf(doc) {
           const sealBuf = fs.readFileSync(sealPath);
           const pngSeal = await embedImageToPdf(pdfDoc, sealBuf);
           if (pngSeal) {
-            const sealSize = 85;
+            const sealSize = 105; // Tăng từ 85pt lên 105pt (chuẩn đường kính ~37mm theo Nghị định 99/2016/NĐ-CP)
             let sealX = (pW * 0.18);
             let sealY = (pW > pH ? 260 : 105);
 

@@ -668,8 +668,9 @@ namespace RealPdfSigner
                     }
                 }
 
-                float stampW = 95f;
-                float stampH = 60f;
+                bool isSeal = role.ToLower().Contains("seal") || (isPrincipal && (signerName.Contains("Ban Giám hiệu", StringComparison.OrdinalIgnoreCase) || signerName.Contains("TRƯỜNG", StringComparison.OrdinalIgnoreCase) || signerName.Contains("TRUONG", StringComparison.OrdinalIgnoreCase)));
+                float stampW = isSeal ? 105f : 95f;
+                float stampH = isSeal ? 105f : 60f;
                 float defaultX = isTeacher ? (isLandscape ? pW * 0.745f : pW * 0.74f)
                                : isLeader ? (isLandscape ? pW * 0.46f : pW * 0.46f)
                                : (isLandscape ? pW * 0.18f : pW * 0.18f);
@@ -861,8 +862,19 @@ namespace RealPdfSigner
                 pH = pageSize.GetHeight();
                 isLandscape = pW > pH;
 
-                float w = reqW.HasValue && reqW.Value > 0 ? reqW.Value : 95f;
-                float h = reqH.HasValue && reqH.Value > 0 ? reqH.Value : 60f;
+                bool isSealRole = role.ToLower().Contains("seal") || 
+                                  (role.ToLower().Contains("principal") && (signerName.Contains("TRƯỜNG", StringComparison.OrdinalIgnoreCase) || signerName.Contains("TRUONG", StringComparison.OrdinalIgnoreCase)));
+                float defaultW = isSealRole ? 105f : 95f;
+                float defaultH = isSealRole ? 105f : 60f;
+
+                float w = reqW.HasValue && reqW.Value > 0 ? reqW.Value : defaultW;
+                float h = reqH.HasValue && reqH.Value > 0 ? reqH.Value : defaultH;
+
+                if (isSealRole && (h <= 85f || Math.Abs(w - h) > 20f))
+                {
+                    w = 105f;
+                    h = 105f;
+                }
 
                 // Nếu người dùng kéo thả con dấu thủ công (isManualDrag == true),
                 // TÔN TRỌNG TUYỆT ĐỐI tọa độ kéo thả (reqX, reqY) hoặc (reqXPercent, reqYPercent) trên đúng trang targetPage,
@@ -946,9 +958,10 @@ namespace RealPdfSigner
                     return System.Text.RegularExpressions.Regex.Replace(n, @"\s+", "").ToLowerInvariant();
                 }
 
-                bool isTeacher = role.ToLower().Contains("teacher") || role.Contains("1") || (!role.ToLower().Contains("leader") && !role.ToLower().Contains("principal"));
-                bool isLeader = role.ToLower().Contains("leader") || role.Contains("2");
-                bool isPrincipal = role.ToLower().Contains("principal") || role.Contains("3");
+                bool isSealAnchor = role.ToLower().Contains("seal") || signerName.Contains("TRƯỜNG", StringComparison.OrdinalIgnoreCase) || signerName.Contains("TRUONG", StringComparison.OrdinalIgnoreCase);
+                bool isLeader = !isSealAnchor && (role.ToLower().Contains("leader") || role.Contains("2"));
+                bool isPrincipal = isSealAnchor || role.ToLower().Contains("principal") || role.Contains("3");
+                bool isTeacher = !isSealAnchor && !isLeader && !isPrincipal;
 
                 float minColX = isTeacher ? (pW * 0.55f) : (isLeader ? (pW * 0.30f) : 0f);
                 float maxColX = isTeacher ? pW : (isLeader ? (pW * 0.65f) : (pW * 0.35f));
