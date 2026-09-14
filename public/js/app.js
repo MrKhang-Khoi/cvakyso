@@ -3377,7 +3377,7 @@ function renderSchoolReportsTable() {
       signersText = `<span class="text-slate-400 italic">Chưa có chữ ký</span>`;
     }
 
-    const driveUrl = (doc.driveInfo && doc.driveInfo.viewUrl) ? doc.driveInfo.viewUrl : '';
+    const driveUrl = doc.googleDriveUrl || (doc.driveInfo && doc.driveInfo.viewUrl) || '';
     const dateStr = doc.createdAt ? new Date(doc.createdAt).toLocaleDateString('vi-VN') : 'N/A';
 
     html += `
@@ -3622,7 +3622,7 @@ async function handleViewReportPdfInline(docId) {
   }
 
   // Nếu không có base64 cục bộ hoặc API thất bại, mở link Google Drive (nếu có)
-  const driveUrl = (doc.driveInfo && doc.driveInfo.viewUrl) || doc.googleDriveUrl;
+  const driveUrl = doc.googleDriveUrl || (doc.driveInfo && doc.driveInfo.viewUrl) || '';
   if (driveUrl) {
     const previewUrl = driveUrl.replace(/\/view(\?.*)?$/, '/preview');
     window.open(previewUrl, '_blank');
@@ -3854,7 +3854,7 @@ function renderAdminReportsTable() {
       signersText = `<span class="text-slate-400 italic">Chưa có chữ ký</span>`;
     }
 
-    const driveUrl = (doc.driveInfo && doc.driveInfo.viewUrl) ? doc.driveInfo.viewUrl : '';
+    const driveUrl = doc.googleDriveUrl || (doc.driveInfo && doc.driveInfo.viewUrl) || '';
     const dateStr = doc.createdAt ? new Date(doc.createdAt).toLocaleDateString('vi-VN') : 'N/A';
 
     html += `

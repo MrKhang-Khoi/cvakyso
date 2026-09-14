@@ -1220,6 +1220,7 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
         doc.googleDriveUrl = driveResult.viewUrl;
         doc.googleDriveFolder = driveResult.folderPath;
         doc.googleDriveFileName = driveResult.fileName;
+        doc.driveInfo = driveResult;
       } catch (driveErr) {
         console.warn('[KÝ SỐ server.js] Cảnh báo lưu Google Drive:', driveErr.message);
       }
