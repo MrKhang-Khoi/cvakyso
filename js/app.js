@@ -5085,7 +5085,7 @@ function hideViewerSigningLoader(successText = null, callback = null) {
     setTimeout(() => {
       if (overlay) overlay.classList.add('hidden');
       if (typeof callback === 'function') callback();
-    }, 800);
+    }, 1000);
   } else {
     if (overlay) overlay.classList.add('hidden');
     if (typeof callback === 'function') callback();
@@ -5217,6 +5217,7 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
       console.warn('[Zalo Client] Lỗi gửi thông báo submit:', zErr);
     }
 
+    await new Promise(r => setTimeout(r, 600));
     hideViewerSigningLoader('🎉 Đã ký số và khởi tạo quy trình thành công!', () => {
       // Đóng viewer
       closeModal('modalDocViewer');
@@ -5349,11 +5350,16 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
   // Tự động đẩy tệp PDF đã hoàn tất / đóng dấu lên Google Drive của trường
   if (isFinal || isRealSchoolSeal) {
     updateViewerSigningLoader('Đang đồng bộ báo cáo lên Google Drive nhà trường...', 'Đang Lưu Trữ');
-    syncDocumentToGoogleDrive(docSnapshot, signedPdfBase64).then(dr => {
+    try {
+      const dr = await syncDocumentToGoogleDrive(docSnapshot, signedPdfBase64);
       if (dr && dr.viewUrl) {
         console.log('[handleChainedPendingDocumentSignStep] Đã đồng bộ Google Drive thành công:', dr.viewUrl);
       }
-    }).catch(e => console.warn('[handleChainedPendingDocumentSignStep] Lỗi đồng bộ Google Drive:', e.message));
+    } catch(e) {
+      console.warn('[handleChainedPendingDocumentSignStep] Lỗi đồng bộ Google Drive:', e.message);
+    }
+  } else {
+    await new Promise(r => setTimeout(r, 600));
   }
 
   hideViewerSigningLoader(isFinal ? '🎉 Báo cáo đã hoàn tất và niêm phong thành công!' : '🎉 Đã ký duyệt và chuyển tiếp thành công!', () => {
@@ -7325,8 +7331,9 @@ async function executeLocalAgentSigning() {
         showViewerSigningLoader('Đang khởi tạo báo cáo và chuyển tiếp đến người duyệt...', 'Đang Trình Ký Báo Cáo');
         await handleForwardNewReportDocument(data.signedPdfBase64, session);
       } else {
-        // Giáo án (Kế hoạch bài dạy): Hiển thị tích xanh hoàn tất trước khi mở modal lưu tệp
+        // Giáo án (Kế hoạch bài dạy): Hiển thị tiến trình niêm phong và tích xanh thành công rõ ràng
         showViewerSigningLoader('Đang hoàn tất niêm phong Kế hoạch bài dạy...', 'Đang Niêm Phong Chữ Ký');
+        await new Promise(r => setTimeout(r, 600));
         hideViewerSigningLoader('🎉 Đã niêm phong chữ ký số vào Kế hoạch bài dạy!', () => {
           handleOpenSaveLessonPlanModal(data.signedPdfBase64, session);
         });
