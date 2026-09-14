@@ -3834,10 +3834,13 @@ async function syncDocumentToGoogleDrive(doc, fileBase64) {
         fileName: safeFileName,
         folderPath: folderPath,
         schoolFolderId: 'THCS_CHU_VAN_AN_ARCHIVE_2026',
-        docId: doc.id,
-        docTitle: doc.title,
+        docId: doc.id || doc.docId,
+        title: doc.title || doc.docTitle || 'Báo cáo chuyên môn',
+        docTitle: doc.title || doc.docTitle || 'Báo cáo chuyên môn',
         author: teacherName,
         department: dept,
+        approver: doc.finalSigner || (doc.hasSchoolSeal ? 'TRƯỜNG THCS CHU VĂN AN' : 'Ban Giám hiệu'),
+        status: 'ĐÃ KÝ DUYỆT & ĐÓNG DẤU',
         fileBase64: cleanBase64
       });
 

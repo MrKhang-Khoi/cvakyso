@@ -79,10 +79,13 @@ async function uploadToGoogleDrive(doc, pdfFilePathOrBase64) {
       fileName: safeFileName,
       folderPath: folderPath,
       schoolFolderId: config.schoolFolderId,
-      docId: doc.id,
-      docTitle: doc.title,
-      author: doc.author,
-      department: doc.department,
+      docId: doc.id || doc.docId,
+      title: doc.title || doc.docTitle || 'Báo cáo chuyên môn',
+      docTitle: doc.title || doc.docTitle || 'Báo cáo chuyên môn',
+      author: doc.authorName || doc.author || 'Giáo viên',
+      department: doc.department || 'Tổ chuyên môn',
+      approver: doc.approver || 'Ban Giám hiệu',
+      status: doc.status || 'ĐÃ KÝ DUYỆT & ĐÓNG DẤU',
       signerEmails: signerEmails,
       fileBase64: base64Content
     });

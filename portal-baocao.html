@@ -362,7 +362,7 @@
         html += `
           <tr class="hover:bg-blue-50/40 transition">
             <td class="py-3.5 px-4 text-center font-bold text-slate-400">${stt}</td>
-            <td class="py-3.5 px-4 font-mono font-bold text-xs text-blue-700 whitespace-nowrap">${item.id || 'N/A'}</td>
+            <td class="py-3.5 px-4 font-mono font-bold text-xs text-blue-700 whitespace-nowrap">${item.docId || item.id || 'N/A'}</td>
             <td class="py-3.5 px-4 font-medium text-slate-900">
               <div class="line-clamp-2" title="${item.title || ''}">${item.title || 'Báo cáo không tên'}</div>
             </td>

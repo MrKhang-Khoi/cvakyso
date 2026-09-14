@@ -1039,23 +1039,11 @@ app.post('/api/documents/forward', async (req, res) => {
       }
     } catch (e) {}
 
-    // 3. Đẩy file PDF lên Google Drive cá nhân / nhà trường để lưu trữ vĩnh viễn (chống sập Render)
+    // 3. Đẩy file PDF lên Google Drive cá nhân / nhà trường:
+    // LƯU Ý BẢO MẬT & QUY TRÌNH PHÁP LÝ: Tại bước khởi tạo (bước 1), tài liệu đang trong trạng thái PENDING_SIGN
+    // (chờ các cấp chuyên môn duyệt), CHƯA hoàn tất nên KHÔNG lưu vào Google Drive hay Google Sheets công khai.
+    // Việc lưu trữ Google Drive & Sheets chỉ được kích hoạt khi hồ sơ ĐÃ HOÀN TẤT (COMPLETED).
     let driveResult = null;
-    try {
-      const driveMeta = {
-        id: docId,
-        title: title || `Báo cáo chuyên môn ${new Date().toLocaleDateString('vi-VN')}`,
-        author: user.fullName || user.username,
-        authorName: user.fullName || user.username,
-        authorEmail: user.email || user.officialEmail || '',
-        signerEmails: nextSignerEmail ? [nextSignerEmail] : [],
-        department: user.departmentName || user.department || 'Tổ chuyên môn',
-        schoolYear: 'Năm học 2026 - 2027'
-      };
-      driveResult = await googleDriveService.uploadToGoogleDrive(driveMeta, cleanBase64);
-    } catch (driveErr) {
-      console.warn('[Google Drive Forwarding] Cảnh báo lưu Drive:', driveErr.message);
-    }
 
     const newDoc = {
       id: docId,
@@ -1229,12 +1217,16 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
 
         const driveDocMeta = {
           id: doc.id,
+          docId: doc.id,
           title: doc.title,
-          author: doc.creatorName,
-          authorName: doc.creatorName,
+          docTitle: doc.title,
+          author: doc.creatorName || doc.author,
+          authorName: doc.creatorName || doc.author,
           authorEmail: authorUser?.email || '',
           signerEmails: signerEmails,
-          department: doc.creatorDept || 'Báo cáo chuyên môn',
+          department: doc.creatorDept || doc.department || 'Báo cáo chuyên môn',
+          approver: isRealSchoolSeal ? 'TRƯỜNG THCS CHU VĂN AN' : (user.fullName || user.username || 'Ban Giám hiệu'),
+          status: 'ĐÃ KÝ DUYỆT & ĐÓNG DẤU',
           schoolYear: 'Năm học 2026 - 2027'
         };
         driveResult = await googleDriveService.uploadToGoogleDrive(driveDocMeta, fileBase64);
