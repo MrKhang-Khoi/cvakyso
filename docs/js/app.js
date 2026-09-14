@@ -7161,6 +7161,16 @@ async function executeLocalAgentSigning() {
   const statusLabel = document.getElementById('signProgressStatusLabel');
   if (statusLabel) statusLabel.textContent = 'Đang niêm phong chữ ký số PAdES X.509 qua EduSign Agent...';
 
+  // Dừng ngay đồng hồ đếm ngược và đóng modal xác thực để người dùng thấy rõ Loader trên Viewer
+  if (vgcaCountdownTimer) {
+    clearInterval(vgcaCountdownTimer);
+    vgcaCountdownTimer = null;
+  }
+  closeModal('modalSignProgress');
+
+  // Kích hoạt ngay Loader phủ mờ Document Viewer với hiệu ứng xoay Neon Pulse
+  showViewerSigningLoader('Đang kết nối EduSign Agent và niêm phong chữ ký số PAdES X.509...', 'Đang Ký Số & Niêm Phong');
+
   const btnConfirmPhone = document.getElementById('btnSignProgressConfirmPhone');
   const btnConfirmUsb = document.getElementById('btnSignProgressConfirmUsb');
   if (btnConfirmPhone) {
@@ -7304,27 +7314,29 @@ async function executeLocalAgentSigning() {
       throw new Error(data.message || 'EduSign Agent trả về kết quả ký không thành công');
     }
 
-    if (vgcaCountdownTimer) clearInterval(vgcaCountdownTimer);
-    closeModal('modalSignProgress');
-
     currentSignedPdfBase64 = data.signedPdfBase64;
 
     // BƯỚC 6: PHÂN NHÁNH XỬ LÝ THEO LOẠI HỒ SƠ
     if (currentChainedPendingDoc) {
       // Đang ký hồ sơ chờ ký (Báo cáo liên hoàn)
+      updateViewerSigningLoader('Đang cập nhật chữ ký số vào quy trình hồ sơ...', 'Đang Ký Duyệt Hồ Sơ');
       await handleChainedPendingDocumentSignStep(data.signedPdfBase64, session);
     } else {
       const docTypeChoice = document.querySelector('input[name="docTypeChoice"]:checked')?.value || 'LESSON_PLAN';
       if (docTypeChoice === 'REPORT') {
         // Khởi tạo Báo cáo mới & chuyển tiếp đến đồng nghiệp
+        updateViewerSigningLoader('Đang khởi tạo báo cáo và chuyển tiếp đến người duyệt...', 'Đang Trình Ký Báo Cáo');
         await handleForwardNewReportDocument(data.signedPdfBase64, session);
       } else {
         // Giáo án (Kế hoạch bài dạy): Mở modal cho giáo viên tự chọn đường dẫn lưu tệp
-        handleOpenSaveLessonPlanModal(data.signedPdfBase64, session);
+        hideViewerSigningLoader('🎉 Đã niêm phong chữ ký số vào Kế hoạch bài dạy!', () => {
+          handleOpenSaveLessonPlanModal(data.signedPdfBase64, session);
+        });
       }
     }
 
   } catch (err) {
+    hideViewerSigningLoader();
     if (statusLabel) statusLabel.textContent = 'Lỗi ký số!';
     showModalAlert(
       'Lỗi Niêm Phong Chữ Ký Số',
