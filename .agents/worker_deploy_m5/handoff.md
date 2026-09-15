@@ -6,14 +6,10 @@
 
 ### 1. OBSERVATION (Quan Sát Thực Nghiệm)
 - **Tệp tài liệu cập nhật**: c:\Users\HPZBook\Desktop\KÝ SỐ\HUONG_DAN_CAP_NHAT_CODE_GS.md.
-  * Đã cập nhật Tiêu đề phiên bản: Bản Nâng Cấp Toàn Diện 2026 (Bảo Mật Tuyệt Đối R3: Bỏ 4 Số Cuối SĐT, Bảo Toàn Số 0 SĐT/PIN & Đồng Bộ Realtime).
-  * Mục 1.4: Thêm nội dung chi tiết về Nâng cấp bảo mật R3:
-    - Loại bỏ 100% cơ chế fallback 4 số cuối SĐT (phone4).
-    - Chuẩn hóa cú pháp bắt buộc: LK [SốĐiệnThoại] [MãPIN] hoặc LIENKET [SốĐiệnThoại] [MãPIN].
-    - Cơ chế đối soát nghiêm ngặt secretPin === storedPin kết hợp bù số 0 padStart(4, '0').
-    - Phản hồi bảo vệ định danh khi gửi SĐT trần, xóa sạch gợi ý 4 số cuối SĐT.
-  * Mục 6.4: Thêm hướng dẫn chuẩn hóa 5 bước cho Quản trị viên trường:
-    - Bước 1: Mở dự án trên script.google.com.
+  * Tiêu đề phiên bản: Bản Nâng Cấp Toàn Diện 2026 (Bảo Mật Tuyệt Đối R3: Bỏ 4 Số Cuối SĐT, Bảo Toàn Số 0 SĐT/PIN & Đồng Bộ Realtime).
+  * Mục 1.4: Nâng cấp bảo mật R3 loại bỏ 100% cơ chế fallback 4 số cuối SĐT (phone4), chuẩn hóa cú pháp bắt buộc LK [SốĐiệnThoại] [MãPIN], cơ chế đối soát nghiêm ngặt secretPin === storedPin với padStart(4, '0'), và phản hồi bảo vệ định danh khi gửi SĐT trần.
+  * Mục 6.4: Hướng dẫn chuẩn hóa 5 bước cho Quản trị viên trường học:
+    - Bước 1: Mở dự án trên https://script.google.com/.
     - Bước 2: Dán mã mới từ google-apps-script-zalo-edusign.js vào Code.gs và bấm Ctrl + S.
     - Bước 3: Nhấp **Triển khai (Deploy)** -> **Quản lý bản triển khai (Manage deployments)**.
     - Bước 4: Nhấp Chỉnh sửa ✏️ -> Chọn **Phiên bản mới (New version)** -> Điền mô tả -> Bấm Triển khai.
@@ -22,14 +18,16 @@
   * Mục 7.2: Bổ sung các lệnh kiểm thử test suite R1 -> R5.
 - **Kết quả kiểm thử thực nghiệm**:
   * Lệnh: 
-ode tests/test_requirements_r1_to_r5.js
-  * Kết quả: Đạt **22/22 PASS 100%**, bao gồm:
-    - Đồng bộ gương SHA-256 tuyệt đối giữa root, public/ và docs/.
-    - R1: Modal #modalUser 2 cột ngang (grid-cols-2, max-w-4xl, footer cố định).
-    - R2: Đồng bộ PIN realtime Admin -> Firebase, localStorage và currentUser.
-    - R3: Loại bỏ hoàn toàn fallback 4 số cuối SĐT trong code GAS và giao diện.
-    - R4: Dọn sạch 100% dữ liệu rác thử nghiệm trong data/documents.json.
-    - R5: Tải mẫu Excel và nhập dữ liệu giáo viên bằng SheetJS.
+ode tests/test_requirements_r1_to_r5.js -> Đạt **22/22 PASS 100%**.
+- **Kết quả Git Commit & Push**:
+  * Commit Hash: 4443bbe824ee631a91f6c4b7d1ba310ff50a9ab1 (short hash: 4443bbe).
+  * Commit Message:
+    eat(edusign): hoàn tất R1 modal 2 cột không cuộn, R2 đồng bộ PIN realtime, R3 bảo mật Zalo Bot bỏ 4 số cuối SĐT, R4 dọn sạch 100% rác, R5 tải mẫu và nhập Excel SheetJS
+  * Push Status: Đã push thành công lên GitHub remote:
+    To https://github.com/MrKhang-Khoi/cvakyso.git
+    94a5d3..4443bbe  main -> main
+  * Working Tree: 
+othing to commit, working tree clean.
 
 ---
 
@@ -38,7 +36,7 @@ ode tests/test_requirements_r1_to_r5.js
 2. **Bước 2**: Kiểm tra mã nguồn thực tế google-apps-script-zalo-edusign.js tại dòng 559-575 và 1519-1563 xác nhận logic R3 đã được cài đặt hoàn thiện, chặt chẽ và không còn kẽ hở 4 số cuối.
 3. **Bước 3**: Cập nhật tệp tài liệu HUONG_DAN_CAP_NHAT_CODE_GS.md với đầy đủ các phân tích nguy cơ, giải pháp vá, quy trình triển khai 5 bước và ma trận kiểm thử Zalo Bot.
 4. **Bước 4**: Kiểm định toàn diện bằng bộ test tự động 
-ode tests/test_requirements_r1_to_r5.js xác nhận 100% passed.
+ode tests/test_requirements_r1_to_r5.js xác nhận 100% passed (22/22).
 5. **Bước 5**: Kiểm tra git status, đưa toàn bộ các tệp mã nguồn, tài liệu, kịch bản test và ảnh chụp màn hình kiểm chứng vào staging area (git add -A).
 6. **Bước 6**: Thực hiện commit với thông điệp chuẩn hóa yêu cầu và push lên nhánh origin/main.
 
@@ -52,7 +50,7 @@ ode tests/test_requirements_r1_to_r5.js xác nhận 100% passed.
 ### 4. CONCLUSION (Kết Luận)
 - Toàn bộ 5 yêu cầu kỹ thuật và công thái học R1, R2, R3, R4, R5 đã hoàn thành trọn vẹn, vượt qua mọi bài kiểm thử độc lập.
 - Tài liệu hướng dẫn HUONG_DAN_CAP_NHAT_CODE_GS.md đã được bổ sung đầy đủ, chi tiết, chuyên nghiệp.
-- Toàn bộ thay đổi mã nguồn đã được đóng gói và bàn giao hoàn tất lên GitHub repository origin/main.
+- Toàn bộ thay đổi mã nguồn đã được đóng gói và bàn giao hoàn tất lên GitHub repository origin/main tại commit 4443bbe.
 
 ---
 
