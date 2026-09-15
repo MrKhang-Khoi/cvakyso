@@ -182,3 +182,61 @@ Integrity mode: development
 ### Hướng dẫn Cập nhật Code.gs
 - [ ] Có tài liệu markdown hướng dẫn chi tiết từng bước (Step-by-step Guide) minh họa rõ ràng để người dùng thao tác thành công trên Google Apps Script.
 
+## 2026-09-15T04:35:43Z
+
+Khắc phục triệt để lỗi mất số 0 ở đầu của Số điện thoại và Mã PIN khi đồng bộ lên Google Sheets (khiến Zalo Bot không nhận diện được liên kết), đồng thời tái thiết kế toàn diện giao diện Quản trị Giáo viên (Hình 3) theo tiêu chuẩn công thái học hiện đại, khoa học và thẩm mỹ cao.
+
+Working directory: c:\Users\HPZBook\Desktop\KÝ SỐ
+Integrity mode: development
+
+## Requirements
+
+### R1. Sửa Triệt để Lỗi Mất Số 0 Đầu của Số Điện Thoại & Mã PIN khi Đồng bộ lên Google Sheets
+- **Nguyên nhân cốt lõi**: Google Sheets tự động ép kiểu (auto-cast) chuỗi số ("0818810007" -> 818810007, "0007" -> 7) làm mất các chữ số 0 ở đầu.
+- **Xử lý tại nguồn ghi (google-apps-script-zalo-edusign.js)**:
+  * Khi ghi Số điện thoại và Mã PIN vào Sheet Danh bạ GV, định dạng bắt buộc dưới dạng Text thuần túy bằng tiền tố "'" (ví dụ: "'0818810007", "'0007"), hoặc đặt định dạng cột hiển thị setNumberFormat("@").
+  * Đảm bảo trên Google Sheet hiển thị đầy đủ 10 số điện thoại (0818810007) và 4 ký tự mã PIN (0007).
+- **Cơ chế phòng thủ đa tầng khi đọc dữ liệu (Zalo Bot Handler)**:
+  * Trong hàm normalizePhone: Nếu số điện thoại lưu trên Sheet có 9 chữ số và không bắt đầu bằng số 0 (do dữ liệu cũ), tự động bù số 0 vào đầu (0 + phone).
+  * Trong hàm đối soát Mã PIN: Tự động padStart(4, '0') nếu mã PIN bị lưu thành số đơn lẻ (7 -> 0007), đảm bảo giáo viên liên kết Zalo thành công 100% trong mọi trường hợp.
+- **Đồng bộ từ Frontend (js/app.js, public/js/app.js, docs/js/app.js)**:
+  * Chuẩn hóa dữ liệu gửi lên Webhook luôn giữ nguyên chuỗi có số 0 ở đầu.
+
+### R2. Tái Thiết Kế Giao diện Danh Sách Giáo Viên (Hình 3) Đạt Chuẩn Khoa Học & Thẩm Mỹ Cao
+- **Khắc phục tình trạng rối mắt hiện tại**:
+  * **Cụm Thanh công cụ & Nút bấm**: Căn chỉnh hài hòa các nút "Đồng bộ Google Sheet" và "Thêm Giáo viên" với thanh Tab bar; sử dụng thiết kế nút hiện đại (Subtle Outline / Brand Fill), hiệu ứng hover và badge trạng thái đồng bộ rõ ràng.
+  * **Tổ chức lại Cột Giáo viên / Tài khoản**:
+    - Phân tầng thị giác 3 cấp (Visual Hierarchy):
+      + Cấp 1: Họ tên nổi bật (Semibold, Dark slate) kèm Avatar tròn chữ cái đầu có màu sắc trang nhã.
+      + Cấp 2: Tên đăng nhập @username và Email công vụ.
+      + Cấp 3: Cụm thẻ liên kết Zalo thông minh: Gom Số điện thoại và Mã PIN vào một thẻ capsule thống nhất [ 📱 0818810007 • PIN: 0007 ] với nút 1-click sao chép nhanh, tinh gọn và không chiếm diện tích.
+  * **Tối ưu Cột Loại chữ ký & Quyền hạn**:
+    - Gom nhóm các huy hiệu (USB Token / SmartCA, Quyền Word, Con dấu) thành icon badge nhỏ gọn có tooltip, loại bỏ sự lộn xộn các thẻ nhiều màu.
+  * **Cột Thao tác**:
+    - Nhóm các nút tác vụ (Khóa, Sửa, Đổi mật khẩu, Xóa) theo phong cách Action Button bar tinh gọn, có màu sắc phản hồi khi rê chuột (Hover micro-interactions).
+
+### R3. Kiểm thử Độc lập Đa Trình duyệt & Xác thực Dữ liệu Thực tế
+- Viết kịch bản kiểm thử tự động đo đạc:
+  * Test đồng bộ SĐT & Mã PIN với các trường hợp đặc biệt: 0818810007, 0007, 0905..., 0123... xác nhận giữ nguyên 100% các số 0 ở đầu.
+  * Test Zalo Bot đối soát cú pháp 0818810007 và LK 0818810007 0007 thành công ngay cả khi dữ liệu cũ bị mất số 0.
+  * Test giao diện Playwright chụp ảnh minh chứng trước và sau khi tái thiết kế trên cả màn hình Desktop (1920x1080) và Laptop (1366x768).
+- Cập nhật tài liệu hướng dẫn và đẩy toàn bộ lên GitHub (git push origin main).
+
+## Acceptance Criteria
+
+### Tính Toàn Vẹn Dữ Liệu SĐT & Mã PIN
+- [ ] Dữ liệu đồng bộ lên Sheet Danh bạ GV hiển thị chính xác số điện thoại có số 0 đầu (ví dụ: 0818810007) và Mã PIN đủ 4 số (ví dụ: 0007).
+- [ ] Zalo Bot nhận diện và liên kết thành công 100% tài khoản giáo viên với cú pháp LK <SĐT> <Mã_PIN>.
+- [ ] Cơ chế fallback tự động bù số 0 hoạt động hoàn hảo ngay cả với dữ liệu cũ đã có trên Sheet.
+
+### Thẩm Mỹ Giao Diện Người Dùng (Hình 3)
+- [ ] Thanh công cụ Admin có bố cục cân đối, hiện đại, không bị lệch hàng hoặc chen lấn.
+- [ ] Bảng danh sách giáo viên thông thoáng, phân tầng thông tin rõ ràng, không còn hiện tượng chèn ép các badge chữ nhỏ dài ngoằng.
+- [ ] Đạt chuẩn WCAG AA/AAA về độ tương phản và không có lỗi tràn khung ngang (scrollWidth === clientWidth).
+
+### Đóng Gói & Xuất Bản
+- [ ] Chạy lại toàn bộ test suite Playwright đạt 100% PASS, 0 lỗi Console F12.
+- [ ] Cung cấp code google-apps-script-zalo-edusign.js mới kèm hướng dẫn cập nhật.
+- [ ] Toàn bộ mã nguồn được commit và push thành công lên GitHub origin/main.
+
+

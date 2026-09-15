@@ -58,6 +58,7 @@ function initDefaultUsers() {
         certSerial: '025E056A3F133DA9',
         school: 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN',
         phone: '0255.385.0001',
+        pinCode: '0001',
         createdAt: new Date().toISOString()
       }
     ];
@@ -445,7 +446,10 @@ function createUser(userData) {
     certSerial: userData.certSerial ? userData.certSerial.trim() : '',
     school: 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN',
     phone: userData.phone ? userData.phone.trim() : '',
-    pinCode: userData.pinCode ? String(userData.pinCode).trim() : ((userData.phone && userData.phone.replace(/\D/g, '').length >= 4) ? userData.phone.replace(/\D/g, '').slice(-4) : '1234'),
+    pinCode: (() => {
+      const p = userData.pinCode ? String(userData.pinCode).trim() : ((userData.phone && userData.phone.replace(/\D/g, '').length >= 4) ? userData.phone.replace(/\D/g, '').slice(-4) : '1234');
+      return (/^\d+$/.test(p) && p.length < 4) ? p.padStart(4, '0') : p;
+    })(),
     canUploadWord: userData.canUploadWord !== undefined ? Boolean(userData.canUploadWord) : true,
     canStampSeal: (userData.role === 'ADMIN') ? false : (userData.canStampSeal !== undefined ? Boolean(userData.canStampSeal) : false),
     signatureImage: null,
@@ -505,8 +509,10 @@ function updateUser(id, updates) {
   if (updates.canStampSeal !== undefined) users[index].canStampSeal = Boolean(updates.canStampSeal);
   if (updates.certSerial !== undefined) users[index].certSerial = updates.certSerial.trim();
   if (updates.phone !== undefined) users[index].phone = updates.phone.trim();
-  if (updates.pinCode !== undefined) users[index].pinCode = String(updates.pinCode).trim();
-  if (updates.zaloPin !== undefined) users[index].pinCode = String(updates.zaloPin).trim();
+  if (updates.pinCode !== undefined || updates.zaloPin !== undefined) {
+    const rawP = updates.pinCode !== undefined ? String(updates.pinCode).trim() : String(updates.zaloPin).trim();
+    users[index].pinCode = (/^\d+$/.test(rawP) && rawP.length < 4) ? rawP.padStart(4, '0') : rawP;
+  }
   if (updates.signatureImage !== undefined) users[index].signatureImage = updates.signatureImage;
   if (updates.vgcaAuth !== undefined) users[index].vgcaAuth = updates.vgcaAuth;
 

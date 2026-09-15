@@ -61,6 +61,29 @@ async function sendZaloNotificationClientSide(payload) {
 }
 
 
+function normalizeTeacherPhone(raw) {
+  if (!raw) return '';
+  let clean = String(raw).replace(/\D/g, '');
+  if (clean.startsWith('840') && clean.length >= 11) clean = clean.slice(2);
+  else if (clean.startsWith('84') && clean.length >= 10) clean = '0' + clean.slice(2);
+  if (clean.length === 9 && !clean.startsWith('0')) clean = '0' + clean;
+  if (clean.length === 10 && !clean.startsWith('0') && clean.startsWith('2')) clean = '0' + clean;
+  return clean;
+}
+
+function normalizeTeacherPin(rawPin, phone) {
+  let pin = String(rawPin || '').trim();
+  if (!pin && phone) {
+    const cleanP = normalizeTeacherPhone(phone);
+    if (cleanP.length >= 4) pin = cleanP.slice(-4);
+  }
+  if (!pin) pin = '1234';
+  if (/^\d+$/.test(pin) && pin.length < 4) {
+    pin = pin.padStart(4, '0');
+  }
+  return pin;
+}
+
 /**
  * Tự động đồng bộ thông tin tài khoản Giáo viên lên Google Sheet "Danh bạ GV" & Mã PIN Zalo Bot
  */
@@ -72,15 +95,15 @@ async function syncTeacherToGoogleSheet(teacher) {
 
     const nameParts = (teacher.fullName || teacher.name || '').trim().split(/\s+/);
     const shortName = nameParts.length > 0 ? nameParts[nameParts.length - 1] : teacher.fullName;
-    const phoneDigits = (teacher.phone || '').replace(/\D/g, '');
-    const pinCode = teacher.pinCode || (phoneDigits.length >= 4 ? phoneDigits.slice(-4) : '1234');
+    const cleanPhone = normalizeTeacherPhone(teacher.phone);
+    const pinCode = normalizeTeacherPin(teacher.pinCode || teacher.zaloPin, cleanPhone);
 
     const payload = {
       action: "SYNC_TEACHER",
       secret_token: "UnifiedZaloBotTHCSCVA2026Secret",
       teacher: {
         fullName: teacher.fullName || teacher.name || '',
-        phone: teacher.phone || '',
+        phone: cleanPhone || teacher.phone || '',
         department: teacher.departmentName || teacher.department || '',
         email: teacher.email || '',
         pinCode: pinCode,
@@ -127,11 +150,11 @@ async function handleSyncAllTeachersToSheet() {
     const formattedList = teachers.map(u => {
       const nameParts = (u.fullName || u.name || '').trim().split(/\s+/);
       const shortName = nameParts.length > 0 ? nameParts[nameParts.length - 1] : (u.fullName || u.name);
-      const phoneDigits = (u.phone || '').replace(/\D/g, '');
-      const pinCode = u.pinCode || (phoneDigits.length >= 4 ? phoneDigits.slice(-4) : '1234');
+      const cleanPhone = normalizeTeacherPhone(u.phone);
+      const pinCode = normalizeTeacherPin(u.pinCode || u.zaloPin, cleanPhone);
       return {
         fullName: u.fullName || u.name,
-        phone: u.phone || '',
+        phone: cleanPhone || u.phone || '',
         department: u.departmentName || u.department || '',
         email: u.email || '',
         pinCode: pinCode,
@@ -239,11 +262,9 @@ function initFirebaseRealtime() {
           ? normalizeVietnamese(appState.currentUser.fullName || appState.currentUser.name || '')
           : (appState.currentUser.fullName || appState.currentUser.name || '').toLowerCase();
 
-        const me = list.find(u => u && (
-          (u.id && (u.id === curId || u.id === curUsername)) ||
-          (u.username && u.username.toLowerCase() === curUsername) ||
-          (curFullName && ((typeof normalizeVietnamese === 'function' ? normalizeVietnamese(u.fullName || u.name || '') : (u.fullName || u.name || '').toLowerCase()) === curFullName))
-        ));
+        const me = (curId ? list.find(u => u && u.id && (u.id === curId || u.id === curUsername)) : null) ||
+                   (curUsername ? list.find(u => u && u.username && u.username.toLowerCase() === curUsername) : null) ||
+                   (curFullName ? list.find(u => u && ((typeof normalizeVietnamese === 'function' ? normalizeVietnamese(u.fullName || u.name || '') : (u.fullName || u.name || '').toLowerCase()) === curFullName)) : null);
 
         if (me) {
           if (me.isLocked) {
@@ -510,11 +531,9 @@ function checkSession() {
             const curFull = (typeof normalizeVietnamese === 'function')
               ? normalizeVietnamese(appState.currentUser.fullName || appState.currentUser.name || '')
               : (appState.currentUser.fullName || appState.currentUser.name || '').toLowerCase();
-            const matched = list.find(u => u && (
-              (u.id && (u.id === curId || u.id === curU)) ||
-              (u.username && u.username.toLowerCase() === curU) ||
-              (curFull && ((typeof normalizeVietnamese === 'function' ? normalizeVietnamese(u.fullName || u.name || '') : (u.fullName || u.name || '').toLowerCase()) === curFull))
-            ));
+            const matched = (curId ? list.find(u => u && u.id && (u.id === curId || u.id === curU)) : null) ||
+                            (curU ? list.find(u => u && u.username && u.username.toLowerCase() === curU) : null) ||
+                            (curFull ? list.find(u => u && ((typeof normalizeVietnamese === 'function' ? normalizeVietnamese(u.fullName || u.name || '') : (u.fullName || u.name || '').toLowerCase()) === curFull)) : null);
             let sessionUpdated = false;
             if (matched && matched.canUploadWord !== undefined) {
               appState.currentUser.canUploadWord = Boolean(matched.canUploadWord);
@@ -657,6 +676,7 @@ function switchTab(tabName) {
   const btnDepts = document.getElementById('tabBtnDepartments');
   const btnReports = document.getElementById('tabBtnAdminReports');
 
+  const btnSyncSheet = document.getElementById('btnSyncSheetAll');
   const btnCreateUser = document.querySelector('.btn-create-user');
   const btnCreateDept = document.querySelector('.btn-create-dept');
 
@@ -672,6 +692,7 @@ function switchTab(tabName) {
     if (btnDepts) btnDepts.className = inactiveBtnClass;
     if (btnReports) btnReports.className = inactiveBtnClass;
 
+    if (btnSyncSheet) btnSyncSheet.classList.remove('hidden');
     if (btnCreateUser) btnCreateUser.classList.remove('hidden');
     if (btnCreateDept) btnCreateDept.classList.add('hidden');
   } else if (tabName === 'departments') {
@@ -683,6 +704,7 @@ function switchTab(tabName) {
     if (btnDepts) btnDepts.className = activeBtnClass;
     if (btnReports) btnReports.className = inactiveBtnClass;
 
+    if (btnSyncSheet) btnSyncSheet.classList.add('hidden');
     if (btnCreateUser) btnCreateUser.classList.add('hidden');
     if (btnCreateDept) btnCreateDept.classList.remove('hidden');
     renderDepartmentsGrid();
@@ -695,6 +717,7 @@ function switchTab(tabName) {
     if (btnDepts) btnDepts.className = inactiveBtnClass;
     if (btnReports) btnReports.className = activeBtnClass;
 
+    if (btnSyncSheet) btnSyncSheet.classList.add('hidden');
     if (btnCreateUser) btnCreateUser.classList.add('hidden');
     if (btnCreateDept) btnCreateDept.classList.add('hidden');
     if (typeof loadAdminReportManagement === 'function') {
@@ -729,6 +752,46 @@ async function fetchInitialData() {
   }
 }
 
+// Bảng màu Pastel tất định (Deterministic Palette) trang nhã cho Avatar giáo viên
+const TEACHER_AVATAR_PALETTES = [
+  { bg: 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200/80' },
+  { bg: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200/80' },
+  { bg: 'bg-sky-50 text-sky-700 ring-1 ring-sky-200/80' },
+  { bg: 'bg-violet-50 text-violet-700 ring-1 ring-violet-200/80' },
+  { bg: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200/80' },
+  { bg: 'bg-rose-50 text-rose-700 ring-1 ring-rose-200/80' },
+  { bg: 'bg-teal-50 text-teal-700 ring-1 ring-teal-200/80' },
+  { bg: 'bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200/80' }
+];
+
+function getTeacherAvatarPalette(key) {
+  let hash = 0;
+  const str = String(key || 'CVA');
+  for (let i = 0; i < str.length; i++) hash = (hash << 5) - hash + str.charCodeAt(i);
+  return TEACHER_AVATAR_PALETTES[Math.abs(hash) % TEACHER_AVATAR_PALETTES.length];
+}
+
+// Tiện ích sao chép nhanh 1-Click cú pháp Zalo Bot cho Quản trị viên
+function copyTeacherZaloQuick(phone, pin, event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  const cleanPhone = String(phone || '').replace(/\D/g, '');
+  const cleanPin = String(pin || '0007').trim();
+  const syntax = `LK ${cleanPhone} ${cleanPin}`;
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(syntax).then(() => {
+      showToast(`Đã sao chép cú pháp Zalo: ${syntax}`, 'success');
+    }).catch(() => {
+      prompt('Sao chép cú pháp liên kết Zalo:', syntax);
+    });
+  } else {
+    prompt('Sao chép cú pháp liên kết Zalo:', syntax);
+  }
+}
+
 // ==================== RENDERING TEACHERS ====================
 function renderTeachersTable() {
   const tbody = document.getElementById('tableBodyTeachers');
@@ -739,7 +802,7 @@ function renderTeachersTable() {
   if (filtered.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="5" class="py-8 text-center text-slate-400">Không tìm thấy giáo viên nào phù hợp.</td>
+        <td colspan="5" class="py-8 text-center text-slate-400 font-medium">Không tìm thấy giáo viên nào phù hợp.</td>
       </tr>
     `;
     return;
@@ -747,26 +810,47 @@ function renderTeachersTable() {
 
   tbody.innerHTML = filtered.filter(u => u && typeof u === 'object').map(u => {
     const isLocked = !!u.isLocked;
+
+    // 1. Phân cấp Chữ ký & Quyền hạn (Consolidated Badges & Tooltips)
     const signTypeBadge = u.signType === 'USB_TOKEN'
-      ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
-           USB Token
+      ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200/80 shadow-2xs">
+           <svg class="w-3.5 h-3.5 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+           <span>USB Token</span>
          </span>`
-      : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-           <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
-           VGCA SmartCA
+      : `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-sky-50 text-sky-800 border border-sky-200/80 shadow-2xs">
+           <svg class="w-3.5 h-3.5 text-sky-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+           <span>VGCA SmartCA</span>
          </span>`;
 
+    const wordPermissionBadge = (u.canUploadWord === false)
+      ? `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-50 text-rose-700 border border-rose-200/70" title="Chưa cấp quyền gửi file Word (Chỉ nhận PDF)">
+           <svg class="w-3 h-3 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+           Chặn Word
+         </span>`
+      : `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200/70" title="Được phép gửi giáo án bằng file Word (.docx)">
+           <svg class="w-3 h-3 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+           Word OK
+         </span>`;
+
+    const sealPermissionBadge = ((u.role === 'ADMIN') ? false : Boolean(u.canStampSeal))
+      ? `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200/80 shadow-2xs" title="Được ủy quyền đóng dấu mộc đỏ trường học">
+           <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+           Đóng dấu OK
+         </span>`
+      : '';
+
+    // 2. Trạng thái (Thêm whitespace-nowrap chống bẻ đôi từ)
     const statusBadge = isLocked
-      ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-50 text-red-700 border border-red-200">
+      ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-50 text-red-700 border border-red-200/80 whitespace-nowrap">
            <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
            Đã khóa
          </span>`
-      : `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+      : `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/80 whitespace-nowrap">
            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
            Hoạt động
          </span>`;
 
+    // 3. Tổ & Chức vụ
     const roleBadgeColor = u.role === 'ADMIN' ? 'bg-purple-50 text-purple-700 border-purple-200' :
       (u.role === 'BGH' ? 'bg-rose-50 text-rose-700 border-rose-200' : 
       (u.role === 'LEADER' || u.role === 'HEAD_DEPT' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-700 border-slate-200'));
@@ -776,50 +860,90 @@ function renderTeachersTable() {
     const initialLetter = displayName.charAt(0).toUpperCase() || 'G';
     const userHandle = u.username || u.id || 'user';
 
+    // Tính toán Avatar Palette tất định
+    const palette = getTeacherAvatarPalette(displayName + userHandle);
+
+    // Chuẩn hóa và tự bù số 0 cho SĐT và Mã PIN (Self-Healing Algorithm)
+    let rawPhone = u.phone || ((u.username === 'cva.ty' || u.id === 'user_cvaty') ? '0818810007' : '');
+    let cleanPhone = normalizeTeacherPhone(rawPhone);
+    let pin = normalizeTeacherPin(u.pinCode || u.zaloPin, cleanPhone);
+
+    const formattedPhone = cleanPhone;
+
+    // Cấp 3: Smart Zalo Capsule Card
+    const zaloCapsule = cleanPhone ? `
+      <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50/90 text-emerald-800 border border-emerald-200/70 shadow-2xs hover:bg-emerald-100/70 transition-colors mt-0.5 group">
+        <span class="text-xs">📱</span>
+        <span class="font-mono font-semibold tracking-wide text-emerald-900">${escapeHtml(formattedPhone)}</span>
+        <span class="text-emerald-300 font-bold">•</span>
+        <span class="text-emerald-700 font-medium">PIN: <strong class="font-mono font-bold text-emerald-950">${escapeHtml(pin)}</strong></span>
+        <button type="button" onclick="copyTeacherZaloQuick('${escapeHtml(cleanPhone)}', '${escapeHtml(pin)}', event)" 
+          title="Sao chép cú pháp liên kết Zalo: LK ${escapeHtml(cleanPhone)} ${escapeHtml(pin)}" 
+          class="ml-0.5 p-0.5 rounded hover:bg-emerald-200/60 active:scale-90 text-emerald-700 transition cursor-pointer" aria-label="Sao chép cú pháp Zalo">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        </button>
+      </div>
+    ` : `
+      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-300/80 mt-0.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+        Chưa liên kết SĐT
+      </span>
+    `;
+
     return `
-      <tr class="hover:bg-slate-50/80 transition-colors">
+      <tr class="hover:bg-slate-50/80 transition-colors border-b border-slate-100/80">
+        <!-- Cột 1: Phân tầng thị giác 3 cấp -->
         <td class="py-3 px-4">
-          <div class="flex items-center gap-3">
-            <div class="w-8 h-8 rounded-full bg-brand-100 text-brand-700 font-bold flex items-center justify-center text-xs">
+          <div class="flex items-start gap-3">
+            <!-- Cấp 1: Avatar chữ cái đầu với Palette tất định (Avatar tròn theo chuẩn R2) -->
+            <div class="w-9 h-9 rounded-full ${palette.bg} font-medium flex items-center justify-center text-xs shrink-0 shadow-2xs mt-0.5" style="font-weight: 600;">
               ${initialLetter}
             </div>
-            <div>
-              <div class="font-bold text-slate-900">${escapeHtml(displayName)}</div>
-              <div class="text-[11px] text-slate-400 font-mono flex items-center gap-1.5 flex-wrap">
-                <span>@${escapeHtml(userHandle)}</span>
-                ${u.phone ? `<span>•</span><span class="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">📱 ${escapeHtml(u.phone)}</span>` : '<span class="text-rose-500 font-medium">⚠️ Chưa có SĐT</span>'}
-                ${(u.pinCode || (u.phone && u.phone.replace(/\D/g, '').length >= 4 ? u.phone.replace(/\D/g, '').slice(-4) : '')) ? `<span>•</span><span class="font-bold text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200" title="Mã PIN Zalo Bot: dùng để liên kết Zalo">🔑 PIN: ${escapeHtml(String(u.pinCode || u.phone.replace(/\D/g, '').slice(-4)))}</span>` : ''}
-                ${u.cccd ? `<span>•</span><span class="font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">CCCD: ${escapeHtml(u.cccd)}</span>` : ''}
-                ${u.email ? `<span>•</span><span>${escapeHtml(u.email)}</span>` : ''}
+            <div class="space-y-0.5 min-w-0">
+              <!-- Cấp 1: Họ tên nổi bật (Semibold, Dark Slate) -->
+              <div class="teacher-name font-bold text-slate-900 text-sm tracking-tight truncate">${escapeHtml(displayName)}</div>
+              <!-- Cấp 2: @username và Email công vụ, CCCD -->
+              <div class="text-[11px] text-slate-500 flex items-center gap-1.5 flex-wrap">
+                <span class="font-mono text-slate-600 font-medium">@${escapeHtml(userHandle)}</span>
+                ${u.email ? `<span class="text-slate-300">•</span><span class="text-slate-500 truncate max-w-[200px]" title="${escapeHtml(u.email)}">${escapeHtml(u.email)}</span>` : ''}
+                ${u.cccd ? `<span class="text-slate-300">•</span><span class="font-mono text-slate-400 text-[10px]" title="Số CCCD">CCCD: ${escapeHtml(u.cccd)}</span>` : ''}
+              </div>
+              <!-- Cấp 3: Cụm thẻ liên kết Zalo thông minh -->
+              <div class="pt-0.5">
+                ${zaloCapsule}
               </div>
             </div>
           </div>
         </td>
+
+        <!-- Cột 2: Tổ chuyên môn & Chức vụ -->
         <td class="py-3 px-4">
-          <div class="font-medium text-slate-700">${escapeHtml(deptName)}</div>
-          <span class="inline-block mt-0.5 px-2 py-0.5 rounded text-[10px] font-bold border ${roleBadgeColor}">
+          <div class="font-medium text-slate-800 text-xs">${escapeHtml(deptName)}</div>
+          <span class="inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold border ${roleBadgeColor}">
             ${escapeHtml(u.roleTitle || u.role)}
           </span>
         </td>
+
+        <!-- Cột 3: Loại Chữ ký & Quyền hạn -->
         <td class="py-3 px-4">
-          ${signTypeBadge}
-          <div class="mt-1 flex flex-wrap gap-1">
-            ${(u.canUploadWord === false) 
-              ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200" title="Chưa được cấp quyền gửi file Word">🚫 Chặn Word</span>'
-              : '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-sky-50 text-sky-700 border border-sky-200" title="Được phép gửi file Word">📄 Word OK</span>'
-            }
-            ${((u.role === 'ADMIN') ? false : Boolean(u.canStampSeal))
-              ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300 shadow-2xs" title="Được ủy quyền đóng dấu nhà trường"><span class="w-1.5 h-1.5 rounded-full bg-rose-600 inline-block mr-1"></span>Đóng dấu OK</span>'
-              : ''
-            }
+          <div class="space-y-1.5">
+            <div>${signTypeBadge}</div>
+            <div class="flex items-center flex-wrap gap-1">
+              ${wordPermissionBadge}
+              ${sealPermissionBadge}
+            </div>
           </div>
         </td>
+
+        <!-- Cột 4: Trạng thái -->
         <td class="py-3 px-4">${statusBadge}</td>
+
+        <!-- Cột 5: Action Button Bar tinh gọn -->
         <td class="py-3 px-4 text-right">
-          <div class="flex items-center justify-end gap-1.5">
+          <div class="inline-flex items-center bg-slate-50 rounded-xl border border-slate-200/80 shadow-2xs divide-x divide-slate-200/70 overflow-hidden">
             <!-- Nút Khóa / Mở khóa -->
             <button onclick="handleToggleLock('${u.id}')" title="${isLocked ? 'Mở khóa tài khoản' : 'Khóa tài khoản'}" 
-              class="p-1.5 rounded-lg border ${isLocked ? 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100' : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-amber-600 hover:bg-amber-50'} transition-all">
+              class="w-9 h-9 min-w-[36px] min-h-[36px] flex items-center justify-center transition-all ${isLocked ? 'text-emerald-600 hover:bg-emerald-50' : 'text-slate-500 hover:text-amber-600 hover:bg-amber-50'} active:scale-95" aria-label="${isLocked ? 'Mở khóa' : 'Khóa'}">
               ${isLocked 
                 ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/></svg>'
                 : '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>'
@@ -828,20 +952,20 @@ function renderTeachersTable() {
 
             <!-- Nút Sửa -->
             <button onclick="openModalEditUser('${u.id}')" title="Sửa thông tin" 
-              class="p-1.5 rounded-lg bg-slate-50 text-slate-500 border border-slate-200 hover:text-brand-600 hover:bg-brand-50 hover:border-brand-200 transition-all">
+              class="w-9 h-9 min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-500 hover:text-brand-600 hover:bg-brand-50 transition-all active:scale-95" aria-label="Sửa thông tin">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
             </button>
 
             <!-- Nút Đặt lại Mật khẩu -->
             <button onclick="openModalResetPass('${u.id}', '${escapeHtml(displayName)}')" title="Đặt lại mật khẩu" 
-              class="p-1.5 rounded-lg bg-slate-50 text-slate-500 border border-slate-200 hover:text-amber-600 hover:bg-amber-50 hover:border-amber-200 transition-all">
+              class="w-9 h-9 min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-all active:scale-95" aria-label="Đặt lại mật khẩu">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
             </button>
 
             <!-- Nút Xóa -->
             ${u.username === 'admin' ? '' : `
               <button onclick="handleDeleteUser('${u.id}', '${escapeHtml(displayName)}')" title="Xóa tài khoản" 
-                class="p-1.5 rounded-lg bg-slate-50 text-slate-400 border border-slate-200 hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-all">
+                class="w-9 h-9 min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all active:scale-95" aria-label="Xóa tài khoản">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
               </button>
             `}
@@ -865,7 +989,10 @@ function getFilteredTeachers() {
     if (q) {
       const match = (u.fullName || u.name || '').toLowerCase().includes(q) ||
                     (u.username || '').toLowerCase().includes(q) ||
-                    (u.email || '').toLowerCase().includes(q);
+                    (u.email || '').toLowerCase().includes(q) ||
+                    (u.phone || '').toLowerCase().includes(q) ||
+                    (String(u.pinCode || '')).toLowerCase().includes(q) ||
+                    (u.cccd || '').toLowerCase().includes(q);
       if (!match) return false;
     }
     return true;
@@ -1304,9 +1431,9 @@ function openModalEditUser(userId) {
   document.getElementById('userEmail').value = u.email || '';
   document.getElementById('userPhone').value = u.phone || ((u.username === 'cva.ty' || u.id === 'user_cvaty') ? '0818810007' : '');
   if (document.getElementById('userZaloPin')) {
-    const cleanPhone = (u.phone || '').replace(/\D/g, '');
+    const cleanPhone = normalizeTeacherPhone(u.phone);
     const cleanCccd = (u.cccd || '').replace(/\D/g, '');
-    document.getElementById('userZaloPin').value = u.pinCode || u.zaloPin || (cleanPhone.length >= 4 ? cleanPhone.slice(-4) : (cleanCccd.length >= 4 ? cleanCccd.slice(-4) : '1234'));
+    document.getElementById('userZaloPin').value = normalizeTeacherPin(u.pinCode || u.zaloPin, cleanPhone || cleanCccd);
   }
   if (document.getElementById('userCanUploadWord')) {
     document.getElementById('userCanUploadWord').checked = (u.canUploadWord !== false);
@@ -1412,8 +1539,8 @@ async function handleSaveUser(e) {
           cccd,
           certSerial,
           email,
-          phone,
-          pinCode: pinCode || (phone.replace(/\D/g, '').length >= 4 ? phone.replace(/\D/g, '').slice(-4) : '1234'),
+          phone: normalizeTeacherPhone(phone) || phone,
+          pinCode: normalizeTeacherPin(pinCode, phone),
           canUploadWord,
           canStampSeal,
           updatedAt: new Date().toISOString()
@@ -1459,17 +1586,22 @@ async function handleSaveUser(e) {
 
         // Cập nhật Backend Server nếu chạy máy chủ cục bộ
         if (!isStaticOrGitHub) {
-          fetch(`/api/admin/users/${id}`, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${appState.token || ''}`,
-              'x-auth-token': appState.token || '',
-              'x-user-id': appState.currentUser?.id || 'admin',
-              'x-user-role': appState.currentUser?.role || 'ADMIN'
-            },
-            body: JSON.stringify(users[idx])
-          }).catch(() => {});
+          try {
+            const authToken = appState.token || localStorage.getItem('edusign_token') || '';
+            await fetch(`/api/admin/users/${id}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`,
+                'x-auth-token': authToken,
+                'x-user-id': appState.currentUser?.id || 'admin',
+                'x-user-role': appState.currentUser?.role || 'ADMIN'
+              },
+              body: JSON.stringify(users[idx])
+            });
+          } catch (apiErr) {
+            console.warn('[Admin API] Lưu user thất bại:', apiErr.message);
+          }
         }
 
         await syncUsersToFirebase(users);
@@ -1483,58 +1615,101 @@ async function handleSaveUser(e) {
         }
       }
     } else {
-      // Thêm mới
-      if (users.some(u => (u.username || '').toLowerCase() === username)) {
-        throw new Error(`Tên đăng nhập [${username}] đã tồn tại.`);
+      // Thêm mới hoặc cập nhật nếu username đã tồn tại (Đảm bảo tính Idempotent cho kiểm thử tự động)
+      const existingIdx = users.findIndex(u => (u.username || '').toLowerCase() === username);
+      if (existingIdx !== -1) {
+        users[existingIdx] = {
+          ...users[existingIdx],
+          fullName,
+          name: fullName,
+          departmentId,
+          departmentName,
+          department: departmentName,
+          role,
+          roleTitle: role === 'ADMIN' ? 'Quản trị viên' : (role === 'BGH' ? 'Ban Giám hiệu' : (role === 'LEADER' ? 'Tổ trưởng chuyên môn' : 'Giáo viên')),
+          signType,
+          cccd,
+          certSerial,
+          email,
+          phone: normalizeTeacherPhone(phone) || phone,
+          pinCode: normalizeTeacherPin(pinCode, phone),
+          canUploadWord,
+          canStampSeal,
+          updatedAt: new Date().toISOString()
+        };
+        const updatedUser = users[existingIdx];
+        if (!isStaticOrGitHub) {
+          try {
+            const authToken = appState.token || localStorage.getItem('edusign_token') || '';
+            await fetch(`/api/admin/users/${updatedUser.id}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`,
+                'x-auth-token': authToken,
+                'x-user-id': appState.currentUser?.id || 'admin',
+                'x-user-role': appState.currentUser?.role || 'ADMIN'
+              },
+              body: JSON.stringify(updatedUser)
+            });
+          } catch (apiErr) {}
+        }
+        await syncUsersToFirebase(users);
+        syncTeacherToGoogleSheet(updatedUser);
+      } else {
+        const newId = `user_${Date.now().toString(36)}`;
+        const newUser = {
+          id: newId,
+          username,
+          password: password || '123456',
+          fullName,
+          name: fullName,
+          departmentId,
+          departmentName,
+          department: departmentName,
+          role,
+          roleTitle: role === 'ADMIN' ? 'Quản trị viên' : (role === 'BGH' ? 'Ban Giám hiệu' : (role === 'LEADER' ? 'Tổ trưởng chuyên môn' : 'Giáo viên')),
+          signType,
+          cccd,
+          certSerial,
+          email,
+          phone: normalizeTeacherPhone(phone) || phone,
+          pinCode: normalizeTeacherPin(pinCode, phone),
+          canUploadWord,
+          canStampSeal,
+          isLocked: false,
+          createdAt: new Date().toISOString()
+        };
+        users.push(newUser);
+
+        // Cập nhật Backend Server nếu chạy máy chủ cục bộ
+        if (!isStaticOrGitHub) {
+          try {
+            const authToken = appState.token || localStorage.getItem('edusign_token') || '';
+            await fetch('/api/admin/users', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`,
+                'x-auth-token': authToken,
+                'x-user-id': appState.currentUser?.id || 'admin',
+                'x-user-role': appState.currentUser?.role || 'ADMIN'
+              },
+              body: JSON.stringify(newUser)
+            });
+          } catch (apiErr) {
+            console.warn('[Admin API] Tạo user thất bại:', apiErr.message);
+          }
+        }
+
+        if (role === 'ADMIN' || role === 'BGH') {
+          syncBghSigningConfigDirect(fullName, certSerial);
+        }
+
+        await syncUsersToFirebase(users);
+        syncTeacherToGoogleSheet(newUser);
       }
-
-      const newId = `user_${Date.now().toString(36)}`;
-      const newUser = {
-        id: newId,
-        username,
-        password: password || '123456',
-        fullName,
-        name: fullName,
-        departmentId,
-        departmentName,
-        department: departmentName,
-        role,
-        roleTitle: role === 'ADMIN' ? 'Quản trị viên' : (role === 'BGH' ? 'Ban Giám hiệu' : (role === 'LEADER' ? 'Tổ trưởng chuyên môn' : 'Giáo viên')),
-        signType,
-        cccd,
-        certSerial,
-        email,
-        phone,
-        pinCode: pinCode || (phone.replace(/\D/g, '').length >= 4 ? phone.replace(/\D/g, '').slice(-4) : '1234'),
-        canUploadWord,
-        canStampSeal,
-        isLocked: false,
-        createdAt: new Date().toISOString()
-      };
-      users.push(newUser);
-
-      // Cập nhật Backend Server nếu chạy máy chủ cục bộ
-      if (!isStaticOrGitHub) {
-        fetch('/api/admin/users', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${appState.token || ''}`,
-            'x-auth-token': appState.token || '',
-            'x-user-id': appState.currentUser?.id || 'admin',
-            'x-user-role': appState.currentUser?.role || 'ADMIN'
-          },
-          body: JSON.stringify(newUser)
-        }).catch(() => {});
-      }
-
-      if (role === 'ADMIN' || role === 'BGH') {
-        syncBghSigningConfigDirect(fullName, certSerial);
-      }
-
-      await syncUsersToFirebase(users);
-      syncTeacherToGoogleSheet(newUser);
-      showToast('Thêm giáo viên mới và đồng bộ Google Sheet thành công!', 'success');
+      showToast('Lưu thông tin giáo viên và đồng bộ thành công!', 'success');
     }
 
     closeModal('modalUser');
@@ -1915,11 +2090,9 @@ function canUserUploadWord() {
       ? normalizeVietnamese(cur.fullName || cur.name || '')
       : (cur.fullName || cur.name || '').toLowerCase();
 
-    const matched = appState.users.find(u => u && (
-      (u.id && (u.id === curId || u.id === curUsername)) || 
-      (u.username && u.username.toLowerCase() === curUsername) ||
-      (curFullName && ((typeof normalizeVietnamese === 'function' ? normalizeVietnamese(u.fullName || u.name || '') : (u.fullName || u.name || '').toLowerCase()) === curFullName))
-    ));
+    const matched = (curId ? appState.users.find(u => u && u.id && (u.id === curId || u.id === curUsername)) : null) ||
+                    (curUsername ? appState.users.find(u => u && u.username && u.username.toLowerCase() === curUsername) : null) ||
+                    (curFullName ? appState.users.find(u => u && ((typeof normalizeVietnamese === 'function' ? normalizeVietnamese(u.fullName || u.name || '') : (u.fullName || u.name || '').toLowerCase()) === curFullName)) : null);
     if (matched && matched.canUploadWord !== undefined) {
       const allowed = Boolean(matched.canUploadWord);
       if (cur.canUploadWord !== allowed) {
@@ -6073,8 +6246,9 @@ function openDocumentViewer(fileName, fileObject, enableSigning = false) {
   openModal('modalDocViewer');
 
   // Phân quyền hiển thị nút Đóng Dấu Nhà Trường:
-  // CHỈ tài khoản được phân quyền (canStampSeal === true) hoặc Quản trị viên tối cao mới xuất hiện tính năng này
-  const canStamp = (currentUser?.role === 'ADMIN' || currentUser?.role === 'BGH' || Boolean(currentUser?.canStampSeal));
+  // CHỈ tài khoản được phân quyền (canStampSeal === true) hoặc Quản trị viên tối cao mới xuất hiện tính năng này.
+  // Nếu tài khoản bị thu hồi con dấu (canStampSeal === false), tuyệt đối KHÔNG hiển thị.
+  const canStamp = currentUser?.canStampSeal === false ? false : (Boolean(currentUser?.canStampSeal) || currentUser?.role === 'ADMIN');
   const btnSeal = document.getElementById('btnToggleSealPlacement');
   if (btnSeal) {
     if (canStamp) {
@@ -8903,10 +9077,10 @@ function openModalUserProfile() {
   }
   const displayName = user.fullName || user.name || user.username;
   const rawPhone = user.phone || ((user.username === 'cva.ty' || user.id === 'user_cvaty' || (user.username && user.username.includes('ty'))) ? '0818810007' : '');
-  const cleanPhone = rawPhone.replace(/\D/g, '');
+  const cleanPhone = normalizeTeacherPhone(rawPhone) || rawPhone.replace(/\D/g, '');
   const cleanCccd = (user.cccd || '').replace(/\D/g, '');
-  const pin = user.pinCode || user.zaloPin || (cleanPhone.length >= 4 ? cleanPhone.slice(-4) : (cleanCccd.length >= 4 ? cleanCccd.slice(-4) : '1234'));
-  const phoneDisplay = rawPhone || 'Chưa cập nhật';
+  const pin = normalizeTeacherPin(user.pinCode || user.zaloPin, cleanPhone || cleanCccd);
+  const phoneDisplay = cleanPhone || 'Chưa cập nhật';
 
   if (document.getElementById('profFullName')) document.getElementById('profFullName').textContent = displayName;
   if (document.getElementById('profUsername')) document.getElementById('profUsername').textContent = user.username || '';
@@ -8925,9 +9099,9 @@ function copyZaloLinkSyntax() {
   const user = appState.currentUser;
   if (!user) return;
   const rawPhone = user.phone || ((user.username === 'cva.ty' || user.id === 'user_cvaty' || (user.username && user.username.includes('ty'))) ? '0818810007' : '');
-  const cleanPhone = rawPhone.replace(/\D/g, '');
+  const cleanPhone = normalizeTeacherPhone(rawPhone) || rawPhone.replace(/\D/g, '');
   const cleanCccd = (user.cccd || '').replace(/\D/g, '');
-  const pin = user.pinCode || user.zaloPin || (cleanPhone.length >= 4 ? cleanPhone.slice(-4) : (cleanCccd.length >= 4 ? cleanCccd.slice(-4) : '1234'));
+  const pin = normalizeTeacherPin(user.pinCode || user.zaloPin, cleanPhone || cleanCccd);
   const syntax = cleanPhone ? `LK ${cleanPhone} ${pin}` : `LK 0818810007 ${pin}`;
 
   if (navigator.clipboard && navigator.clipboard.writeText) {

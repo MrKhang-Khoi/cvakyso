@@ -1,46 +1,40 @@
-# BRIEFING — 2026-09-15T08:52:30+07:00
+# BRIEFING — 2026-09-15T11:37:00+07:00
 
 ## Mission
-Orchestrate the application of all 23 standardized patches from PROPOSED_PATCHES.md into EduSign VGCA, enforce zero-side-effect regression testing guardrails, audit/complete Zalo 6 AM TKB schedule feature, and publish the Google Apps Script Code.gs update guide.
+Sửa triệt để lỗi mất số 0 đầu SĐT & Mã PIN khi đồng bộ Google Sheets, cơ chế phòng thủ Zalo Bot, và tái thiết kế toàn diện UI Danh sách Giáo viên (Hình 3) đạt chuẩn thẩm mỹ và công thái học cao, kiểm thử Playwright và push origin main.
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: c:\Users\HPZBook\Desktop\KÝ SỐ\.agents\sentinel
-- Orchestrator: 0d7a5d85-4572-4646-a649-b14db45bc5cd
-- Victory Auditor: c8667090-13ec-428a-a585-fb122f919dd8
-- Active Orchestrator: 03092046-89d0-45f5-9d0c-6e7a030d9cd1
+- Orchestrator: 65d755a6-92c4-481d-b1c4-1cc3d4836253
+- Victory Auditor: to be spawned on victory claim
+- Active Orchestrator: 65d755a6-92c4-481d-b1c4-1cc3d4836253
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
 - Victory Audit is MANDATORY before reporting completion
 - Never take victory claim at face value; spawn teamwork_preview_victory_auditor upon victory claim
 - Keep context ultra-light
-- Main source code files (server.js, dataStore.js, zaloNotifyService.js, index.html) MUST NOT be modified without explicit user approval
+- Main source code files MUST NOT be modified without proper verification
 - Verification scripts must be placed in tests/ directory
-- User approved Plan 2 (all 23 patches from PROPOSED_PATCHES.md) on 2026-09-15T01:51:33Z
+- Zero-Bug verification and WCAG AA/AAA compliance required
 
 ## User Context
-- **Last user request**: Triển khai áp dụng toàn bộ 23 bản vá chuẩn hóa từ PROPOSED_PATCHES.md vào mã nguồn hệ thống KÝ SỐ EduSign VGCA, thiết lập cơ chế giám sát logic độc lập nghiêm ngặt chống phá vỡ (Zero-Side-Effect) các tính năng cốt lõi, đồng thời thẩm định/bổ sung hoàn thiện tính năng Zalo nhắc Thời khóa biểu (TKB) 6h00 sáng và xuất bản tài liệu hướng dẫn cập nhật Code.gs chi tiết trên Google Apps Script.
+- **Last user request**: Khắc phục triệt để lỗi mất số 0 ở đầu của Số điện thoại và Mã PIN khi đồng bộ lên Google Sheets, tái thiết kế toàn diện giao diện Quản trị Giáo viên (Hình 3), kiểm thử độc lập Playwright đa độ phân giải và push lên GitHub origin main.
 - **Pending clarifications**: none
-- **Delivered results**: PROPOSED_PATCHES.md approved by user for implementation
+- **Delivered results**: Dispatched Project Orchestrator 4 (65d755a6-92c4-481d-b1c4-1cc3d4836253).
 
 ## Project Status
-- **Phase**: complete
-- **Active Subagents in Orchestrator**: none (cleaned up)
-- **Monitoring Tasks**: none (cleaned up)
+- **Phase**: in progress
+- **Active Subagents in Orchestrator**: 65d755a6-92c4-481d-b1c4-1cc3d4836253
+- **Monitoring Tasks**: Cron 1 (task-28), Cron 2 (task-30)
 
 ## Victory Audit Status
-- **Triggered**: yes
-- **Verdict**: VICTORY CONFIRMED
+- **Triggered**: no
+- **Verdict**: pending
 - **Retry count**: 0
 
 ## Artifact Index
 - c:\Users\HPZBook\Desktop\KÝ SỐ\.agents\ORIGINAL_REQUEST.md — Authoritative user request record
 - c:\Users\HPZBook\Desktop\KÝ SỐ\ORIGINAL_REQUEST.md — Root workspace copy
-- c:\Users\HPZBook\Desktop\KÝ SỐ\PROPOSED_PATCHES.md — 23 Approved Patches (68KB, 23 defects)
-- c:\Users\HPZBook\Desktop\KÝ SỐ\docs\HUONG_DAN_CAP_NHAT_CODE_GS_ZALO.md — Step-by-Step GAS Deployment Guide (36.5 KB)
-- c:\Users\HPZBook\Desktop\KÝ SỐ\.agents\teamwork_preview_orchestrator_3\handoff.md — Orchestrator Handoff Report
-- c:\Users\HPZBook\Desktop\KÝ SỐ\.agents\teamwork_preview_victory_auditor_2\handoff.md — Independent Victory Auditor Forensic Report
-- c:\Users\HPZBook\Desktop\KÝ SỐ\.agents\sentinel\handoff.md — Sentinel Handoff Report
 - c:\Users\HPZBook\Desktop\KÝ SỐ\.agents\sentinel\BRIEFING.md — Sentinel Briefing
-

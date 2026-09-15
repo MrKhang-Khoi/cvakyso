@@ -472,6 +472,7 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
     cccd: u.cccd || '',
     email: u.email,
     phone: u.phone,
+    pinCode: u.pinCode || ((u.phone && u.phone.replace(/\D/g, '').length >= 4) ? u.phone.replace(/\D/g, '').slice(-4) : '1234'),
     canUploadWord: u.canUploadWord !== false,
     createdAt: u.createdAt
   }));
@@ -480,7 +481,7 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
 
 // Tạo tài khoản giáo viên mới (Chỉ định Tổ bộ môn, Vai trò & Loại chữ ký số)
 app.post('/api/admin/users', requireAdmin, (req, res) => {
-  const { id, username, password, name, role, department, departmentId, signType, email, phone, cccd, canUploadWord, canStampSeal } = req.body;
+  const { id, username, password, name, role, department, departmentId, signType, email, phone, cccd, canUploadWord, canStampSeal, pinCode, zaloPin } = req.body;
   if (!username || !name || !department) {
     return res.status(400).json({ success: false, message: 'Vui lòng điền đủ Tên đăng nhập, Họ và tên và Tổ bộ môn!' });
   }
@@ -499,6 +500,7 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
       email,
       phone,
       cccd: cccd || '',
+      pinCode: pinCode || zaloPin || undefined,
       canUploadWord: canUploadWord !== undefined ? Boolean(canUploadWord) : true,
       canStampSeal: (role === 'ADMIN') ? false : (canStampSeal !== undefined ? Boolean(canStampSeal) : false)
     });

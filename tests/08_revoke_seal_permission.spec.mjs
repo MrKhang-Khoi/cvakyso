@@ -1,7 +1,25 @@
-﻿import { test, expect } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import fs from 'fs';
 
 test.describe('8. Thu hồi và Bỏ phân quyền Đóng dấu nhà trường', () => {
+
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/check-vgca-status*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          availableCerts: [{
+            serialNumber: '189A2218A5A80E4C',
+            signerName: 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN',
+            subject: 'CN=TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN, MST: 0101234567',
+            isHardware: true
+          }]
+        })
+      });
+    });
+  });
 
   test('Kịch bản 1: Bỏ tích Ủy quyền Đóng dấu -> Badge biến mất & Form sửa không bị tích lại', async ({ page }) => {
     const consoleErrors = [];

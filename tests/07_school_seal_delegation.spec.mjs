@@ -3,6 +3,24 @@ import fs from 'fs';
 
 test.describe('7. Phân quyền và Ký số USB Token Con dấu nhà trường', () => {
 
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/check-vgca-status*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          availableCerts: [{
+            serialNumber: '189A2218A5A80E4C',
+            signerName: 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN',
+            subject: 'CN=TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN, MST: 0101234567',
+            isHardware: true
+          }]
+        })
+      });
+    });
+  });
+
   test('Kịch bản 1: Quét USB Token khi chưa ủy quyền -> Chặn gán nhầm & Cảnh báo rõ ràng', async ({ page }) => {
     const consoleErrors = [];
     page.on('console', msg => {
@@ -122,7 +140,7 @@ test.describe('7. Phân quyền và Ký số USB Token Con dấu nhà trường'
     await expect(page.locator('#modalUser')).toBeHidden({ timeout: 15000 });
 
     // Kiểm tra trong bảng giáo viên có badge 'Đóng dấu OK'
-    const row = page.locator('tr', { hasText: 'Ngô Thị Liền' }).last();
+    const row = page.locator('tr', { hasText: testUsername }).first();
     await expect(row).toBeVisible();
     await expect(row).toContainText('Đóng dấu OK');
 

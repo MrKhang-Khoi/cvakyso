@@ -107,11 +107,18 @@ function initSheetsIfMissing() {
     sheetUsers.getRange(1, 1, 1, 9).setBackground("#1e40af").setFontColor("#ffffff").setFontWeight("bold");
     sheetUsers.setFrozenRows(1);
 
-    // Thêm dữ liệu mẫu danh bạ
-    sheetUsers.appendRow([1, "Ban Giám hiệu", "02553850001", "Ban Giám hiệu", "bgh-dakha@quangngai.gov.vn", "", "", "BGH", "0001"]);
-    sheetUsers.appendRow([2, "Ngô Thị Liền", "0905123456", "Ban Giám hiệu", "cva.lien@quangngai.gov.vn", "", "", "Liền", "3456"]);
-    sheetUsers.appendRow([3, "Hà Văn Tý", "0912345678", "Tổ Toán - Tin", "cva.ty@thcschuvanan.edu.vn", "", "", "Tý", "0007"]);
-    sheetUsers.appendRow([4, "Trần Văn Nam", "0987654321", "Tổ Toán - Tin", "tvnam@thcschuvanan.edu.vn", "", "", "Nam", "4321"]);
+    // Định dạng Text thuần túy (@) cho cột C (SĐT), F (Zalo_Chat_ID) và I (Mã PIN) chống mất số 0
+    try {
+      sheetUsers.getRange("C:C").setNumberFormat("@");
+      sheetUsers.getRange("F:F").setNumberFormat("@");
+      sheetUsers.getRange("I:I").setNumberFormat("@");
+    } catch (eFmt) {}
+
+    // Thêm dữ liệu mẫu danh bạ với tiền tố ' bắt buộc
+    sheetUsers.appendRow([1, "Ban Giám hiệu", "'02553850001", "Ban Giám hiệu", "bgh-dakha@quangngai.gov.vn", "", "", "BGH", "'0001"]);
+    sheetUsers.appendRow([2, "Ngô Thị Liền", "'0905123456", "Ban Giám hiệu", "cva.lien@quangngai.gov.vn", "", "", "Liền", "'3456"]);
+    sheetUsers.appendRow([3, "Hà Văn Tý", "'0912345678", "Tổ Toán - Tin", "cva.ty@thcschuvanan.edu.vn", "", "", "Tý", "'0007"]);
+    sheetUsers.appendRow([4, "Trần Văn Nam", "'0987654321", "Tổ Toán - Tin", "tvnam@thcschuvanan.edu.vn", "", "", "Nam", "'4321"]);
   } else {
     // Tự động kiểm tra và thêm tiêu đề cột 9 "Mã PIN" nếu bảng hiện tại chưa có
     try {
@@ -122,6 +129,9 @@ function initSheetsIfMissing() {
           .setFontColor("#ffffff")
           .setFontWeight("bold");
       }
+      sheetUsers.getRange("C:C").setNumberFormat("@");
+      sheetUsers.getRange("F:F").setNumberFormat("@");
+      sheetUsers.getRange("I:I").setNumberFormat("@");
     } catch (eH) {}
   }
 
@@ -543,23 +553,24 @@ function processUnifiedZaloMessage(chatId, rawText) {
   // ----------------------------------------------------------------------------
   // 1. LIÊN KẾT TÀI KHOẢN QUA SỐ ĐIỆN THOẠI (Dành cho Giáo viên)
   // ----------------------------------------------------------------------------
-  // Khắc phục DEFECT-ZALO-04: Bắt buộc cú pháp LK <SĐT> <PIN> để ngăn chặn Account Takeover
-  var linkPattern = text.match(/^(LK|LIENKET)\s+([0-9]{9,11})\s+([0-9A-Za-z]{4,8})$/i);
+  // Khắc phục DEFECT-ZALO-04: Bắt buộc cú pháp LK <SĐT> <PIN> để ngăn chặn Account Takeover (hỗ trợ PIN 1-8 ký tự, hỗ trợ SĐT có định dạng)
+  var linkPattern = text.match(/^(LK|LIENKET)\s+([\+0-9\s\-\.\(\)]{9,25})\s+([0-9A-Za-z]{1,8})$/i);
   if (linkPattern) {
     if (chatId) {
-      return handleSecurePhoneMapping(chatId, linkPattern[2], linkPattern[3]);
+      return handleSecurePhoneMapping(chatId, linkPattern[2].trim(), linkPattern[3].trim());
     }
   }
 
   // Nếu người dùng chỉ gõ trơ trọi số điện thoại, hướng dẫn bảo mật định danh
   var rawDigits = text.replace(/[^0-9]/g, "");
-  if (rawDigits.length >= 9 && rawDigits.length <= 11 && !clean.startsWith("tkb") && !clean.startsWith("lop")) {
-    var phone4 = rawDigits.slice(-4);
+  if (rawDigits.length >= 9 && rawDigits.length <= 12 && !clean.startsWith("tkb") && !clean.startsWith("lop")) {
+    var normRaw = normalizePhone(rawDigits);
+    var phone4 = normRaw.length >= 4 ? normRaw.slice(-4) : "1234";
     return "🔐 BẢO VỆ ĐỊNH DANH GIÁO VIÊN:\n\n" +
            "Để bảo vệ quyền riêng tư hồ sơ giáo án, Thầy/Cô vui lòng nhắn cú pháp kèm Mã PIN EduSign cá nhân:\n" +
-           "👉 Cú pháp: LK " + rawDigits + " [MãPIN]\n\n" +
+           "👉 Cú pháp: LK " + normRaw + " [MãPIN]\n\n" +
            "📌 Thầy/Cô có thể xem Mã PIN tại mục 'Thông tin cá nhân & Zalo' trên web EduSign, hoặc dùng ngay 4 số cuối SĐT (" + phone4 + "):\n" +
-           "👉 Ví dụ nhắn: LK " + rawDigits + " " + phone4;
+           "👉 Ví dụ nhắn: LK " + normRaw + " " + phone4;
   }
 
   // ----------------------------------------------------------------------------
@@ -1517,11 +1528,13 @@ function handleSecurePhoneMapping(chatId, phoneInput, secretPin) {
   var storedPin = "";
 
   for (var i = 1; i < data.length; i++) {
-    if (normalizePhone(String(data[i][2])) === normPhone) {
+    var rawRowPhone = String(data[i][2] || "").trim();
+    if (normalizePhone(rawRowPhone) === normPhone) {
       matchedRow = i + 1;
       teacherName = data[i][1];
       department = data[i][3];
-      storedPin = String(data[i][8] || "").trim(); // Cột 9: Mã PIN bí mật
+      var rawPinVal = data[i][8];
+      storedPin = (rawPinVal !== undefined && rawPinVal !== null) ? String(rawPinVal).replace(/^'+/, "").trim() : ""; // Cột 9: Mã PIN bí mật
       break;
     }
   }
@@ -1530,16 +1543,50 @@ function handleSecurePhoneMapping(chatId, phoneInput, secretPin) {
     return "⚠️ Số điện thoại [" + phoneInput + "] không có trong danh bạ trường THCS Chu Văn An.\n\nThầy/Cô vui lòng liên hệ Ban Quản trị nhà trường để kiểm tra cập nhật số điện thoại.";
   }
 
-  // Kiểm tra mã PIN (khớp với Mã PIN được cấp hoặc 4 số cuối SĐT)
-  var pinClean = String(secretPin || "").trim();
-  var phone4 = normPhone.slice(-4);
+  // Phòng thủ đa tầng cho Mã PIN:
+  // Nếu storedPin trên Sheet bị lưu số đơn lẻ (7 -> 0007 do Google Sheet ép kiểu số), tự động bù padStart(4, '0')
+  if (storedPin && /^\d+$/.test(storedPin) && storedPin.length < 4) {
+    storedPin = storedPin.padStart(4, "0");
+  }
+
+  // Chuẩn hóa PIN người dùng gửi: loại bỏ dấu nháy, tự động padStart(4, '0') nếu là số < 4 chữ số
+  var pinClean = String(secretPin || "").replace(/^'+/, "").trim();
+  if (pinClean && /^\d+$/.test(pinClean) && pinClean.length < 4) {
+    pinClean = pinClean.padStart(4, "0");
+  }
+
+  var phone4 = normPhone.length >= 4 ? normPhone.slice(-4) : "1234";
   var validPin = storedPin || phone4;
-  if (pinClean !== validPin && pinClean !== phone4) {
-    return "❌ Mã PIN bảo mật không chính xác!\n\n💡 Thầy/Cô chỉ cần nhắn cú pháp kèm 4 số cuối SĐT (" + phone4 + "):\n👉 LK " + phoneInput + " " + phone4;
+  if (pinClean !== validPin) {
+    if (storedPin) {
+      return "❌ Mã PIN bảo mật không chính xác!\n\n💡 Tài khoản của Thầy/Cô đã được cài đặt Mã PIN bảo mật riêng. Vui lòng kiểm tra lại tại website EduSign hoặc liên hệ Quản trị viên.";
+    } else {
+      return "❌ Mã PIN bảo mật không chính xác!\n\n💡 Thầy/Cô chỉ cần nhắn cú pháp kèm 4 số cuối SĐT (" + phone4 + "):\n👉 LK " + phoneInput + " " + phone4;
+    }
   }
 
   sheet.getRange(matchedRow, 6).setValue(String(chatId));
   sheet.getRange(matchedRow, 7).setValue(new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }));
+
+  // Cơ chế Tự phục hồi dữ liệu (Self-Healing): Tự động chuẩn hóa lại SĐT và Mã PIN trên Google Sheet nếu bị mất số 0
+  try {
+    var cellPhone = sheet.getRange(matchedRow, 3);
+    if (typeof cellPhone.setNumberFormat === 'function') cellPhone.setNumberFormat("@");
+    if (normPhone) {
+      var currentPhone = String(data[matchedRow - 1][2] || "");
+      if (currentPhone !== normPhone && currentPhone !== ("'" + normPhone)) {
+        cellPhone.setValue("'" + normPhone);
+      }
+    }
+    if (storedPin) {
+      var cellPin = sheet.getRange(matchedRow, 9);
+      if (typeof cellPin.setNumberFormat === 'function') cellPin.setNumberFormat("@");
+      var currentPin = String(data[matchedRow - 1][8] || "");
+      if (currentPin !== storedPin && currentPin !== ("'" + storedPin)) {
+        cellPin.setValue("'" + storedPin);
+      }
+    }
+  } catch (eHeal) {}
 
   return "🎉 LIÊN KẾT ZALO THÀNH CÔNG!\n\n" +
          "👤 Thầy/Cô: " + teacherName + "\n" +
@@ -1944,20 +1991,37 @@ function handleSyncTeacher(postData) {
       shortName = parts[parts.length - 1];
     }
 
-    // Nếu chưa có PIN, tự động dùng 4 số cuối SĐT làm fallback mặc định
+    // Chuẩn hóa SĐT và PIN bảo đảm giữ nguyên 100% số 0 ở đầu
     var normPhone = normalizePhone(phone);
-    if (!pinCode && normPhone.length >= 4) {
-      pinCode = normPhone.slice(-4);
+    var finalPhone = normPhone || String(phone || "").replace(/^'+/, "").trim();
+
+    if (!pinCode && finalPhone.length >= 4) {
+      pinCode = finalPhone.slice(-4);
     }
+    if (!pinCode) {
+      pinCode = "1234";
+    }
+    var pinClean = String(pinCode).replace(/^'+/, "").trim();
+    if (/^\d+$/.test(pinClean) && pinClean.length < 4) {
+      pinClean = pinClean.padStart(4, "0");
+    }
+
+    try {
+      if (typeof sheetUsers.getRange === "function") {
+        sheetUsers.getRange("C:C").setNumberFormat("@");
+        sheetUsers.getRange("F:F").setNumberFormat("@");
+        sheetUsers.getRange("I:I").setNumberFormat("@");
+      }
+    } catch (eFmt) {}
 
     var data = sheetUsers.getDataRange().getValues();
     var matchedRow = -1;
 
     // 1. Tìm theo Số điện thoại trước
-    if (normPhone) {
+    if (finalPhone) {
       for (var i = 1; i < data.length; i++) {
         var rowPhone = normalizePhone(String(data[i][2]));
-        if (rowPhone && rowPhone === normPhone) {
+        if (rowPhone && rowPhone === finalPhone) {
           matchedRow = i + 1;
           break;
         }
@@ -1979,13 +2043,21 @@ function handleSyncTeacher(postData) {
     if (matchedRow !== -1) {
       // Cập nhật dòng đã có
       if (fullName) sheetUsers.getRange(matchedRow, 2).setValue(fullName);
-      if (phone) sheetUsers.getRange(matchedRow, 3).setValue(phone);
+      if (finalPhone) {
+        var cellP = sheetUsers.getRange(matchedRow, 3);
+        try { if (typeof cellP.setNumberFormat === "function") cellP.setNumberFormat("@"); } catch (e) {}
+        cellP.setValue("'" + finalPhone);
+      }
       if (department) sheetUsers.getRange(matchedRow, 4).setValue(department);
       if (email) sheetUsers.getRange(matchedRow, 5).setValue(email);
       if (shortName) sheetUsers.getRange(matchedRow, 8).setValue(shortName);
-      if (pinCode) sheetUsers.getRange(matchedRow, 9).setValue(pinCode);
+      if (pinClean) {
+        var cellPin = sheetUsers.getRange(matchedRow, 9);
+        try { if (typeof cellPin.setNumberFormat === "function") cellPin.setNumberFormat("@"); } catch (e) {}
+        cellPin.setValue("'" + pinClean);
+      }
 
-      Logger.log("✅ Đã cập nhật giáo viên dòng " + matchedRow + ": " + fullName + " (" + phone + ") - PIN: " + pinCode);
+      Logger.log("✅ Đã cập nhật giáo viên dòng " + matchedRow + ": " + fullName + " (" + finalPhone + ") - PIN: " + pinClean);
       return {
         success: true,
         action_performed: "UPDATED",
@@ -1995,19 +2067,29 @@ function handleSyncTeacher(postData) {
     } else {
       // Thêm mới dòng
       var newStt = Math.max(1, data.length);
+      var phoneText = finalPhone ? ("'" + finalPhone) : "";
+      var pinText = pinClean ? ("'" + pinClean) : "";
       sheetUsers.appendRow([
         newStt,
         fullName,
-        phone,
+        phoneText,
         department,
         email,
         "", // Zalo_Chat_ID ban đầu để trống (sẽ được điền khi GV gửi tin LK)
         "", // Ngày Liên Kết
         shortName,
-        pinCode
+        pinText
       ]);
+      try {
+        var lastR = sheetUsers.getLastRow();
+        if (typeof sheetUsers.getRange === "function") {
+          sheetUsers.getRange(lastR, 3).setNumberFormat("@");
+          sheetUsers.getRange(lastR, 6).setNumberFormat("@");
+          sheetUsers.getRange(lastR, 9).setNumberFormat("@");
+        }
+      } catch (eRowFmt) {}
 
-      Logger.log("✅ Đã thêm mới giáo viên vào Sheet: " + fullName + " (" + phone + ") - PIN: " + pinCode);
+      Logger.log("✅ Đã thêm mới giáo viên vào Sheet: " + fullName + " (" + finalPhone + ") - PIN: " + pinClean);
       return {
         success: true,
         action_performed: "CREATED",
@@ -2686,14 +2768,16 @@ function getChatIdByPhone(phoneNumber) {
 function normalizePhone(p) {
   if (!p) return "";
   var clean = String(p).replace(/[^0-9]/g, "");
-  if (clean.startsWith("84") && clean.length >= 10) {
-    clean = "0" + clean.slice(2);
+  if (clean.startsWith("840") && clean.length >= 11) {
+    clean = clean.slice(2); // "+840818810007" -> "0818810007"
+  } else if (clean.startsWith("84") && clean.length >= 10) {
+    clean = "0" + clean.slice(2); // "84818810007" -> "0818810007"
   }
   if (clean.length === 9 && !clean.startsWith("0")) {
-    clean = "0" + clean;
+    clean = "0" + clean; // "818810007" -> "0818810007"
   }
   if (clean.length === 10 && !clean.startsWith("0") && clean.startsWith("2")) {
-    clean = "0" + clean;
+    clean = "0" + clean; // "2553850001" -> "02553850001" (Đầu số bàn Quảng Ngãi)
   }
   return clean;
 }
@@ -2768,6 +2852,10 @@ if (typeof module !== "undefined" && module.exports) {
     sendMorningBriefGroup: sendMorningBriefGroup,
     generateMorningSchoolBriefMessage: generateMorningSchoolBriefMessage,
     fetchSchoolTimetableData: fetchSchoolTimetableData,
-    getSessionSpan: getSessionSpan
+    getSessionSpan: getSessionSpan,
+    handleSyncTeacher: handleSyncTeacher,
+    handleSyncTeachersBatch: handleSyncTeachersBatch,
+    handleSecurePhoneMapping: handleSecurePhoneMapping,
+    initSheetsIfMissing: initSheetsIfMissing
   };
 }
