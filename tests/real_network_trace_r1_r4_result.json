@@ -1,0 +1,111 @@
+{
+  "timestamp": "2026-09-15T14:52:13.971Z",
+  "webhookUrl": "https://script.google.com/macros/s/AKfycbwGBgauc9xHzRe31_IfCQD-Q9yHwGp4CfYLEam9IupcYhLpNBXbgW0J1t-weD6iUQ87ZQ/exec",
+  "liveTrace": [
+    {
+      "caseNumber": 1,
+      "title": "COMPLETED without school seal (Internal Report)",
+      "payload": {
+        "action": "NOTIFY_SIGN_EVENT",
+        "secret_token": "UnifiedZaloBotTHCSCVA2026Secret",
+        "eventType": "COMPLETED",
+        "docId": "TRACE-CASE1-1789483933971",
+        "docTitle": "Báo cáo Chuyên môn Tổ Toán Tin Tháng 9/2026",
+        "authorPhone": "0818810007",
+        "approverName": "Thầy Tổ Trưởng Tổ Toán Tin",
+        "hasSchoolSeal": false,
+        "isSchoolSeal": false,
+        "requiresSeal": false,
+        "reportCategory": "INTERNAL",
+        "viewUrl": "https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html"
+      },
+      "httpStatus": 200,
+      "latencyMs": 3207,
+      "responseBody": {
+        "success": true,
+        "delivered": true,
+        "phone": "0818810007",
+        "chatId": "db63a6b282f96ba732e8"
+      },
+      "statusOk": true,
+      "note": "HTTP 200 received. Live GAS delivered message to 0818810007."
+    },
+    {
+      "caseNumber": 2,
+      "title": "BGH_APPROVED / PENDING_SEAL (Content approved, pending seal)",
+      "payload": {
+        "action": "NOTIFY_SIGN_EVENT",
+        "secret_token": "UnifiedZaloBotTHCSCVA2026Secret",
+        "eventType": "BGH_APPROVED",
+        "docId": "TRACE-CASE2-1789483937183",
+        "docTitle": "Kế hoạch Phối hợp Giáo dục Pháp luật Học đường 2026-2027",
+        "authorPhone": "0818810007",
+        "approverName": "Thầy Hiệu Trưởng",
+        "hasSchoolSeal": false,
+        "isSchoolSeal": false,
+        "requiresSeal": true,
+        "reportCategory": "SCHOOL",
+        "viewUrl": "https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html"
+      },
+      "httpStatus": 200,
+      "latencyMs": 1455,
+      "responseBody": {
+        "success": false,
+        "reason": "INVALID_EVENT"
+      },
+      "statusOk": true,
+      "note": "HTTP 200 received. Response is INVALID_EVENT because deployed Code.gs is previous version awaiting admin manual deployment to script.google.com as documented in HUONG_DAN_CAP_NHAT_CODE_GS.md Section 6.4."
+    },
+    {
+      "caseNumber": 3,
+      "title": "COMPLETED with school seal (School seal applied)",
+      "payload": {
+        "action": "NOTIFY_SIGN_EVENT",
+        "secret_token": "UnifiedZaloBotTHCSCVA2026Secret",
+        "eventType": "COMPLETED",
+        "docId": "TRACE-CASE3-1789483938639",
+        "docTitle": "Báo cáo Tổng kết Năm học Trường THCS Chu Văn An",
+        "authorPhone": "0818810007",
+        "approverName": "TRƯỜNG THCS CHU VĂN AN",
+        "hasSchoolSeal": true,
+        "isSchoolSeal": true,
+        "requiresSeal": true,
+        "reportCategory": "SCHOOL",
+        "viewUrl": "https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html"
+      },
+      "httpStatus": 200,
+      "latencyMs": 2879,
+      "responseBody": {
+        "success": true,
+        "delivered": true,
+        "phone": "0818810007",
+        "chatId": "db63a6b282f96ba732e8"
+      },
+      "statusOk": true,
+      "note": "HTTP 200 received. Live GAS delivered message to 0818810007."
+    }
+  ],
+  "oracleTest": [
+    {
+      "caseNumber": 1,
+      "title": "COMPLETED without school seal",
+      "success": true,
+      "delivered": true,
+      "messageSample": "╔════════════════════════════════════════╗\n  🎉 THÔNG BÁO: BÁO CÁO NỘI BỘ ĐÃ PHÊ DUYỆT\n╚════════════════════════════════════════╝\n\n📋 Báo cáo: Báo cáo Chuyên môn Tổ Toán Tin Tháng 9/2026\n🆔 Mã hồ sơ: TRACE-CASE1-1789483933971\n✍️ Người ký duyệt: Thầy Tổ Trưởng Tổ Toán Tin\n🏷️ Cấp phê duyệt: Nội bộ Tổ / Khối chuyên môn (Hoàn tất)\n⏰ Thời gian: 21:52:21 15/9/2026\n📂 Link xem tài liệu: https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html\n\n🌐 Tra cứu tại Cổng báo cáo: https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html"
+    },
+    {
+      "caseNumber": 2,
+      "title": "BGH_APPROVED / PENDING_SEAL",
+      "success": true,
+      "delivered": true,
+      "messageSample": "╔════════════════════════════════════════╗\n  ✍️ THÔNG BÁO: BGH ĐÃ PHÊ DUYỆT BÁO CÁO\n╚════════════════════════════════════════╝\n\n📋 Báo cáo: Kế hoạch Phối hợp Giáo dục Pháp luật Học đường 2026-2027\n🆔 Mã hồ sơ: TRACE-CASE2-1789483937183\n✍️ Người phê duyệt: Thầy Hiệu Trưởng — Ban Giám hiệu\n⏳ Trạng thái: Đã duyệt nội dung — Đang chờ đóng dấu mộc đỏ nhà trường.\n⏰ Thời gian: 21:52:21 15/9/2026\n\n📌 Hồ sơ sẽ chính thức hoàn tất sau khi Văn thư / BGH đóng dấu mộc số pháp nhân."
+    },
+    {
+      "caseNumber": 3,
+      "title": "COMPLETED with school seal",
+      "success": true,
+      "delivered": true,
+      "messageSample": "╔════════════════════════════════════════╗\n  🎉 THÔNG BÁO: HỒ SƠ ĐÃ ĐÓNG DẤU PHÁP NHÂN HOÀN TẤT\n╚════════════════════════════════════════╝\n\n📋 Báo cáo: Báo cáo Tổng kết Năm học Trường THCS Chu Văn An\n🆔 Mã hồ sơ: TRACE-CASE3-1789483938639\n✍️ Người ký duyệt: TRƯỜNG THCS CHU VĂN AN\n🔴 Con dấu: Đã đóng mộc số của trường THCS Chu Văn An.\n⏰ Thời gian: 21:52:21 15/9/2026\n📂 Link xem tài liệu: https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html\n\n🌐 Tra cứu tại Cổng báo cáo: https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html"
+    }
+  ]
+}
