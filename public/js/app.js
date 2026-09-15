@@ -2249,6 +2249,18 @@ function handleTeacherFileSelect(event) {
 }
 
 function processSelectedFile(file) {
+  const docType = document.querySelector('input[name="docTypeChoice"]:checked')?.value || 'LESSON_PLAN';
+  if (docType === 'REPORT' && !getSelectedReportCategory()) {
+    handleClearFile();
+    showModalAlert(
+      'Chưa chọn phân loại báo cáo',
+      'Vui lòng chọn <strong>Báo cáo Nội bộ (Tổ / Khối)</strong> hoặc <strong>Báo cáo Trình Nhà Trường</strong> trước khi tải tệp lên.',
+      'warning'
+    );
+    highlightReportCategoryRequirement();
+    return;
+  }
+
   const ext = file.name.split('.').pop().toLowerCase();
   if (!['docx', 'doc', 'pdf'].includes(ext)) {
     showModalAlert(
@@ -2379,25 +2391,120 @@ function handleClearFile() {
   updateTeacherButtonStates();
 }
 
+function getSelectedReportCategory() {
+  const docType = document.querySelector('input[name="docTypeChoice"]:checked')?.value || 'LESSON_PLAN';
+  if (docType !== 'REPORT') return null;
+  return document.querySelector('input[name="reportCategoryChoice"]:checked')?.value || null;
+}
+
+function handleDropzoneClick() {
+  const docType = document.querySelector('input[name="docTypeChoice"]:checked')?.value || 'LESSON_PLAN';
+  if (docType === 'REPORT' && !getSelectedReportCategory()) {
+    showModalAlert(
+      'Chưa chọn phân loại báo cáo',
+      'Vui lòng chọn <strong>Báo cáo Nội bộ (Tổ / Khối)</strong> hoặc <strong>Báo cáo Trình Nhà Trường</strong> trước khi chọn tệp tải lên.',
+      'warning'
+    );
+    highlightReportCategoryRequirement();
+    return;
+  }
+  document.getElementById('teacherFileInput')?.click();
+}
+
+function highlightReportCategoryRequirement() {
+  const sec = document.getElementById('sectionReportCategoryChoice');
+  const badge = document.getElementById('badgeReportCategoryWarning');
+  if (sec) {
+    sec.classList.remove('hidden');
+    sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    sec.classList.add('ring-4', 'ring-rose-400', 'ring-offset-2');
+    setTimeout(() => sec.classList.remove('ring-4', 'ring-rose-400', 'ring-offset-2'), 2500);
+  }
+  if (badge) {
+    badge.classList.add('animate-bounce');
+    setTimeout(() => badge.classList.remove('animate-bounce'), 2500);
+  }
+}
+
+function handleReportCategoryChange() {
+  const cat = getSelectedReportCategory();
+  const labelInternal = document.getElementById('labelReportInternal');
+  const labelSchool = document.getElementById('labelReportSchool');
+  const badgeWarning = document.getElementById('badgeReportCategoryWarning');
+
+  if (badgeWarning) badgeWarning.classList.add('hidden');
+
+  if (cat === 'INTERNAL_REPORT') {
+    labelInternal?.classList.add('border-purple-500', 'bg-purple-50/50');
+    labelInternal?.classList.remove('border-slate-200');
+    labelSchool?.classList.remove('border-purple-500', 'bg-purple-50/50');
+    labelSchool?.classList.add('border-slate-200');
+  } else if (cat === 'SCHOOL_REPORT') {
+    labelSchool?.classList.add('border-purple-500', 'bg-purple-50/50');
+    labelSchool?.classList.remove('border-slate-200');
+    labelInternal?.classList.remove('border-purple-500', 'bg-purple-50/50');
+    labelInternal?.classList.add('border-slate-200');
+  }
+  populateNextSigners();
+}
+
+function isUserBgh(u) {
+  if (!u) return false;
+  return Boolean(
+    u.role === 'BGH' || 
+    u.role === 'ADMIN' || 
+    Boolean(u.canStampSeal) || 
+    u.departmentId === 'dept_bgh' || 
+    (u.department && u.department.toLowerCase().includes('giám hiệu')) ||
+    (u.roleTitle && (u.roleTitle.toLowerCase().includes('hiệu trưởng') || u.roleTitle.toLowerCase().includes('giám hiệu')))
+  );
+}
+
 function handleDocTypeChange() {
   const choice = document.querySelector('input[name="docTypeChoice"]:checked')?.value || 'LESSON_PLAN';
   const secReport = document.getElementById('sectionReportForward');
+  const secCategory = document.getElementById('sectionReportCategoryChoice');
   const labelLesson = document.getElementById('labelTypeLesson');
   const labelReport = document.getElementById('labelTypeReport');
+  const badgeWarning = document.getElementById('badgeReportCategoryWarning');
 
   if (choice === 'LESSON_PLAN') {
     if (secReport) secReport.classList.add('hidden');
+    if (secCategory) secCategory.classList.add('hidden');
     labelLesson?.classList.add('border-brand-500', 'bg-brand-50/40');
     labelLesson?.classList.remove('border-slate-200');
     labelReport?.classList.remove('border-brand-500', 'bg-brand-50/40');
     labelReport?.classList.add('border-slate-200');
+    
+    // Reset reportCategoryChoice
+    const rdoChecked = document.querySelector('input[name="reportCategoryChoice"]:checked');
+    if (rdoChecked) rdoChecked.checked = false;
+    const labelInternal = document.getElementById('labelReportInternal');
+    const labelSchool = document.getElementById('labelReportSchool');
+    labelInternal?.classList.remove('border-purple-500', 'bg-purple-50/50');
+    labelInternal?.classList.add('border-slate-200');
+    labelSchool?.classList.remove('border-purple-500', 'bg-purple-50/50');
+    labelSchool?.classList.add('border-slate-200');
+    if (badgeWarning) badgeWarning.classList.remove('hidden');
   } else {
     if (secReport) secReport.classList.remove('hidden');
+    if (secCategory) secCategory.classList.remove('hidden');
     labelReport?.classList.add('border-brand-500', 'bg-brand-50/40');
     labelReport?.classList.remove('border-slate-200');
     labelLesson?.classList.remove('border-brand-500', 'bg-brand-50/40');
     labelLesson?.classList.add('border-slate-200');
-    populateNextSigners();
+
+    const cat = getSelectedReportCategory();
+    if (!cat) {
+      if (badgeWarning) badgeWarning.classList.remove('hidden');
+      const select = document.getElementById('selectNextSigner');
+      if (select) {
+        select.innerHTML = '<option value="">-- Vui lòng chọn phân loại báo cáo ở trên trước --</option>';
+      }
+    } else {
+      if (badgeWarning) badgeWarning.classList.add('hidden');
+      populateNextSigners();
+    }
   }
 }
 
@@ -2405,15 +2512,60 @@ function populateNextSigners() {
   const select = document.getElementById('selectNextSigner');
   if (!select) return;
 
+  const choice = document.querySelector('input[name="docTypeChoice"]:checked')?.value || 'LESSON_PLAN';
+  if (choice !== 'REPORT') return;
+
+  const reportCat = getSelectedReportCategory();
+  if (!reportCat) {
+    select.innerHTML = '<option value="">-- Vui lòng chọn phân loại báo cáo ở trên trước --</option>';
+    return;
+  }
+
   const currentId = appState.currentUser?.id;
   const currentUsername = appState.currentUser?.username;
-  const colleagues = appState.users.filter(u => u && u.id !== currentId && u.username !== currentUsername && !u.isLocked);
+  let colleagues = (appState.users || []).filter(u => u && u.id !== currentId && u.username !== currentUsername && !u.isLocked);
 
-  select.innerHTML = '<option value="">-- Chọn đồng nghiệp / Lãnh đạo ký tiếp theo --</option>';
+  if (reportCat === 'INTERNAL_REPORT') {
+    // 1) INTERNAL_REPORT (Báo cáo Chuyên môn Nội bộ - Tổ/Khối): requiresSeal: false.
+    // Dropdown selectNextSigner only displays Tổ trưởng and colleagues in the department, hides BGH.
+    colleagues = colleagues.filter(u => !isUserBgh(u));
+    const curDept = (appState.currentUser?.department || appState.currentUser?.departmentName || '').trim().toLowerCase();
+    colleagues.sort((a, b) => {
+      const aIsHead = a.role === 'HEAD_DEPT' || (a.roleTitle && a.roleTitle.toLowerCase().includes('tổ trưởng'));
+      const bIsHead = b.role === 'HEAD_DEPT' || (b.roleTitle && b.roleTitle.toLowerCase().includes('tổ trưởng'));
+      if (aIsHead && !bIsHead) return -1;
+      if (!aIsHead && bIsHead) return 1;
+      const aSame = curDept && (a.department || a.departmentName || '').toLowerCase().includes(curDept);
+      const bSame = curDept && (b.department || b.departmentName || '').toLowerCase().includes(curDept);
+      if (aSame && !bSame) return -1;
+      if (!aSame && bSame) return 1;
+      return (a.fullName || a.username || '').localeCompare(b.fullName || b.username || '');
+    });
+    select.innerHTML = '<option value="">-- Chọn Tổ trưởng / Đồng nghiệp trong tổ ký tiếp theo --</option>';
+  } else {
+    // 2) SCHOOL_REPORT (Báo cáo / Biên bản Trình Nhà Trường - Cấp BGH): requiresSeal: true.
+    // Dropdown selectNextSigner displays both Tổ trưởng and BGH.
+    colleagues.sort((a, b) => {
+      const aIsBgh = isUserBgh(a);
+      const bIsBgh = isUserBgh(b);
+      if (aIsBgh && !bIsBgh) return -1;
+      if (!aIsBgh && bIsBgh) return 1;
+      const aIsHead = a.role === 'HEAD_DEPT' || (a.roleTitle && a.roleTitle.toLowerCase().includes('tổ trưởng'));
+      const bIsHead = b.role === 'HEAD_DEPT' || (b.roleTitle && b.roleTitle.toLowerCase().includes('tổ trưởng'));
+      if (aIsHead && !bIsHead) return -1;
+      if (!aIsHead && bIsHead) return 1;
+      return (a.fullName || a.username || '').localeCompare(b.fullName || b.username || '');
+    });
+    select.innerHTML = '<option value="">-- Chọn Tổ trưởng hoặc Lãnh đạo BGH ký tiếp theo --</option>';
+  }
+
   colleagues.forEach(u => {
     const opt = document.createElement('option');
     opt.value = u.id || u.username;
-    opt.textContent = `${u.fullName || u.username} (${u.departmentName || u.department || 'Chung'} - ${u.roleTitle || u.role || 'Giáo viên'})`;
+    const isBgh = isUserBgh(u);
+    const isHead = u.role === 'HEAD_DEPT' || (u.roleTitle && u.roleTitle.toLowerCase().includes('tổ trưởng'));
+    const roleBadge = isBgh ? ' [BGH]' : (isHead ? ' [Tổ trưởng]' : '');
+    opt.textContent = `${u.fullName || u.username}${roleBadge} (${u.departmentName || u.department || 'Chung'} - ${u.roleTitle || u.role || 'Giáo viên'})`;
     select.appendChild(opt);
   });
 }
@@ -3474,6 +3626,12 @@ function handleResubmitReturnedDoc(docId) {
   if (rdoReport) {
     rdoReport.checked = true;
     handleDocTypeChange();
+    const isSchool = Boolean(doc.reportCategory === 'SCHOOL' || doc.requiresSeal);
+    const rdoCat = document.querySelector(`input[name="reportCategoryChoice"][value="${isSchool ? 'SCHOOL_REPORT' : 'INTERNAL_REPORT'}"]`);
+    if (rdoCat) {
+      rdoCat.checked = true;
+      handleReportCategoryChange();
+    }
   }
   // Gợi ý chọn tệp mới
   showToast(`Đang mở chế độ sửa hồ sơ: ${doc.title}. Vui lòng chọn tệp Word/PDF đã sửa để ký lại!`, 'info');
@@ -3721,19 +3879,26 @@ function renderSchoolReportsTable() {
     const isCreator = (doc.creatorId === currentUserId || doc.authorId === currentUserId || doc.creatorUsername === user?.username);
     
     let statusBadge = '';
-    if (isCompleted) {
+    if (doc.status === 'PENDING_SEAL') {
+      statusBadge = `
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200" title="Ban Giám hiệu đã ký duyệt — Chờ BGH/Văn thư đóng dấu mộc đỏ nhà trường">
+          <span class="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
+          Chờ đóng dấu mộc đỏ
+        </span>
+      `;
+    } else if (isCompleted) {
       if (hasSchoolSeal) {
         statusBadge = `
           <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Đã đầy đủ chữ ký duyệt và con dấu pháp nhân nhà trường">
             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            Đã ký duyệt & Đóng dấu
+            Đã ký duyệt &amp; Đóng dấu
           </span>
         `;
       } else {
         statusBadge = `
-          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200" title="Đã được BGH phê duyệt nhưng chưa đóng dấu nhà trường">
-            <span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
-            Đã duyệt (Chờ đóng dấu)
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-teal-50 text-teal-700 border border-teal-200" title="Báo cáo chuyên môn nội bộ đã được Tổ trưởng phê duyệt hoàn tất (không dấu)">
+            <span class="w-1.5 h-1.5 rounded-full bg-teal-500"></span>
+            Đã duyệt nội bộ
           </span>
         `;
       }
@@ -3791,11 +3956,18 @@ function renderSchoolReportsTable() {
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
               <span>Xem</span>
             </button>
-            ${(isCompleted && !hasSchoolSeal && (isAdminOrBgh || Boolean(user?.canStampSeal))) ? `
-              <button onclick="handleOpenReportToStampSeal('${escapeHtml(doc.id)}')" title="Đóng dấu số nhà trường bằng USB Token con dấu" class="min-h-[36px] px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs transition flex items-center gap-1 cursor-pointer shadow-2xs">
-                <span class="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse"></span>
-                <span>Đóng dấu</span>
-              </button>
+            ${(doc.status === 'PENDING_SEAL' || (isCompleted && !hasSchoolSeal && doc.requiresSeal)) ? `
+              ${(isAdminOrBgh || Boolean(user?.canStampSeal)) ? `
+                <button onclick="handleOpenReportToStampSeal('${escapeHtml(doc.id)}')" title="Đóng dấu số nhà trường bằng USB Token con dấu" class="min-h-[36px] px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs transition flex items-center gap-1 cursor-pointer shadow-2xs">
+                  <span class="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse"></span>
+                  <span>Đóng dấu</span>
+                </button>
+              ` : `
+                <span class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-semibold" title="Chờ BGH hoặc Văn thư thực hiện đóng dấu mộc đỏ nhà trường">
+                  <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                  Chờ BGH/Văn thư đóng dấu mộc đỏ nhà trường
+                </span>
+              `}
             ` : ''}
             ${(driveUrl || (doc.fileBase64 && isCompleted) || doc.fileBase64) ? `
               <button onclick="handleOpenReportDriveLink('${escapeHtml(doc.id)}')" title="Mở tệp trên Google Drive" class="min-w-[36px] min-h-[36px] p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-xs transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs">
@@ -4722,19 +4894,26 @@ function renderAdminReportsTable() {
     const isReturned = (doc.status === 'RETURNED' || doc.status === 'REJECTED');
 
     let statusBadge = '';
-    if (isCompleted) {
+    if (doc.status === 'PENDING_SEAL') {
+      statusBadge = `
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200" title="Ban Giám hiệu đã ký duyệt — Chờ BGH/Văn thư đóng dấu mộc đỏ nhà trường">
+          <span class="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse"></span>
+          Chờ đóng dấu mộc đỏ
+        </span>
+      `;
+    } else if (isCompleted) {
       if (hasSchoolSeal) {
         statusBadge = `
           <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Đã đầy đủ chữ ký duyệt và con dấu pháp nhân nhà trường">
             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            Đã duyệt & Đóng dấu
+            Đã duyệt &amp; Đóng dấu
           </span>
         `;
       } else {
         statusBadge = `
-          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200" title="Đã được BGH phê duyệt nhưng chưa đóng dấu nhà trường">
-            <span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
-            Đã duyệt (Chờ đóng dấu)
+          <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-teal-50 text-teal-700 border border-teal-200" title="Báo cáo chuyên môn nội bộ đã được Tổ trưởng phê duyệt hoàn tất (không dấu)">
+            <span class="w-1.5 h-1.5 rounded-full bg-teal-500"></span>
+            Đã duyệt nội bộ
           </span>
         `;
       }
@@ -4791,11 +4970,18 @@ function renderAdminReportsTable() {
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
               <span>Xem</span>
             </button>
-            ${(isCompleted && !hasSchoolSeal && canStamp) ? `
-              <button onclick="handleOpenReportToStampSeal('${escapeHtml(doc.id)}')" title="Đóng dấu số nhà trường bằng USB Token con dấu" class="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[11px] transition flex items-center gap-1 cursor-pointer">
-                <span class="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse"></span>
-                <span>Đóng dấu</span>
-              </button>
+            ${(doc.status === 'PENDING_SEAL' || (isCompleted && !hasSchoolSeal && doc.requiresSeal)) ? `
+              ${canStamp ? `
+                <button onclick="handleOpenReportToStampSeal('${escapeHtml(doc.id)}')" title="Đóng dấu số nhà trường bằng USB Token con dấu" class="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[11px] transition flex items-center gap-1 cursor-pointer">
+                  <span class="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse"></span>
+                  <span>Đóng dấu</span>
+                </button>
+              ` : `
+                <span class="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-semibold" title="Chờ BGH hoặc Văn thư thực hiện đóng dấu mộc đỏ nhà trường">
+                  <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                  Chờ BGH/Văn thư đóng dấu mộc đỏ nhà trường
+                </span>
+              `}
             ` : ''}
             ${(driveUrl || (doc.fileBase64 && isCompleted) || doc.fileBase64) ? `
               <button onclick="handleOpenReportDriveLink('${escapeHtml(doc.id)}')" title="Mở tệp trên Google Drive" class="px-2 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[11px] transition flex items-center gap-1 cursor-pointer">
@@ -5476,6 +5662,7 @@ async function openPendingDocumentToSign(docId) {
       originLabel.textContent = `Từ: ${doc.creatorName || 'Đồng nghiệp'} (${sigLen} chữ ký đã có)`;
     }
 
+    const isRequiresSeal = Boolean(doc?.requiresSeal || doc?.reportCategory === 'SCHOOL');
     const isBghUser = (appState.currentUser?.role === 'BGH' || appState.currentUser?.role === 'ADMIN' || Boolean(appState.currentUser?.canStampSeal) || appState.currentUser?.departmentId === 'dept_bgh');
     if (cbFinal) {
       cbFinal.checked = isBghUser;
@@ -5484,7 +5671,11 @@ async function openPendingDocumentToSign(docId) {
       boxNext.classList.remove('hidden');
     }
     if (isBghUser) {
-      showToast('Ban Giám hiệu ký duyệt: Hồ sơ sẽ được phê duyệt & đóng dấu đỏ Nhà trường để hoàn tất ban hành.', 'info');
+      if (isRequiresSeal) {
+        showToast('Ban Giám hiệu ký duyệt: Hồ sơ sẽ chuyển sang trạng thái Chờ đóng dấu mộc đỏ Nhà trường.', 'info');
+      } else {
+        showToast('Lãnh đạo ký duyệt: Hồ sơ báo cáo nội bộ sẽ được phê duyệt hoàn tất.', 'info');
+      }
     }
     if (noteInput) noteInput.value = '';
 
@@ -5703,10 +5894,19 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
     .slice(0, 8) || 'CVA';
   const trackingId = `BC-${new Date().getFullYear()}-${deptClean}-${Math.floor(100000 + Math.random() * 900000)}`;
 
+  const reportCatChoice = getSelectedReportCategory() || 'INTERNAL_REPORT';
+  const reportCategory = (reportCatChoice === 'SCHOOL_REPORT') ? 'SCHOOL' : 'INTERNAL';
+  const requiresSeal = (reportCategory === 'SCHOOL');
+
   const payload = {
     id: trackingId,
     title: session.docTitle || teacherSelectedFile?.name || 'Báo cáo chuyên môn',
     docType: 'REPORT',
+    category: 'REPORT',
+    reportCategory: reportCategory,
+    categoryType: reportCatChoice,
+    requiresSeal: requiresSeal,
+    hasSchoolSeal: false,
     fileBase64: signedPdfBase64,
     nextSignerId: nextSignerId,
     nextSignerName: nextSignerName,
@@ -5748,6 +5948,10 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
       id: docId,
       title: payload.title,
       docType: 'REPORT',
+      category: 'REPORT',
+      reportCategory: reportCategory,
+      requiresSeal: requiresSeal,
+      hasSchoolSeal: false,
       fileBase64: signedPdfBase64,
       status: 'PENDING_SIGN',
       creatorId: currentUserId,
@@ -5757,6 +5961,8 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
       assignedToName: nextSignerName,
       currentSignerId: nextSignerId,
       currentSignerName: nextSignerName,
+      nextSignerId: nextSignerId,
+      nextSignerName: nextSignerName,
       note: note,
       signatures: [{
         step: 1,
@@ -5802,7 +6008,10 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
         authorPhone: authorPhone,
         recipientPhone: recipientPhone,
         recipientName: nextSignerName,
-        senderName: user?.fullName || currentUsername
+        senderName: user?.fullName || currentUsername,
+        reportCategory: reportCategory,
+        requiresSeal: requiresSeal,
+        hasSchoolSeal: false
       });
     } catch(zErr) {
       console.warn('[Zalo Client] Lỗi gửi thông báo submit:', zErr);
@@ -5907,21 +6116,43 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
       note: note
     });
 
-    if (isFinal || isRealSchoolSeal) {
+    const requiresSeal = Boolean(doc.requiresSeal || doc.reportCategory === 'SCHOOL');
+    if (isRealSchoolSeal) {
       doc.status = 'COMPLETED';
       doc.completedAt = nowStr;
-      doc.finalSigner = isRealSchoolSeal ? 'TRƯỜNG THCS CHU VĂN AN' : (user?.fullName || currentUsername);
-      doc.hasSchoolSeal = Boolean(isRealSchoolSeal || doc.hasSchoolSeal);
-      if (isRealSchoolSeal) {
-        doc.sealedAt = nowStr;
-      }
+      doc.finalSigner = 'TRƯỜNG THCS CHU VĂN AN';
+      doc.hasSchoolSeal = true;
+      doc.sealedAt = nowStr;
       doc.assignedTo = null;
       doc.currentSignerId = null;
+      doc.nextSignerId = null;
+    } else if (isFinal) {
+      if (requiresSeal) {
+        doc.status = 'PENDING_SEAL';
+        doc.completedAt = null;
+        doc.hasSchoolSeal = false;
+        doc.bghApprovedAt = nowStr;
+        doc.bghSigner = user?.fullName || currentUsername;
+        doc.assignedTo = null;
+        doc.currentSignerId = null;
+        doc.nextSignerId = null;
+      } else {
+        doc.status = 'COMPLETED';
+        doc.completedAt = nowStr;
+        doc.finalSigner = user?.fullName || currentUsername;
+        doc.hasSchoolSeal = false;
+        doc.assignedTo = null;
+        doc.currentSignerId = null;
+        doc.nextSignerId = null;
+      }
     } else {
+      doc.status = 'PENDING_SIGN';
       doc.assignedTo = nextSignerId;
       doc.assignedToName = nextSignerName;
       doc.currentSignerId = nextSignerId;
       doc.currentSignerName = nextSignerName;
+      doc.nextSignerId = nextSignerId;
+      doc.nextSignerName = nextSignerName;
     }
 
     if (firebaseDb) {
@@ -5933,13 +6164,16 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
         body: JSON.stringify(doc)
       });
     }
-    result = { success: true, isCompleted: isFinal };
+    result = { success: true, isCompleted: isRealSchoolSeal || (isFinal && !requiresSeal), isPendingSeal: Boolean(isFinal && requiresSeal && !isRealSchoolSeal) };
   }
 
   const docSnapshot = currentChainedPendingDoc ? { ...currentChainedPendingDoc } : {};
+  const requiresSeal = Boolean(docSnapshot.requiresSeal || docSnapshot.reportCategory === 'SCHOOL');
+  const isTrulyCompleted = Boolean(isRealSchoolSeal || (isFinal && !requiresSeal));
+  const isPendingSeal = Boolean(isFinal && requiresSeal && !isRealSchoolSeal);
 
   // Tự động đẩy tệp PDF đã hoàn tất / đóng dấu lên Google Drive của trường
-  if (isFinal || isRealSchoolSeal) {
+  if (isTrulyCompleted) {
     updateViewerSigningLoader('Đang đồng bộ báo cáo lên Google Drive nhà trường...', 'Đang Lưu Trữ');
     try {
       const dr = await syncDocumentToGoogleDrive(docSnapshot, signedPdfBase64);
@@ -5953,7 +6187,16 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
     await new Promise(r => setTimeout(r, 600));
   }
 
-  hideViewerSigningLoader(isFinal ? '🎉 Báo cáo đã hoàn tất và niêm phong thành công!' : '🎉 Đã ký duyệt và chuyển tiếp thành công!', () => {
+  let finishToastMsg = '🎉 Đã ký duyệt và chuyển tiếp thành công!';
+  if (isRealSchoolSeal) {
+    finishToastMsg = '🎉 Hồ sơ đã được đóng dấu pháp nhân hoàn tất!';
+  } else if (isPendingSeal) {
+    finishToastMsg = '✍️ Ban Giám hiệu đã ký duyệt! Hồ sơ chuyển sang trạng thái Chờ đóng dấu mộc đỏ.';
+  } else if (isFinal) {
+    finishToastMsg = '🎉 Báo cáo nội bộ đã được phê duyệt hoàn tất!';
+  }
+
+  hideViewerSigningLoader(finishToastMsg, () => {
     // Đóng viewer và dọn sạch session
     closeModal('modalDocViewer');
     if (currentPdfBlobUrl) {
@@ -5963,23 +6206,31 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
     currentChainedPendingDoc = null;
     currentActiveSignSession = null;
 
-    if (isFinal) {
-      // Gửi thông báo Zalo Bot: Báo cáo đã ký duyệt và đóng dấu hoàn tất
+    const authorId = docSnapshot.creatorId || docSnapshot.authorId || docSnapshot.creatorUsername || docSnapshot.authorUsername;
+    const authorObj = appState.users?.find(x => x.id === authorId || x.username === authorId);
+    const authorPhone = authorObj?.phone || ((authorId === 'user_cvaty' || authorId === 'cva.ty') ? '0818810007' : '');
+    const docTitle = docSnapshot.title || session.docTitle || 'Báo cáo chuyên môn';
+    const viewUrl = docSnapshot.driveInfo?.viewUrl || 'https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html';
+    const approverName = isRealSchoolSeal ? 'TRƯỜNG THCS CHU VĂN AN' : (user?.fullName || currentUsername);
+
+    if (isRealSchoolSeal) {
+      // Trường hợp 3 - Đã đóng dấu mộc đỏ hoàn tất (eventType: "COMPLETED", hasSchoolSeal: true)
       try {
-        const authorId = docSnapshot.creatorId || docSnapshot.authorId || docSnapshot.creatorUsername || docSnapshot.authorUsername;
-        const authorObj = appState.users?.find(x => x.id === authorId || x.username === authorId);
-        const authorPhone = authorObj?.phone || ((authorId === 'user_cvaty' || authorId === 'cva.ty') ? '0818810007' : '');
         sendZaloNotificationClientSide({
           action: 'NOTIFY_SIGN_EVENT',
           eventType: 'COMPLETED',
           docId: docId,
-          docTitle: docSnapshot.title || session.docTitle || 'Báo cáo chuyên môn',
+          docTitle: docTitle,
           authorPhone: authorPhone,
-          approverName: user?.fullName || currentUsername,
-          viewUrl: docSnapshot.driveInfo?.viewUrl || 'https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html'
+          approverName: approverName,
+          viewUrl: viewUrl,
+          hasSchoolSeal: true,
+          isSchoolSeal: true,
+          requiresSeal: true,
+          reportCategory: 'SCHOOL'
         });
       } catch (zErr) {
-        console.warn('[Zalo Client] Lỗi gửi Zalo hoàn tất:', zErr);
+        console.warn('[Zalo Client] Lỗi gửi Zalo hoàn tất có dấu:', zErr);
       }
 
       // NƠI 2: TỰ ĐỘNG TẢI TỆP VỀ MÁY TÍNH / THƯ MỤC ONEDRIVE
@@ -6001,29 +6252,100 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
       } catch (e) {}
 
       showModalAlert(
-        'Hoàn tất quy trình ký & Lưu 2 nơi',
-        '🎉 Chúc mừng! Thầy/Cô đã ký xác nhận hoàn thành báo cáo chuyên môn.<br><br>' +
+        'Hoàn tất đóng dấu pháp nhân & Lưu 2 nơi',
+        '🎉 Chúc mừng! Hồ sơ đã được đóng dấu mộc đỏ pháp nhân của Trường THCS Chu Văn An và hoàn tất ban hành.<br><br>' +
         '✅ <strong>Nơi 1:</strong> Đã tự động lưu trữ vào Google Drive nhà trường.<br>' +
         '✅ <strong>Nơi 2:</strong> Bản sao hoàn tất đã được tải về máy tính (thư mục OneDrive/Downloads).',
+        'success'
+      );
+    } else if (isPendingSeal) {
+      // Trường hợp 2 - BGH đã ký duyệt nhưng chờ đóng dấu (eventType: "BGH_APPROVED" hoặc PENDING_SEAL)
+      try {
+        sendZaloNotificationClientSide({
+          action: 'NOTIFY_SIGN_EVENT',
+          eventType: 'BGH_APPROVED',
+          docId: docId,
+          docTitle: docTitle,
+          authorPhone: authorPhone,
+          approverName: user?.fullName || currentUsername,
+          viewUrl: viewUrl,
+          hasSchoolSeal: false,
+          isSchoolSeal: false,
+          requiresSeal: true,
+          reportCategory: 'SCHOOL'
+        });
+      } catch (zErr) {
+        console.warn('[Zalo Client] Lỗi gửi Zalo BGH phê duyệt:', zErr);
+      }
+
+      showModalAlert(
+        'Ban Giám hiệu đã phê duyệt',
+        '✍️ Ban Giám hiệu đã ký duyệt nội dung báo cáo thành công!<br><br>' +
+        '⏳ <strong>Trạng thái:</strong> Chờ BGH hoặc Văn thư đóng dấu mộc đỏ nhà trường bằng USB Token pháp nhân để hoàn tất ban hành chính thức.',
+        'info'
+      );
+    } else if (isFinal) {
+      // Trường hợp 1 - Báo cáo Nội bộ Hoàn tất (eventType: "COMPLETED", hasSchoolSeal: false)
+      try {
+        sendZaloNotificationClientSide({
+          action: 'NOTIFY_SIGN_EVENT',
+          eventType: 'COMPLETED',
+          docId: docId,
+          docTitle: docTitle,
+          authorPhone: authorPhone,
+          approverName: user?.fullName || currentUsername,
+          viewUrl: viewUrl,
+          hasSchoolSeal: false,
+          isSchoolSeal: false,
+          requiresSeal: false,
+          reportCategory: 'INTERNAL'
+        });
+      } catch (zErr) {
+        console.warn('[Zalo Client] Lỗi gửi Zalo báo cáo nội bộ:', zErr);
+      }
+
+      // NƠI 2: TỰ ĐỘNG TẢI TỆP VỀ MÁY TÍNH / THƯ MỤC ONEDRIVE
+      try {
+        const byteChars = atob(signedPdfBase64.replace(/^data:application\/pdf;base64,/, ''));
+        const byteNums = new Array(byteChars.length);
+        for (let i = 0; i < byteChars.length; i++) byteNums[i] = byteChars.charCodeAt(i);
+        const blob = new Blob([new Uint8Array(byteNums)], { type: 'application/pdf' });
+        const dlUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = dlUrl;
+        a.download = `[THCS_CVA]_${(session.docTitle || 'BaoCao').replace(/\.pdf$/i, '')}_HoanTat.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          document.body.removeChild(a);
+          URL.revokeObjectURL(dlUrl);
+        }, 1000);
+      } catch (e) {}
+
+      showModalAlert(
+        'Hoàn tất phê duyệt báo cáo nội bộ',
+        '🎉 Chúc mừng! Báo cáo chuyên môn nội bộ đã được Tổ trưởng phê duyệt hoàn tất.<br><br>' +
+        '✅ <strong>Nơi 1:</strong> Đã tự động lưu trữ vào Google Drive nhà trường.<br>' +
+        '✅ <strong>Nơi 2:</strong> Bản sao đã được tải về máy tính (thư mục OneDrive/Downloads).',
         'success'
       );
     } else {
       // Chuyển tiếp tới người ký tiếp theo -> Bắn tin Zalo cho người duyệt tiếp theo
       if (nextSignerId) {
         try {
-          const authorId = docSnapshot.creatorId || docSnapshot.authorId || docSnapshot.creatorUsername || docSnapshot.authorUsername;
-          const authorObj = appState.users?.find(x => x.id === authorId || x.username === authorId);
-          const authorPhone = authorObj?.phone || ((authorId === 'user_cvaty' || authorId === 'cva.ty') ? '0818810007' : (user?.phone || ''));
           const nextUserObj = appState.users?.find(x => x.id === nextSignerId || x.username === nextSignerId);
           sendZaloNotificationClientSide({
             action: 'NOTIFY_SIGN_EVENT',
             eventType: 'FORWARDED',
             docId: docId,
-            docTitle: docSnapshot.title || session.docTitle || 'Báo cáo chuyên môn',
+            docTitle: docTitle,
             authorPhone: authorPhone,
             recipientPhone: nextUserObj?.phone || '',
             recipientName: nextSignerName,
-            senderName: user?.fullName || currentUsername
+            senderName: user?.fullName || currentUsername,
+            hasSchoolSeal: false,
+            requiresSeal: requiresSeal,
+            reportCategory: docSnapshot.reportCategory || (requiresSeal ? 'SCHOOL' : 'INTERNAL')
           });
         } catch (zErr) {}
       }
@@ -7466,6 +7788,16 @@ function handleViewerConfirmSignClick() {
   } else {
     const choice = document.querySelector('input[name="docTypeChoice"]:checked')?.value || 'LESSON_PLAN';
     if (choice === 'REPORT') {
+      const reportCat = getSelectedReportCategory();
+      if (!reportCat) {
+        highlightReportCategoryRequirement();
+        showModalAlert(
+          'Chưa phân loại báo cáo',
+          'Vui lòng chọn <strong>Báo cáo Chuyên môn Nội bộ</strong> (Tổ/Khối) hoặc <strong>Báo cáo Trình Ban Giám Hiệu</strong> trước khi thực hiện ký số.',
+          'warning'
+        );
+        return;
+      }
       const nextId = document.getElementById('selectNextSigner')?.value;
       if (!nextId) {
         showModalAlert(

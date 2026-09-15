@@ -660,6 +660,42 @@
               </div>
             </label>
           </div>
+
+          <!-- Phân loại Báo cáo Chuyên môn (Bắt buộc chọn khi chọn Báo cáo) -->
+          <div id="sectionReportCategoryChoice" class="hidden mt-3 p-3.5 rounded-2xl bg-purple-50/60 border border-purple-200 space-y-2.5 transition-all">
+            <div class="flex items-center justify-between">
+              <label class="block text-xs font-bold text-purple-900 uppercase tracking-wider">
+                📌 Chọn Cấp độ &amp; Mục đích Báo cáo <span class="text-rose-500 font-black">*</span>
+              </label>
+              <span id="badgeReportCategoryWarning" class="text-[11px] font-semibold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                <span>⚠️</span> <span>Bắt buộc chọn loại báo cáo trước khi tải tệp</span>
+              </span>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <label class="flex items-start gap-2.5 p-3 rounded-xl border-2 border-slate-200 bg-white cursor-pointer transition-all hover:border-purple-300" id="labelReportInternal">
+                <input type="radio" name="reportCategoryChoice" value="INTERNAL_REPORT" onchange="handleReportCategoryChange()" class="mt-0.5 text-purple-600 focus:ring-purple-500">
+                <div>
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-xs font-bold text-slate-900">🟢 Báo cáo Nội bộ (Tổ / Khối)</span>
+                    <span class="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">Không dấu</span>
+                  </div>
+                  <div class="text-[11px] text-slate-500 mt-1 leading-snug">Kế hoạch tổ, biên bản họp tổ, chuyên đề... Chỉ Tổ trưởng ký duyệt là xong (Không cần BGH, không đóng dấu).</div>
+                </div>
+              </label>
+
+              <label class="flex items-start gap-2.5 p-3 rounded-xl border-2 border-slate-200 bg-white cursor-pointer transition-all hover:border-purple-300" id="labelReportSchool">
+                <input type="radio" name="reportCategoryChoice" value="SCHOOL_REPORT" onchange="handleReportCategoryChange()" class="mt-0.5 text-purple-600 focus:ring-purple-500">
+                <div>
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-xs font-bold text-slate-900">🔴 Báo cáo Trình Nhà Trường</span>
+                    <span class="text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-rose-50 text-rose-700 border border-rose-200">Cần mộc đỏ</span>
+                  </div>
+                  <div class="text-[11px] text-slate-500 mt-1 leading-snug">Báo cáo tổng kết, tờ trình, biên bản kiểm tra... Trình Ban Giám hiệu duyệt và bắt buộc đóng dấu mộc đỏ trường học.</div>
+                </div>
+              </label>
+            </div>
+          </div>
         </div>
 
         <!-- 2. Khu vực Tải tệp lên (Dropzone) -->
@@ -671,8 +707,8 @@
             tabindex="0"
             role="button"
             aria-label="Tải lên tệp Word hoặc PDF kế hoạch bài dạy"
-            onclick="document.getElementById('teacherFileInput').click()"
-            onkeydown="if(event.key === 'Enter' || event.key === ' ') { event.preventDefault(); document.getElementById('teacherFileInput').click(); }"
+            onclick="handleDropzoneClick()"
+            onkeydown="if(event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handleDropzoneClick(); }"
             class="border-2 border-dashed border-slate-300 hover:border-brand-500 focus:border-brand-600 focus:ring-4 focus:ring-brand-500/15 focus:outline-none bg-slate-50 hover:bg-brand-50/20 rounded-2xl p-6 text-center cursor-pointer transition-all">
             <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-white shadow-sm text-brand-600 mb-3 border border-slate-200">
               <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>

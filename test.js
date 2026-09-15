@@ -1037,6 +1037,175 @@ async function runTests() {
     }, { signatureImage: dummySignature });
     assert(testSigUploadRes.status === 200 && testSigUploadRes.body.success, 'Lưu mẫu chữ ký cá nhân và kích hoạt đồng bộ Firebase thành công');
 
+    // =========================================================================
+    // 📌 7. Kiểm tra Phân loại Báo cáo Chuyên môn & Ma trận Trạng thái Ký số (R1, R2, R3, R4)
+    // =========================================================================
+    console.log('\n📌 7. Kiểm tra Phân loại Báo cáo Chuyên môn & Ma trận Trạng thái Ký số (R1, R2, R3, R4):');
+
+    // 7.1 Kiểm tra tính toàn vẹn 100% SHA-256 trên các bản sao gương (Mirror Parity)
+    const crypto = require('crypto');
+    const getFileHash = (filePath) => {
+      const content = fs.readFileSync(path.join(__dirname, filePath));
+      return crypto.createHash('sha256').update(content).digest('hex');
+    };
+
+    const hashIndexRoot = getFileHash('index.html');
+    const hashIndexPublic = getFileHash('public/index.html');
+    const hashIndexDocs = getFileHash('docs/index.html');
+    assert(hashIndexRoot === hashIndexPublic && hashIndexRoot === hashIndexDocs, '100% SHA-256 Parity: index.html == public/index.html == docs/index.html');
+
+    const hashAppRoot = getFileHash('js/app.js');
+    const hashAppPublic = getFileHash('public/js/app.js');
+    const hashAppDocs = getFileHash('docs/js/app.js');
+    assert(hashAppRoot === hashAppPublic && hashAppRoot === hashAppDocs, '100% SHA-256 Parity: js/app.js == public/js/app.js == docs/js/app.js');
+
+    // 7.2 Kiểm tra Báo cáo Nội bộ (INTERNAL_REPORT): Tổ trưởng ký hoàn tất, KHÔNG con dấu mộc đỏ
+    const internalDocForwardRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: TEST_PORT,
+      path: '/api/documents/forward',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${teacherToken}`,
+        'x-user-id': 'hvty',
+        'x-user-fullname': encodeURIComponent('Thầy Hà Văn Tý'),
+        'x-user-dept': encodeURIComponent('Tổ Toán - Tin')
+      }
+    }, {
+      title: 'Biên bản Sinh hoạt Tổ Toán - Tin Tuần 1',
+      docType: 'REPORT',
+      reportCategory: 'INTERNAL',
+      categoryType: 'INTERNAL_REPORT',
+      requiresSeal: false,
+      nextSignerId: 'tvnam',
+      nextSignerName: 'Thầy Trần Văn Nam',
+      fileBase64: sampleBase64
+    });
+
+    assert(internalDocForwardRes.status === 200 && internalDocForwardRes.body.success, 'Khởi tạo và chuyển tiếp Báo cáo Nội bộ (INTERNAL_REPORT) thành công');
+    const internalDocId = internalDocForwardRes.body.data?.id;
+    assert(internalDocId && internalDocId.startsWith('BC-'), 'Báo cáo nội bộ được gán mã định danh chuẩn BC-YYYY-DEPT-XXXXXX');
+
+    // Tổ trưởng ký bước cuối cùng xác nhận hoàn tất báo cáo nội bộ
+    const internalSignStepRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: TEST_PORT,
+      path: `/api/documents/${internalDocId}/sign-step`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`,
+        'x-user-id': 'tvnam',
+        'x-user-fullname': encodeURIComponent('Thầy Trần Văn Nam'),
+        'x-user-dept': encodeURIComponent('Tổ Toán - Tin'),
+        'x-user-role': 'HEAD_DEPT'
+      }
+    }, {
+      fileBase64: sampleBase64,
+      isFinal: true,
+      isSchoolSeal: false,
+      note: 'Đã duyệt nội dung sinh hoạt chuyên môn'
+    });
+
+    assert(internalSignStepRes.status === 200 && internalSignStepRes.body.success, 'Tổ trưởng ký duyệt bước cuối báo cáo nội bộ thành công');
+    assert(internalSignStepRes.body.isCompleted === true, 'Báo cáo nội bộ đạt trạng thái hoàn thành (isCompleted: true) sau khi Tổ trưởng duyệt');
+    assert(internalSignStepRes.body.isPendingSeal === false, 'Báo cáo nội bộ KHÔNG chuyển sang trạng thái chờ đóng dấu (isPendingSeal: false)');
+    assert(internalSignStepRes.body.data?.status === 'COMPLETED', 'Trạng thái văn bản nội bộ cập nhật thành COMPLETED');
+    assert(internalSignStepRes.body.data?.hasSchoolSeal === false, 'Báo cáo nội bộ KHÔNG có con dấu mộc đỏ nhà trường (hasSchoolSeal: false)');
+
+    // 7.3 Kiểm tra Báo cáo Cấp Trường (SCHOOL_REPORT): BGH duyệt cá nhân -> PENDING_SEAL, Đóng mộc -> COMPLETED
+    const schoolDocForwardRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: TEST_PORT,
+      path: '/api/documents/forward',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${teacherToken}`,
+        'x-user-id': 'hvty',
+        'x-user-fullname': encodeURIComponent('Thầy Hà Văn Tý'),
+        'x-user-dept': encodeURIComponent('Tổ Toán - Tin')
+      }
+    }, {
+      title: 'Báo cáo Tổng kết Chuyên môn Trình Nhà Trường Học Kỳ 1',
+      docType: 'REPORT',
+      reportCategory: 'SCHOOL',
+      categoryType: 'SCHOOL_REPORT',
+      requiresSeal: true,
+      nextSignerId: 'admin',
+      nextSignerName: 'Cô Ngô Thị Liền',
+      fileBase64: sampleBase64
+    });
+
+    assert(schoolDocForwardRes.status === 200 && schoolDocForwardRes.body.success, 'Khởi tạo và chuyển tiếp Báo cáo Cấp Trường (SCHOOL_REPORT) thành công');
+    const schoolDocId = schoolDocForwardRes.body.data?.id;
+
+    // BGH ký duyệt cá nhân (isFinal: true, nhưng requiresSeal: true nên PHẢI chuyển sang PENDING_SEAL)
+    const bghSignStepRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: TEST_PORT,
+      path: `/api/documents/${schoolDocId}/sign-step`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`,
+        'x-user-id': 'admin',
+        'x-user-fullname': encodeURIComponent('Cô Ngô Thị Liền'),
+        'x-user-dept': encodeURIComponent('Ban Giám hiệu'),
+        'x-user-role': 'BGH'
+      }
+    }, {
+      fileBase64: sampleBase64,
+      isFinal: true,
+      isSchoolSeal: false,
+      note: 'Ban Giám hiệu nhất trí phê duyệt nội dung báo cáo'
+    });
+
+    assert(bghSignStepRes.status === 200 && bghSignStepRes.body.success, 'BGH ký duyệt cá nhân thành công');
+    assert(bghSignStepRes.body.isPendingSeal === true, 'Hồ sơ cấp trường chuyển sang trạng thái CHỜ ĐÓNG DẤU (isPendingSeal: true)');
+    assert(bghSignStepRes.body.isCompleted === false, 'Hồ sơ cấp trường CHƯA ĐƯỢC coi là hoàn tất khi mới có chữ ký BGH (isCompleted: false)');
+    assert(bghSignStepRes.body.data?.status === 'PENDING_SEAL', 'Trạng thái dữ liệu là PENDING_SEAL');
+    assert(bghSignStepRes.body.data?.hasSchoolSeal === false, 'Hồ sơ chờ đóng dấu chưa có mộc đỏ (hasSchoolSeal: false)');
+
+    // Văn thư / BGH cắm USB Token đóng dấu mộc đỏ nhà trường (isSchoolSeal: true)
+    const sealStepRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: TEST_PORT,
+      path: `/api/documents/${schoolDocId}/sign-step`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`,
+        'x-user-id': 'admin',
+        'x-user-fullname': encodeURIComponent('Văn thư / Ban Giám hiệu'),
+        'x-user-dept': encodeURIComponent('Văn phòng'),
+        'x-user-role': 'ADMIN'
+      }
+    }, {
+      fileBase64: sampleBase64,
+      isFinal: true,
+      isSchoolSeal: true,
+      role: 'CON_DAU_NHA_TRUONG',
+      note: 'Đã đóng dấu mộc đỏ pháp nhân trường THCS Chu Văn An'
+    });
+
+    assert(sealStepRes.status === 200 && sealStepRes.body.success, 'Đóng dấu mộc đỏ pháp nhân nhà trường thành công');
+    assert(sealStepRes.body.isCompleted === true, 'Hồ sơ cấp trường đạt trạng thái HOÀN TẤT (isCompleted: true) sau khi đóng dấu');
+    assert(sealStepRes.body.isPendingSeal === false, 'Hồ sơ không còn ở trạng thái chờ dấu (isPendingSeal: false)');
+    assert(sealStepRes.body.data?.status === 'COMPLETED', 'Trạng thái cập nhật thành COMPLETED');
+    assert(sealStepRes.body.data?.hasSchoolSeal === true, 'Hồ sơ được xác nhận đã có dấu mộc đỏ (hasSchoolSeal: true)');
+
+    // 7.4 Kiểm tra Code Google Apps Script và Zalo Notify Service
+    const gasCode = fs.readFileSync(path.join(__dirname, 'google-apps-script-zalo-edusign.js'), 'utf8');
+    assert(gasCode.includes('eventType === "BGH_APPROVED"') || gasCode.includes('eventType === "PENDING_SEAL"'), 'GAS hỗ trợ sự kiện BGH_APPROVED / PENDING_SEAL');
+    assert(gasCode.includes('hasSchoolSeal'), 'GAS kiểm tra cờ hasSchoolSeal trong sự kiện COMPLETED');
+    assert(gasCode.includes('BÁO CÁO NỘI BỘ ĐÃ PHÊ DUYỆT'), 'GAS có mẫu thông báo Báo cáo nội bộ phê duyệt (không dấu mộc)');
+    assert(gasCode.includes('HỒ SƠ ĐÃ ĐÓNG DẤU PHÁP NHÂN HOÀN TẤT'), 'GAS có mẫu thông báo Hồ sơ đã đóng dấu pháp nhân hoàn tất');
+    
+    const zaloServiceCode = fs.readFileSync(path.join(__dirname, 'zaloNotifyService.js'), 'utf8');
+    assert(zaloServiceCode.includes('notifyDocumentBghApproved'), 'zaloNotifyService xuất khẩu hàm notifyDocumentBghApproved');
+    assert(zaloServiceCode.includes('UnifiedZaloBotTHCSCVA2026Secret'), 'zaloNotifyService bảo toàn secret_token cho bảo mật webhook');
   } catch (err) {
     assert(false, `Lỗi khi gọi API: ${err.message}`);
   } finally {

@@ -3,18 +3,18 @@
     "hashes": [
       {
         "file": "js\\app.js",
-        "hash": "594d50cb1266a7309a12045ba051c65b02299819240438212bfd4dcd82550944",
-        "size": 435188
+        "hash": "d23a059dbd4ed5220391e740c229aa34a80e5489867167da7b8563b90373337a",
+        "size": 451015
       },
       {
         "file": "public\\js\\app.js",
-        "hash": "594d50cb1266a7309a12045ba051c65b02299819240438212bfd4dcd82550944",
-        "size": 435188
+        "hash": "d23a059dbd4ed5220391e740c229aa34a80e5489867167da7b8563b90373337a",
+        "size": 451015
       },
       {
         "file": "docs\\js\\app.js",
-        "hash": "594d50cb1266a7309a12045ba051c65b02299819240438212bfd4dcd82550944",
-        "size": 435188
+        "hash": "d23a059dbd4ed5220391e740c229aa34a80e5489867167da7b8563b90373337a",
+        "size": 451015
       }
     ],
     "allEqual": true,
@@ -23,7 +23,7 @@
   },
   "probeA": {
     "status": 200,
-    "latencyMs": 1777,
+    "latencyMs": 1913,
     "body": {
       "success": false,
       "error": "UNAUTHORIZED_SECRET_TOKEN"
@@ -32,7 +32,7 @@
   },
   "probeB": {
     "status": 200,
-    "latencyMs": 2676,
+    "latencyMs": 3255,
     "body": {
       "success": true,
       "delivered": true,
@@ -43,12 +43,21 @@
   },
   "probeC": {
     "status": 200,
-    "latencyMs": 2092,
+    "latencyMs": 3128,
     "body": {
       "success": true,
-      "delivered": false,
+      "eventType": "SUBMITTED",
+      "delivered": true,
+      "authorDelivered": true,
+      "authorPhone": "0818810007",
+      "authorChatId": "db63a6b282f96ba732e8",
+      "recipientDelivered": false,
+      "recipientPhone": "0905123456",
+      "recipientChatId": null,
+      "recipientNote": "CHUA_LIEN_KET_ZALO",
+      "authorNote": "",
       "phone": "0905123456",
-      "note": "CHUA_LIEN_KET_ZALO"
+      "chatId": "db63a6b282f96ba732e8"
     },
     "pass": true
   }

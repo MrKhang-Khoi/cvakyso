@@ -102,6 +102,25 @@ Phiên bản cập nhật 2026 giải quyết triệt để 5 bài toán kỹ th
      * **Fallback êm dịu (Graceful Fallback)**: Nếu người duyệt chưa liên kết Zalo, hệ thống tự động ghi nhận `recipientNote: "CHUA_LIEN_KET_ZALO"` và vẫn gửi thành công tin nhắn xác nhận cho tác giả, không gây crash hay chặn luồng.
   3. **Hỗ trợ Sự kiện FORWARDED**: Bổ sung xác nhận chuyển tiếp cho người chuyển và thông báo cho người duyệt tiếp theo.
 
+### 1.7. Nâng Cấp Phân Luồng Thông Báo Zalo Bot: Xóa Bỏ Hoàn Toàn Hardcode Con Dấu Mộc Đỏ
+- **Vấn đề trước đây**: Tại dòng 1885 tệp `Code.gs`, dòng `"🔴 Con dấu: Đã đóng mộc số của trường THCS Chu Văn An"` bị hardcode cho mọi sự kiện `COMPLETED`. Điều này dẫn đến tình trạng khi Báo cáo Chuyên môn Nội bộ chỉ do Tổ trưởng duyệt (không có dấu mộc), hoặc khi BGH mới ký cá nhân, Zalo Bot vẫn phát thông báo khống "Đã đóng mộc số".
+- **Ma trận Thông báo Chuẩn hóa 3 Nhánh**:
+  1. **Nhánh 1 — Báo cáo Chuyên môn Nội bộ Hoàn tất (`eventType: "COMPLETED"`, `hasSchoolSeal: false`)**:
+     * Tiêu đề: `🎉 THÔNG BÁO: BÁO CÁO NỘI BỘ ĐÃ PHÊ DUYỆT`
+     * Người ký duyệt: Họ tên Tổ trưởng chuyên môn
+     * Cấp phê duyệt: `Nội bộ Tổ / Khối chuyên môn (Hoàn tất)`
+     * **TUYỆT ĐỐI KHÔNG CÓ DÒNG CON DẤU MỘC ĐỎ**.
+  2. **Nhánh 2 — BGH Phê Duyệt Chờ Đóng Dấu (`eventType: "BGH_APPROVED"` hoặc `"PENDING_SEAL"`)**:
+     * Tiêu đề: `✍️ THÔNG BÁO: BGH ĐÃ PHÊ DUYỆT BÁO CÁO`
+     * Người phê duyệt: Họ tên Ban Giám hiệu
+     * Trạng thái: `Đã duyệt nội dung — Đang chờ đóng dấu mộc đỏ nhà trường.`
+     * Ghi chú: `📌 Hồ sơ sẽ chính thức hoàn tất sau khi Văn thư / BGH đóng dấu mộc số pháp nhân.`
+  3. **Nhánh 3 — Hồ Sơ Đã Đóng Dấu Pháp Nhân Hoàn Tất (`eventType: "COMPLETED"`, `hasSchoolSeal: true`)**:
+     * Tiêu đề: `🎉 THÔNG BÁO: HỒ SƠ ĐÃ ĐÓNG DẤU PHÁP NHÂN HOÀN TẤT`
+     * Người ký duyệt: Ban Giám hiệu / `TRƯỜNG THCS CHU VĂN AN`
+     * Con dấu: `🔴 Con dấu: Đã đóng mộc số của trường THCS Chu Văn An.`
+     * Kèm liên kết xem tài liệu đã niêm phong mộc đỏ trên Google Drive.
+
 ---
 
 ## 2. KIẾN TRÚC TÍCH HỢP HỆ THỐNG TỔNG QUAN

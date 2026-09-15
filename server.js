@@ -1013,11 +1013,19 @@ app.post('/api/documents/forward', async (req, res) => {
     // Việc lưu trữ Google Drive & Sheets chỉ được kích hoạt khi hồ sơ ĐÃ HOÀN TẤT (COMPLETED).
     let driveResult = null;
 
+    const reportCategory = req.body.reportCategory || (req.body.requiresSeal ? 'SCHOOL' : 'INTERNAL');
+    const categoryType = req.body.categoryType || (reportCategory === 'SCHOOL' ? 'SCHOOL_REPORT' : 'INTERNAL_REPORT');
+    const requiresSeal = Boolean(req.body.requiresSeal === true || reportCategory === 'SCHOOL' || categoryType === 'SCHOOL_REPORT');
+
     const newDoc = {
       id: docId,
       title: title || `Báo cáo chuyên môn ${new Date().toLocaleDateString('vi-VN')}`,
       docType: docType,
       category: 'REPORT',
+      reportCategory: reportCategory,
+      categoryType: categoryType,
+      requiresSeal: requiresSeal,
+      hasSchoolSeal: false,
       fileBase64: fileBase64,
       fileName: savedFileName,
       filePath: `uploads/documents/${savedFileName}`,
@@ -1150,24 +1158,23 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
 
     let driveResult = null;
 
-    if (isFinal || isRealSchoolSeal) {
+    const requiresSeal = Boolean(doc.requiresSeal === true || doc.reportCategory === 'SCHOOL' || doc.categoryType === 'SCHOOL_REPORT' || req.body.requiresSeal === true);
+
+    if (isRealSchoolSeal) {
       doc.status = 'COMPLETED';
       doc.completedAt = nowStr;
-      if (isRealSchoolSeal) {
-        doc.hasSchoolSeal = true;
-      } else {
-        doc.finalSigner = user.fullName || user.username;
-        doc.hasSchoolSeal = Boolean(doc.hasSchoolSeal);
-      }
+      doc.hasSchoolSeal = true;
+      doc.sealedAt = nowStr;
+      doc.finalSigner = 'TRƯỜNG THCS CHU VĂN AN';
       doc.assignedTo = null;
       doc.currentSignerId = null;
       doc.nextSignerId = null;
 
       currentHistory.push({
-        action: isRealSchoolSeal ? 'ĐÓNG_DẤU_NHÀ_TRƯỜNG' : 'KÝ_HOÀN_TẤT_QUY_TRÌNH',
+        action: 'ĐÓNG_DẤU_NHÀ_TRƯỜNG',
         actor: user.fullName || user.username,
         timestamp: nowStr,
-        note: (note || '').trim() || (isRealSchoolSeal ? 'Đã đóng dấu pháp nhân nhà trường' : 'Xác nhận hoàn tất văn bản')
+        note: (note || '').trim() || 'Đã đóng dấu pháp nhân nhà trường'
       });
 
       // 1. Google Drive Nhà trường
@@ -1193,7 +1200,7 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
           authorEmail: authorUser?.email || '',
           signerEmails: signerEmails,
           department: doc.creatorDept || doc.department || 'Báo cáo chuyên môn',
-          approver: isRealSchoolSeal ? 'TRƯỜNG THCS CHU VĂN AN' : (user.fullName || user.username || 'Ban Giám hiệu'),
+          approver: 'TRƯỜNG THCS CHU VĂN AN',
           status: 'ĐÃ KÝ DUYỆT & ĐÓNG DẤU',
           schoolYear: 'Năm học 2026 - 2027'
         };
@@ -1214,10 +1221,10 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
               googleDriveFolder: doc.googleDriveFolder,
               googleDriveFileName: doc.googleDriveFileName,
               driveInfo: doc.driveInfo,
-              hasSchoolSeal: doc.hasSchoolSeal,
-              status: doc.status,
+              hasSchoolSeal: true,
+              status: 'COMPLETED',
               completedAt: doc.completedAt,
-              sealedAt: isRealSchoolSeal ? nowStr : (doc.sealedAt || null),
+              sealedAt: nowStr,
               signatures: currentSignatures,
               updatedAt: nowStr
             })
@@ -1233,6 +1240,138 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
       doc.oneDriveEligible = true;
       doc.oneDriveCategory = 'Báo cáo chuyên môn';
 
+      // 3. Thông báo Zalo hoàn tất có dấu mộc đỏ
+      try {
+        zaloNotifyService.notifyDocumentCompleted(doc, user, driveResult?.viewUrl || '').catch(e => console.warn('[ZaloNotify] Lỗi gửi hoàn tất đóng dấu:', e.message));
+      } catch (zErr) {}
+
+    } else if (isFinal) {
+      if (requiresSeal) {
+        // Ban Giám hiệu ký cá nhân duyệt báo cáo cấp trường: Chuyển sang PENDING_SEAL (chờ đóng dấu mộc đỏ)
+        doc.status = 'PENDING_SEAL';
+        doc.hasSchoolSeal = false;
+        doc.completedAt = null;
+        doc.bghApprovedAt = nowStr;
+        doc.bghSigner = user.fullName || user.username;
+        doc.assignedTo = null;
+        doc.currentSignerId = null;
+        doc.nextSignerId = null;
+
+        currentHistory.push({
+          action: 'BGH_PHÊ_DUYỆT',
+          actor: user.fullName || user.username,
+          timestamp: nowStr,
+          note: (note || '').trim() || 'Ban Giám hiệu đã phê duyệt nội dung, chờ đóng dấu mộc đỏ nhà trường'
+        });
+
+        // Đồng bộ lên Firebase RTDB
+        try {
+          const fbUrl = `https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/documents/${encodeURIComponent(doc.id)}.json`;
+          await fetch(fbUrl, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              status: 'PENDING_SEAL',
+              hasSchoolSeal: false,
+              bghApprovedAt: nowStr,
+              bghSigner: doc.bghSigner,
+              signatures: currentSignatures,
+              updatedAt: nowStr
+            })
+          });
+        } catch (fbSyncErr) {
+          console.warn('[server.js sign-step] Cảnh báo đồng bộ Firebase RTDB:', fbSyncErr.message);
+        }
+
+        // Bắn Zalo BGH_APPROVED
+        try {
+          zaloNotifyService.notifyDocumentBghApproved(doc, user).catch(e => console.warn('[ZaloNotify] Lỗi gửi BGH_APPROVED:', e.message));
+        } catch (zErr) {}
+
+      } else {
+        // Báo cáo chuyên môn nội bộ hoàn tất (không đóng dấu mộc đỏ)
+        doc.status = 'COMPLETED';
+        doc.completedAt = nowStr;
+        doc.finalSigner = user.fullName || user.username;
+        doc.hasSchoolSeal = false;
+        doc.assignedTo = null;
+        doc.currentSignerId = null;
+        doc.nextSignerId = null;
+
+        currentHistory.push({
+          action: 'KÝ_HOÀN_TẤT_QUY_TRÌNH',
+          actor: user.fullName || user.username,
+          timestamp: nowStr,
+          note: (note || '').trim() || 'Xác nhận hoàn tất báo cáo nội bộ'
+        });
+
+        // 1. Google Drive Nhà trường (ĐÃ PHÊ DUYỆT NỘI BỘ)
+        try {
+          const allUsers = (typeof dataStore.getUsers === 'function') ? dataStore.getUsers() : [];
+          const signerEmails = [];
+          currentSignatures.forEach(sig => {
+            const u = allUsers.find(x => x.id === sig.signerId || x.username === sig.signerId);
+            if (u && u.email && !signerEmails.includes(u.email)) signerEmails.push(u.email);
+          });
+          const authorUser = allUsers.find(x => x.id === doc.creatorId || x.username === doc.creatorId);
+          if (authorUser && authorUser.email && !signerEmails.includes(authorUser.email)) {
+            signerEmails.push(authorUser.email);
+          }
+
+          const driveDocMeta = {
+            id: doc.id,
+            docId: doc.id,
+            title: doc.title,
+            docTitle: doc.title,
+            author: doc.creatorName || doc.author,
+            authorName: doc.creatorName || doc.author,
+            authorEmail: authorUser?.email || '',
+            signerEmails: signerEmails,
+            department: doc.creatorDept || doc.department || 'Báo cáo chuyên môn',
+            approver: user.fullName || user.username || 'Tổ trưởng Chuyên môn',
+            status: 'ĐÃ PHÊ DUYỆT NỘI BỘ',
+            schoolYear: 'Năm học 2026 - 2027'
+          };
+          driveResult = await googleDriveService.uploadToGoogleDrive(driveDocMeta, fileBase64);
+          doc.googleDriveUrl = driveResult.viewUrl;
+          doc.googleDriveFolder = driveResult.folderPath;
+          doc.googleDriveFileName = driveResult.fileName;
+          doc.driveInfo = driveResult;
+
+          // Đồng bộ ngay thông tin Google Drive hoàn tất lên Firebase Realtime Database
+          try {
+            const fbUrl = `https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/documents/${encodeURIComponent(doc.id)}.json`;
+            await fetch(fbUrl, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                googleDriveUrl: doc.googleDriveUrl,
+                googleDriveFolder: doc.googleDriveFolder,
+                googleDriveFileName: doc.googleDriveFileName,
+                driveInfo: doc.driveInfo,
+                hasSchoolSeal: false,
+                status: 'COMPLETED',
+                completedAt: doc.completedAt,
+                signatures: currentSignatures,
+                updatedAt: nowStr
+              })
+            });
+          } catch (fbSyncErr) {
+            console.warn('[server.js sign-step] Cảnh báo đồng bộ Firebase RTDB:', fbSyncErr.message);
+          }
+        } catch (driveErr) {
+          console.warn('[KÝ SỐ server.js] Cảnh báo lưu Google Drive:', driveErr.message);
+        }
+
+        // 2. Đánh dấu OneDrive
+        doc.oneDriveEligible = true;
+        doc.oneDriveCategory = 'Báo cáo chuyên môn';
+
+        // 3. Thông báo Zalo hoàn tất nội bộ (không dấu mộc)
+        try {
+          zaloNotifyService.notifyDocumentCompleted(doc, user, driveResult?.viewUrl || '').catch(e => console.warn('[ZaloNotify] Lỗi gửi hoàn tất nội bộ:', e.message));
+        } catch (zErr) {}
+      }
     } else {
       if (!nextSignerId) {
         return res.status(400).json({ success: false, message: 'Vui lòng chọn người ký tiếp theo hoặc đánh dấu Người ký cuối cùng.' });
@@ -1252,6 +1391,10 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
         timestamp: nowStr,
         note: (note || '').trim()
       });
+
+      try {
+        zaloNotifyService.notifyDocumentForwarded(doc, user, nextSignerId).catch(e => console.warn('[ZaloNotify] Lỗi gửi forward:', e.message));
+      } catch (zErr) {}
     }
 
     // Lưu dữ liệu file nhị phân đã ký vào thư mục đệm cục bộ
@@ -1262,7 +1405,7 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
         const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '');
         const rawBuffer = Buffer.from(cleanBase64, 'base64');
         const safeId = id.replace(/[^a-zA-Z0-9_\-]/g, '_');
-        const fname = isFinal ? `Signed_${safeId}.pdf` : `Step_${safeId}_${currentSignatures.length}.pdf`;
+        const fname = (isFinal || isRealSchoolSeal) ? `Signed_${safeId}.pdf` : `Step_${safeId}_${currentSignatures.length}.pdf`;
         const fpath = path.join(uploadDir, fname);
         fs.writeFileSync(fpath, rawBuffer);
         doc.filePath = `uploads/documents/${fname}`;
@@ -1280,15 +1423,27 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
 
     dataStore.updateDocument(id, doc);
 
+    const isTrulyCompleted = Boolean(isRealSchoolSeal || (isFinal && !requiresSeal));
+    const isPendingSeal = Boolean(isFinal && requiresSeal && !isRealSchoolSeal);
+
+    let resMessage = `Đã ký và chuyển tiếp thành công đến ${nextSignerName}!`;
+    if (isRealSchoolSeal) {
+      resMessage = 'Hồ sơ đã được đóng dấu pháp nhân nhà trường và lưu trữ thành công!';
+    } else if (isPendingSeal) {
+      resMessage = 'Ban Giám hiệu đã phê duyệt nội dung. Hồ sơ chuyển sang trạng thái chờ đóng dấu mộc đỏ!';
+    } else if (isFinal) {
+      resMessage = 'Báo cáo chuyên môn nội bộ đã được phê duyệt hoàn tất!';
+    }
+
     res.json({
       success: true,
-      message: isFinal 
-        ? 'Đã hoàn tất quy trình ký báo cáo và lưu trữ 2 nơi thành công!' 
-        : `Đã ký và chuyển tiếp thành công đến ${nextSignerName}!`,
-      isCompleted: Boolean(isFinal),
+      message: resMessage,
+      isCompleted: isTrulyCompleted,
+      isPendingSeal: isPendingSeal,
       data: {
         id: doc.id,
         status: doc.status,
+        hasSchoolSeal: Boolean(doc.hasSchoolSeal),
         driveUrl: doc.googleDriveUrl || null,
         fileName: driveResult?.fileName || `${doc.title}_HoanTat.pdf`
       }

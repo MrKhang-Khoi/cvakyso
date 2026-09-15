@@ -1876,15 +1876,45 @@ function handleEduSignNotification(data) {
                   "📌 Thầy/Cô vui lòng truy cập phần mềm EduSign để chỉnh sửa và nộp lại.";
   } else if (eventType === "COMPLETED") {
     targetPhone = authorPhone;
+    var hasSchoolSeal = Boolean(data.hasSchoolSeal === true || data.isSchoolSeal === true);
+
+    if (hasSchoolSeal) {
+      // Trường hợp 3: Báo cáo cấp trường đã đóng dấu mộc đỏ pháp nhân hoàn tất
+      messageText = "╔════════════════════════════════════════╗\n" +
+                    "  🎉 THÔNG BÁO: HỒ SƠ ĐÃ ĐÓNG DẤU PHÁP NHÂN HOÀN TẤT\n" +
+                    "╚════════════════════════════════════════╝\n\n" +
+                    "📋 Báo cáo: " + docTitle + "\n" +
+                    "🆔 Mã hồ sơ: " + docId + "\n" +
+                    "✍️ Người ký duyệt: " + approverName + "\n" +
+                    "🔴 Con dấu: Đã đóng mộc số của trường THCS Chu Văn An.\n" +
+                    "⏰ Thời gian: " + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + "\n" +
+                    (viewUrl ? ("📂 Link xem tài liệu: " + viewUrl + "\n\n") : "\n") +
+                    "🌐 Tra cứu tại Cổng báo cáo: " + CONFIG.PORTAL_URL;
+    } else {
+      // Trường hợp 1: Báo cáo chuyên môn nội bộ đã được Tổ trưởng phê duyệt (KHÔNG có con dấu)
+      messageText = "╔════════════════════════════════════════╗\n" +
+                    "  🎉 THÔNG BÁO: BÁO CÁO NỘI BỘ ĐÃ PHÊ DUYỆT\n" +
+                    "╚════════════════════════════════════════╝\n\n" +
+                    "📋 Báo cáo: " + docTitle + "\n" +
+                    "🆔 Mã hồ sơ: " + docId + "\n" +
+                    "✍️ Người ký duyệt: " + approverName + "\n" +
+                    "🏷️ Cấp phê duyệt: Nội bộ Tổ / Khối chuyên môn (Hoàn tất)\n" +
+                    "⏰ Thời gian: " + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + "\n" +
+                    (viewUrl ? ("📂 Link xem tài liệu: " + viewUrl + "\n\n") : "\n") +
+                    "🌐 Tra cứu tại Cổng báo cáo: " + CONFIG.PORTAL_URL;
+    }
+  } else if (eventType === "BGH_APPROVED" || eventType === "PENDING_SEAL") {
+    // Trường hợp 2: BGH đã phê duyệt báo cáo cá nhân, chờ đóng dấu mộc đỏ
+    targetPhone = authorPhone;
     messageText = "╔════════════════════════════════════════╗\n" +
-                  "  🎉 THÔNG BÁO: HỒ SƠ ĐÃ ĐƯỢC PHÊ DUYỆT\n" +
+                  "  ✍️ THÔNG BÁO: BGH ĐÃ PHÊ DUYỆT BÁO CÁO\n" +
                   "╚════════════════════════════════════════╝\n\n" +
                   "📋 Báo cáo: " + docTitle + "\n" +
                   "🆔 Mã hồ sơ: " + docId + "\n" +
-                  "✍️ Người ký duyệt: " + approverName + "\n" +
-                  "🔴 Con dấu: Đã đóng mộc số của trường THCS Chu Văn An.\n" +
-                  (viewUrl ? ("📂 Link xem tài liệu: " + viewUrl + "\n\n") : "\n") +
-                  "🌐 Tra cứu tại Cổng báo cáo: " + CONFIG.PORTAL_URL;
+                  "✍️ Người phê duyệt: " + approverName + " — Ban Giám hiệu\n" +
+                  "⏳ Trạng thái: Đã duyệt nội dung — Đang chờ đóng dấu mộc đỏ nhà trường.\n" +
+                  "⏰ Thời gian: " + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + "\n\n" +
+                  "📌 Hồ sơ sẽ chính thức hoàn tất sau khi Văn thư / BGH đóng dấu mộc số pháp nhân.";
   } else if (eventType === "SUBMITTED") {
     var nowStr = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
 
