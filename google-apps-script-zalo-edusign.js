@@ -35,6 +35,9 @@ var CONFIG = {
   // ID file Google Sheets làm cơ sở dữ liệu
   SPREADSHEET_ID: "1Y0HQ2Pi-XvtgmOuPqQK-H8Ay5lzVUCh9uzd54Czll2I", 
   
+  // URL Web App Google Apps Script công khai đã duyệt quyền Anyone
+  WEB_APP_URL: "https://script.google.com/macros/s/AKfycbwGBgauc9xHzRe31_IfCQD-Q9yHwGp4CfYLEam9IupcYhLpNBXbgW0J1t-weD6iUQ87ZQ/exec",
+
   // Tên trường & Cổng thông tin trực tuyến
   SCHOOL_NAME: "TRƯỜNG THCS CHU VĂN AN",
   PORTAL_URL: "https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html",
@@ -178,7 +181,7 @@ function setZaloBotWebhook(customUrl) {
     Logger.log("❌ Vui lòng điền CONFIG.ZALO_BOT_TOKEN!");
     return;
   }
-  var webAppUrl = customUrl || "";
+  var webAppUrl = customUrl || (CONFIG.WEB_APP_URL && CONFIG.WEB_APP_URL.trim() !== "" ? CONFIG.WEB_APP_URL.trim() : "");
   if (!webAppUrl && typeof ScriptApp !== "undefined" && ScriptApp.getService) {
     webAppUrl = ScriptApp.getService().getUrl();
   }
