@@ -25,12 +25,17 @@ async function sendWebhookPost(payloadObj) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
 
+    const payloadWithSecret = {
+      ...payloadObj,
+      secret_token: 'UnifiedZaloBotTHCSCVA2026Secret'
+    };
+
     const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(payloadObj),
+      body: JSON.stringify(payloadWithSecret),
       redirect: 'follow', // Chấp nhận redirect 302 từ Google Apps Script
       signal: controller.signal
     });
@@ -144,11 +149,33 @@ async function notifyDocumentCompleted(doc, approverUser, viewUrl = '') {
   });
 }
 
+/**
+ * 4. Bắn tin Zalo khi hồ sơ ĐƯỢC CHUYỂN TIẾP CHO NGƯỜI KÝ TIẾP THEO (FORWARDED) - DEFECT-ZALO-01
+ */
+async function notifyDocumentForwarded(doc, senderUser, targetUserId) {
+  if (!doc) return;
+  const recipientPhone = targetUserId ? findUserPhone(targetUserId) : '';
+  const senderName = (senderUser && (senderUser.fullName || senderUser.name)) || 'Người ký trước';
+
+  console.log(`[ZaloNotify] Đang gửi thông báo CHUYỂN TIẾP (FORWARDED) tới SĐT: ${recipientPhone || 'N/A'}`);
+
+  return await sendWebhookPost({
+    action: 'NOTIFY_SIGN_EVENT',
+    eventType: 'FORWARDED',
+    docId: doc.id,
+    docTitle: doc.title,
+    recipientPhone: recipientPhone,
+    senderName: senderName
+  });
+}
+
 module.exports = {
   sendWebhookPost,
+  sendZaloNotificationViaGAS: sendWebhookPost,
   findUserPhone,
   notifyDocumentRejected,
   notifyDocumentSubmitted,
+  notifyDocumentForwarded,
   notifyDocumentPersonalSigned,
   notifyDocumentCompleted
 };

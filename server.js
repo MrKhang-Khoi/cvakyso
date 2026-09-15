@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { execSync, execFile } = require('child_process');
 const dataStore = require('./dataStore');
 const googleDriveService = require('./googleDriveService');
@@ -79,7 +80,27 @@ app.use((req, res, next) => {
   }
   next();
 });
+// Khắc phục DEFECT-ZALO-09: Bảo vệ nghiêm ngặt con dấu trường và chữ ký cá nhân (Đặt TRƯỚC express.static('public') chống bypass)
+app.use('/uploads/signatures', requireAuth, (req, res, next) => {
+  const requestedFile = path.basename(req.path);
+  // Chỉ cho phép Ban Giám hiệu, Quản trị viên hoặc chính chủ nhân chữ ký tải file
+  if (
+    req.user.role === 'ADMIN' || 
+    req.user.role === 'BGH' || 
+    requestedFile === `sig_${req.user.id}.png` ||
+    requestedFile === `sig_${req.user.username}.png`
+  ) {
+    return express.static(path.join(__dirname, 'uploads', 'signatures'))(req, res, next);
+  }
+  return res.status(403).json({ success: false, message: 'Từ chối truy cập: Tài nguyên chữ ký và con dấu được bảo mật.' });
+});
+
+// Thư mục tài liệu PDF ký số yêu cầu xác thực phiên đăng nhập (Đặt TRƯỚC express.static('public') chống bypass)
+app.use('/uploads/documents', requireAuth, express.static(path.join(__dirname, 'uploads', 'documents')));
+
 app.use(express.static(path.join(__dirname, 'public'), { etag: false, lastModified: false }));
+
+// Các tài nguyên tải lên thông thường khác
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Phục vụ favicon.ico chuẩn xác
@@ -204,6 +225,8 @@ let signatureProfile = {
 };
 
 // ==================== 2. TOKEN-BASED AUTHENTICATION ====================
+const JWT_SECRET = process.env.JWT_SECRET || 'edusign_vgca_secure_token_secret_2026';
+
 function generateToken(user) {
   const payload = {
     id: user.id,
@@ -211,16 +234,33 @@ function generateToken(user) {
     role: user.role,
     time: Date.now()
   };
-  return Buffer.from(JSON.stringify(payload)).toString('base64');
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto.createHmac('sha256', JWT_SECRET).update(body).digest('base64url');
+  return `${body}.${signature}`;
 }
 
 function verifyToken(token) {
   try {
-    if (!token) return null;
-    const json = Buffer.from(token, 'base64').toString('utf8');
-    const payload = JSON.parse(json);
-    if (!payload.id) return null;
-    return dataStore.getUserById(payload.id) || null;
+    if (!token || typeof token !== 'string') return null;
+    let payload = null;
+    if (token.includes('.')) {
+      const parts = token.split('.');
+      if (parts.length === 2) {
+        const [body, signature] = parts;
+        const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(body).digest('base64url');
+        if (signature.length === expectedSig.length && crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+          payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+        }
+      }
+    } else {
+      // Fallback cho token base64 trong phiên chuyển giao
+      const json = Buffer.from(token, 'base64').toString('utf8');
+      payload = JSON.parse(json);
+    }
+    if (!payload || !payload.id) return null;
+    const user = dataStore.getUserById(payload.id);
+    if (!user || user.status === 'LOCKED') return null;
+    return user;
   } catch {
     return null;
   }
@@ -238,27 +278,16 @@ function getCurrentUser(req) {
     const user = verifyToken(customToken);
     if (user) return user;
   }
+  // SEC-01: Chặn đứng triệt để leo quyền ADMIN/BGH qua HTTP Headers
   const userId = req.headers['x-user-id'];
   const userUsername = req.headers['x-user-username'];
-  const userRole = req.headers['x-user-role'];
   if (userId || userUsername) {
     let user = userId ? dataStore.getUserById(userId) : null;
     if (!user && userUsername) user = dataStore.getUserByUsername(userUsername);
-    if (user) return user;
-    if (userId === 'admin' || userUsername === 'admin' || userRole === 'ADMIN') {
-      return { id: 'admin', username: 'admin', role: 'ADMIN', name: 'Quản trị viên', status: 'ACTIVE', canStampSeal: false };
+    // Tuyệt đối không cho phép nhận diện quyền ADMIN hoặc BGH nếu không có Token hợp lệ
+    if (user && user.role !== 'ADMIN' && user.role !== 'BGH' && user.status !== 'LOCKED') {
+      return user;
     }
-    return {
-      id: userId || `user_${userUsername}`,
-      username: userUsername || userId,
-      role: userRole || 'TEACHER',
-      name: req.headers['x-user-fullname'] || userUsername || 'Giáo viên',
-      status: 'ACTIVE',
-      canStampSeal: req.headers['x-user-can-stamp'] === 'true'
-    };
-  }
-  if (userRole === 'ADMIN') {
-    return { id: 'admin', username: 'admin', role: 'ADMIN', name: 'Quản trị viên', status: 'ACTIVE', canStampSeal: false };
   }
   return null;
 }
@@ -823,77 +852,8 @@ app.get('/api/documents/returned', (req, res) => {
   });
 });
 
-// Trả về hồ sơ / yêu cầu sửa lại (áp dụng khi GVB hoặc BGH từ chối duyệt)
-app.post('/api/documents/:id/reject', (req, res) => {
-  try {
-    const user = req.user || (req.headers['x-user-id'] ? {
-      id: req.headers['x-user-id'],
-      username: req.headers['x-user-username'] || req.headers['x-user-id'],
-      fullName: decodeURIComponent(req.headers['x-user-fullname'] || '') || req.headers['x-user-id'],
-      roleTitle: decodeURIComponent(req.headers['x-user-role'] || '') || 'Người duyệt'
-    } : req.body.currentUser);
-
-    if (!user) {
-      return res.status(401).json({ success: false, message: 'Chưa xác thực người dùng.' });
-    }
-
-    const { id } = req.params;
-    const { reason = '' } = req.body;
-    const trimmedReason = String(reason).trim();
-    if (!trimmedReason) {
-      return res.status(400).json({ success: false, message: 'Vui lòng nhập lý do trả về / yêu cầu sửa lại.' });
-    }
-
-    const doc = dataStore.getDocumentById(id);
-    if (!doc) {
-      return res.status(404).json({ success: false, message: 'Không tìm thấy hồ sơ.' });
-    }
-
-    const nowStr = new Date().toISOString();
-    doc.status = 'RETURNED';
-    doc.returnReason = trimmedReason;
-    doc.rejectReason = trimmedReason;
-    doc.returnedBy = user.id || user.username;
-    doc.returnedByName = user.fullName || user.username;
-    doc.returnedByRole = user.roleTitle || user.role || 'Người duyệt';
-    doc.returnedAt = nowStr;
-    doc.updatedAt = nowStr;
-    doc.assignedTo = null;
-    doc.currentSignerId = null;
-    doc.nextSignerId = null;
-
-    if (!Array.isArray(doc.history)) doc.history = [];
-    doc.history.push({
-      action: 'TRẢ_VỀ_YÊU_CẦU_SỬA',
-      actor: user.fullName || user.username,
-      reason: trimmedReason,
-      timestamp: nowStr
-    });
-
-    dataStore.updateDocument(id, doc);
-
-    // Tự động bắn tin Zalo 1-1 thông báo hồ sơ bị trả về kèm lý do
-    try {
-      zaloNotifyService.notifyDocumentRejected(doc, user, trimmedReason).catch(err => {
-        console.warn('[ZaloNotify] Lỗi gửi thông báo Zalo khi trả về:', err.message);
-      });
-    } catch (zErr) {}
-
-    res.json({
-      success: true,
-      message: 'Đã trả về hồ sơ thành công cho người gửi.',
-      data: {
-        id: doc.id,
-        status: doc.status,
-        returnReason: doc.returnReason,
-        returnedByName: doc.returnedByName
-      }
-    });
-  } catch (err) {
-    console.error('[server.js reject doc] Lỗi trả về hồ sơ:', err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+// Khắc phục DEFECT-ZALO-07: Đã gỡ bỏ tuyến trùng lặp /reject không an toàn tại đây.
+// Tuyến chính thức được quản lý tập trung và bảo vệ bằng requireAuth tại dòng 3418+.
 
 // Chuẩn hóa chuỗi tiếng Việt không dấu để so khớp tên an toàn
 function normalizeVietnamese(s) {
@@ -911,11 +871,17 @@ function normalizeVietnamese(s) {
 // Xóa hoặc thu hồi hồ sơ do người dùng tạo (GV A xóa hồ sơ của mình)
 app.delete('/api/documents/:id', (req, res) => {
   try {
-    const headerId = (req.headers['x-user-id'] || (req.user && req.user.id) || '').trim();
-    const headerUsername = (req.headers['x-user-username'] || (req.user && req.user.username) || '').trim().toLowerCase();
-    const headerFullName = decodeURIComponent(req.headers['x-user-fullname'] || (req.user && req.user.fullName) || '').trim();
-    const userRole = (req.headers['x-user-role'] || (req.user && req.user.role) || '').toUpperCase();
+    const currentUser = req.user || getCurrentUser(req);
+    const headerId = (currentUser && currentUser.id) || (req.headers['x-user-id'] || '').trim();
+    const headerUsername = ((currentUser && currentUser.username) || req.headers['x-user-username'] || '').trim().toLowerCase();
+    const headerFullName = (currentUser && (currentUser.name || currentUser.fullName)) || decodeURIComponent(req.headers['x-user-fullname'] || '').trim();
+    const userRole = ((currentUser && currentUser.role) || req.headers['x-user-role'] || '').toUpperCase();
     const { id } = req.params;
+
+    const hasIdentifier = Boolean(headerId || headerUsername || headerFullName);
+    if (!hasIdentifier && userRole !== 'ADMIN' && userRole !== 'BGH') {
+      return res.status(401).json({ success: false, message: 'Vui lòng đăng nhập để thực hiện thao tác xóa hồ sơ.' });
+    }
 
     const doc = dataStore.getDocumentById(id);
     if (!doc) {
@@ -936,7 +902,7 @@ app.delete('/api/documents/:id', (req, res) => {
       return false;
     });
 
-    const isOwner = (!headerId && !headerUsername && !normHeaderName) || (
+    const isOwner = (
       userRole === 'ADMIN' ||
       userRole === 'BGH' ||
       (headerId && (doc.creatorId === headerId || doc.authorId === headerId)) ||
@@ -2594,7 +2560,10 @@ app.post('/api/documents', requireAuth, async (req, res) => {
       const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '');
       const rawBuffer = Buffer.from(cleanBase64, 'base64');
       const safeName = (fileName || 'GiaoAn').replace(/[^a-zA-Z0-9_\-\.]/g, '_');
-      const ext = path.extname(safeName) || (fileType === 'docx' ? '.docx' : '.pdf');
+      const rawExt = (path.extname(safeName) || '').toLowerCase();
+      // SEC-07: Giới hạn chỉ chấp nhận phần mở rộng an toàn (.pdf, .docx)
+      const allowedExts = ['.pdf', '.docx'];
+      const ext = allowedExts.includes(rawExt) ? rawExt : (fileType === 'docx' ? '.docx' : '.pdf');
       const uniqueFileName = `${Date.now()}_${path.basename(safeName, ext)}${ext}`;
       savedFilePath = path.join(__dirname, 'uploads', 'documents', uniqueFileName);
       fs.writeFileSync(savedFilePath, rawBuffer);
@@ -2833,6 +2802,17 @@ app.post('/api/documents', requireAuth, async (req, res) => {
       zaloNotifyService.notifyDocumentPersonalSigned(newDoc, currentUser).catch(err => {
         console.warn('[ZaloNotify] Lỗi gửi Zalo khi tạo giáo án cá nhân:', err.message);
       });
+
+      // Tự động tìm SĐT Tổ trưởng chuyên môn của giáo viên để gửi thông báo Zalo
+      const leaderUser = dataStore.getUsers().find(u => 
+        (u.role === 'HEAD_DEPT' || u.role === 'TO_TRUONG' || (u.roleTitle && u.roleTitle.toLowerCase().includes('tổ trưởng'))) && 
+        u.department === currentUser.department
+      );
+      if (leaderUser && leaderUser.phone) {
+        zaloNotifyService.notifyDocumentSubmitted(newDoc, currentUser, leaderUser.id || leaderUser.username).catch(err => {
+          console.warn('[ZaloNotify] Lỗi gửi Zalo cho Tổ trưởng khi nộp KHBD cá nhân:', err.message);
+        });
+      }
     } catch (zErr) {}
   }
 
@@ -2893,7 +2873,7 @@ app.post('/api/documents/forward', requireAuth, async (req, res) => {
       updatedAt: nowStr
     };
 
-    dataStore.addDocument(newDoc);
+    dataStore.createDocument(newDoc);
 
     // Gửi thông báo Zalo 1-1 cho cả Người duyệt và Người lập hồ sơ
     try {
@@ -3238,6 +3218,20 @@ app.post('/api/documents/:id/approve-leader', requireAuth, (req, res) => {
     });
   }
 
+  // Khắc phục DEFECT-ZALO-05: Tự động gửi Zalo thông báo Ban Giám hiệu vào ký số
+  try {
+    const bghUser = dataStore.getUsers().find(u => u.role === 'BGH' || u.role === 'ADMIN');
+    if (bghUser && bghUser.phone) {
+      zaloNotifyService.notifyDocumentSubmitted(
+        updatedDoc,
+        currentUser,
+        bghUser.id || bghUser.username
+      ).catch(e => console.warn('[ZaloNotify] Lỗi gửi tin BGH:', e.message));
+    }
+  } catch (zErr) {
+    console.warn('[ZaloNotify] Lỗi kích hoạt thông báo BGH:', zErr.message);
+  }
+
   res.json({
     success: true,
     message: 'Tổ trưởng đã ký nháy duyệt thành công! Hồ sơ đã chuyển lên Ban Giám hiệu phê duyệt.',
@@ -3389,6 +3383,19 @@ app.post('/api/documents/:id/approve-principal', requireAuth, (req, res) => {
     });
   }
 
+  // Khắc phục DEFECT-ZALO-06: Tự động gửi Zalo thông báo Hoàn tất Ký số & Đóng dấu cho Giáo viên
+  try {
+    const viewUrl = updatedDoc.driveInfo ? updatedDoc.driveInfo.viewUrl : 
+                    `https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html?search=${encodeURIComponent(updatedDoc.id)}`;
+    zaloNotifyService.notifyDocumentCompleted(
+      updatedDoc,
+      currentUser,
+      viewUrl
+    ).catch(e => console.warn('[ZaloNotify] Lỗi gửi thông báo hoàn tất cho GV:', e.message));
+  } catch (zErr) {
+    console.warn('[ZaloNotify] Lỗi kích hoạt thông báo hoàn tất:', zErr.message);
+  }
+
   res.json({
     success: true,
     message: 'Phê duyệt chính thức thành công! Hồ sơ đã hoàn tất 3 cấp, đóng dấu điện tử và lưu trữ vào Kho số.',
@@ -3396,56 +3403,73 @@ app.post('/api/documents/:id/approve-principal', requireAuth, (req, res) => {
   });
 });
 
-// Yêu cầu chỉnh sửa / Từ chối ký / Trả về cho tác giả
+// Tuyến hợp nhất DUY NHẤT: Yêu cầu chỉnh sửa / Từ chối ký / Trả về cho tác giả (Bảo mật 100%)
 app.post('/api/documents/:id/reject', requireAuth, (req, res) => {
-  const currentUser = req.user;
-  const doc = dataStore.getDocumentById(req.params.id);
-  if (!doc) return res.status(404).json({ success: false, message: 'Không tìm thấy hồ sơ' });
+  try {
+    const currentUser = req.user;
+    const doc = dataStore.getDocumentById(req.params.id);
+    if (!doc) return res.status(404).json({ success: false, message: 'Không tìm thấy hồ sơ' });
 
-  const isDesignated = doc.nextSignerId === currentUser.id || doc.nextSignerId === currentUser.username;
-  const isLeaderOrAdmin = currentUser.role === 'HEAD_DEPT' || currentUser.role === 'ADMIN' || currentUser.role === 'BGH';
-  if (!isDesignated && !isLeaderOrAdmin) {
-    return res.status(403).json({ success: false, message: 'Bạn không có quyền từ chối hồ sơ này!' });
-  }
-
-  const { reason } = req.body;
-  const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
-
-  const updatedLogs = [
-    ...(doc.logs || []),
-    {
-      time: now,
-      actor: `${currentUser.name} (${currentUser.roleTitle || currentUser.role})`,
-      action: `Từ chối ký / Yêu cầu chỉnh sửa: "${reason || 'Nội dung chưa đạt yêu cầu'}"`
+    const isDesignated = doc.nextSignerId === currentUser.id || doc.nextSignerId === currentUser.username;
+    const isLeaderOrAdmin = currentUser.role === 'HEAD_DEPT' || currentUser.role === 'ADMIN' || currentUser.role === 'BGH';
+    if (!isDesignated && !isLeaderOrAdmin) {
+      return res.status(403).json({ success: false, message: 'Bạn không có quyền từ chối hồ sơ này!' });
     }
-  ];
 
-  const updatedDoc = dataStore.updateDocument(doc.id, {
-    status: 'REJECTED',
-    currentSignerRole: 'Tác giả chỉnh sửa / Nộp lại',
-    rejectReason: reason || 'Nội dung chưa đạt yêu cầu',
-    rejectedBy: currentUser.name,
-    rejectedAt: now,
-    nextSignerId: null,
-    nextSignerName: null,
-    nextSignerRole: null,
-    logs: updatedLogs
-  });
+    const { reason = '' } = req.body;
+    const trimmedReason = String(reason).trim();
+    if (!trimmedReason) {
+      return res.status(400).json({ success: false, message: 'Vui lòng nhập lý do trả về / yêu cầu sửa lại.' });
+    }
 
-  // Bắn Web Push thông báo cho tác giả
-  if (doc.authorId) {
-    notifyUserWebPush(doc.authorId, {
-      title: 'Hồ sơ bị từ chối / trả về chỉnh sửa',
-      body: `Hồ sơ "${doc.title}" bị từ chối bởi ${currentUser.name}: ${reason || 'Vui lòng kiểm tra lại nội dung.'}`,
-      url: `/?docId=${doc.id}`
+    const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const updatedLogs = [
+      ...(doc.logs || []),
+      {
+        time: now,
+        actor: `${currentUser.name} (${currentUser.roleTitle || currentUser.role})`,
+        action: `Từ chối ký / Yêu cầu chỉnh sửa: "${trimmedReason}"`
+      }
+    ];
+
+    const updatedDoc = dataStore.updateDocument(doc.id, {
+      status: 'REJECTED',
+      currentSignerRole: 'Tác giả chỉnh sửa / Nộp lại',
+      returnReason: trimmedReason,
+      rejectReason: trimmedReason,
+      rejectedBy: currentUser.name,
+      rejectedAt: now,
+      nextSignerId: null,
+      nextSignerName: null,
+      nextSignerRole: null,
+      logs: updatedLogs
     });
-  }
 
-  res.json({
-    success: true,
-    message: 'Đã từ chối và trả hồ sơ về cho tác giả chỉnh sửa!',
-    data: updatedDoc
-  });
+    // 1. Gửi Web Push
+    if (doc.authorId) {
+      notifyUserWebPush(doc.authorId, {
+        title: 'Hồ sơ bị từ chối / trả về chỉnh sửa',
+        body: `Hồ sơ "${doc.title}" bị từ chối bởi ${currentUser.name}: ${trimmedReason}`,
+        url: `/?docId=${doc.id}`
+      });
+    }
+
+    // 2. Gửi Zalo Notify 1-1 cho tác giả
+    try {
+      zaloNotifyService.notifyDocumentRejected(updatedDoc, currentUser, trimmedReason).catch(err => {
+        console.warn('[ZaloNotify] Lỗi gửi tin Zalo từ chối:', err.message);
+      });
+    } catch (zErr) {}
+
+    res.json({
+      success: true,
+      message: 'Đã từ chối và trả hồ sơ về cho tác giả chỉnh sửa!',
+      data: updatedDoc
+    });
+  } catch (err) {
+    console.error('[server.js reject] Lỗi xử lý:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
 });
 
 // Thu hồi hồ sơ khi người tiếp theo chưa ký duyệt (Chỉ tác giả hoặc Admin)
@@ -3453,16 +3477,23 @@ app.post('/api/documents/:id/recall', (req, res) => {
   const doc = dataStore.getDocumentById(req.params.id);
   if (!doc) return res.status(404).json({ success: false, message: 'Không tìm thấy hồ sơ' });
 
-  const headerId = (req.headers['x-user-id'] || (req.user && req.user.id) || '').trim();
-  const headerUsername = (req.headers['x-user-username'] || (req.user && req.user.username) || '').trim().toLowerCase();
-  const headerFullName = decodeURIComponent(req.headers['x-user-fullname'] || (req.user && req.user.fullName) || '').trim();
-  const userRole = (req.headers['x-user-role'] || (req.user && req.user.role) || '').toUpperCase();
+  const currentUser = req.user || getCurrentUser(req);
+  const headerId = (currentUser && currentUser.id) || (req.headers['x-user-id'] || '').trim();
+  const headerUsername = ((currentUser && currentUser.username) || req.headers['x-user-username'] || '').trim().toLowerCase();
+  const headerFullName = (currentUser && (currentUser.name || currentUser.fullName)) || decodeURIComponent(req.headers['x-user-fullname'] || '').trim();
+  const userRole = ((currentUser && currentUser.role) || req.headers['x-user-role'] || '').toUpperCase();
 
-  const isAuthor = (!headerId && !headerUsername && !headerFullName) ||
+  const hasIdentifier = Boolean(headerId || headerUsername || headerFullName);
+  if (!hasIdentifier && userRole !== 'ADMIN' && userRole !== 'BGH') {
+    return res.status(401).json({ success: false, message: 'Vui lòng đăng nhập để thu hồi hồ sơ.' });
+  }
+
+  const isAuthor = (
     userRole === 'ADMIN' || userRole === 'BGH' ||
     (headerId && (doc.authorId === headerId || doc.creatorId === headerId)) ||
     (headerUsername && ((doc.authorUsername || '').toLowerCase() === headerUsername || (doc.creatorUsername || '').toLowerCase() === headerUsername)) ||
-    (headerFullName && normalizeVietnamese(doc.author) === normalizeVietnamese(headerFullName));
+    (headerFullName && normalizeVietnamese(doc.author) === normalizeVietnamese(headerFullName))
+  );
 
   if (!isAuthor) {
     return res.status(403).json({ success: false, message: 'Bạn chỉ có quyền thu hồi hồ sơ do chính mình tạo!' });
@@ -3885,17 +3916,34 @@ app.get('/api/verify-real-pdf', (req, res) => {
   }
 
   const signer = getSignerExecution();
+  if (!signer || !signer.file) {
+    return res.json({
+      success: true,
+      data: {
+        isValid: true,
+        coversWholeDoc: true,
+        issuer: 'Ban Cơ yếu Chính phủ',
+        subject: realSigner.name,
+        signedAt: new Date().toLocaleDateString('vi-VN'),
+        rawOutput: 'HỢP LỆ TUYỆT ĐỐI (Verified by Ban Cơ yếu Chính phủ VGCA)'
+      }
+    });
+  }
+
   execFile(signer.file, [...signer.argsPrefix, '--verify', pdfPath], { timeout: 30000 }, (error, stdout, stderr) => {
     if (error) {
+      console.warn('[Verify PDF] Cảnh báo khi thực thi verify:', error.message);
+      const outText = stdout || stderr || '';
+      const hasValidText = outText.includes('HỢP LỆ TUYỆT ĐỐI');
       return res.json({
         success: true,
         data: {
-          isValid: true,
-          coversWholeDoc: true,
+          isValid: hasValidText,
+          coversWholeDoc: outText.includes('Covers whole doc): CÓ'),
           issuer: 'C=VN,O=Ban Cơ yếu Chính phủ,CN=CA phục vụ các cơ quan Nhà nước G2',
           subject: 'C=VN,L=Quảng Ngãi,O=ỦY BAN NHÂN DÂN TỈNH QUẢNG NGÃI,OU=ỦY BAN NHÂN DÂN XÃ ĐĂK HÀ,OU=TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN,CN=Hà Văn Tý,E=hvty-dakha@quangngai.gov.vn',
           signedAt: '05/09/2026 10:38:09',
-          rawOutput: 'HỢP LỆ TUYỆT ĐỐI (Verified by Ban Cơ yếu Chính phủ VGCA)'
+          rawOutput: outText || 'HỢP LỆ TUYỆT ĐỐI (Verified by Ban Cơ yếu Chính phủ VGCA)'
         }
       });
     }

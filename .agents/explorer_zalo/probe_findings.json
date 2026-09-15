@@ -1,0 +1,47 @@
+[
+  {
+    "id": "DEFECT-ZALO-01",
+    "name": "Silent drop of 'FORWARDED' event in GAS webhook",
+    "detail": "GAS handleEduSignNotification does not recognize 'FORWARDED', returning { success: false, reason: 'INVALID_EVENT' }."
+  },
+  {
+    "id": "DEFECT-ZALO-02",
+    "name": "Missing document code parser in Zalo bot",
+    "detail": "Typing 'KHBD-...' or 'BC-...' fails to look up document status and triggers default unrecognized error."
+  },
+  {
+    "id": "DEFECT-ZALO-03",
+    "name": "Missing pending queue command ('choduyet' / 'pending')",
+    "detail": "School leaders cannot query pending document lists via Zalo bot."
+  },
+  {
+    "id": "DEFECT-ZALO-04",
+    "name": "Unauthenticated Zalo Chat ID mapping allows complete account hijacking",
+    "detail": "Any arbitrary user sending a teacher's phone number immediately overwrites their Zalo_Chat_ID in Google Sheet."
+  },
+  {
+    "id": "DEFECT-ZALO-05",
+    "name": "Missing Zalo notification trigger in approve-leader",
+    "detail": "When Department Head approves, only Web Push is sent. Neither BGH nor Teacher receives Zalo notification."
+  },
+  {
+    "id": "DEFECT-ZALO-06",
+    "name": "Missing Zalo notification trigger in approve-principal",
+    "detail": "When Principal signs and seals with VGCA USB Token, no Zalo notification with download link is sent to the author."
+  },
+  {
+    "id": "DEFECT-ZALO-07",
+    "name": "Duplicate route conflict on POST /api/documents/:id/reject",
+    "detail": "Unauthenticated reject route at line 836 shadows the requireAuth reject route at line 3418."
+  },
+  {
+    "id": "DEFECT-ZALO-08",
+    "name": "Dual-dispatch duplication between client and backend",
+    "detail": "Both js/app.js (sendZaloNotificationClientSide) and server.js (zaloNotifyService) trigger webhooks concurrently."
+  },
+  {
+    "id": "DEFECT-ZALO-09",
+    "name": "Public unauthenticated exposure of /uploads directory",
+    "detail": "School seal (school_seal.png), digital signature images (sig_*.png), and signed documents are accessible without auth."
+  }
+]

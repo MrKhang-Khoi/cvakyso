@@ -32,8 +32,8 @@ var CONFIG = {
   // Token Zalo Bot Platform (Cấp từ Zalo Platform Developer)
   ZALO_BOT_TOKEN: "2294655560219778902:jzfmNEYGuXlSvmyKEYeCrbSWIKGrmumxQhoSsFXkgNBXsnOaWWDwTjSYqjoAdaqp",
   
-  // ID file Google Sheets làm cơ sở dữ liệu (để trống nếu muốn script tự động tạo mới)
-  SPREADSHEET_ID: "", 
+  // ID file Google Sheets làm cơ sở dữ liệu
+  SPREADSHEET_ID: "1Y0HQ2Pi-XvtgmOuPqQK-H8Ay5lzVUCh9uzd54Czll2I", 
   
   // Tên trường & Cổng thông tin trực tuyến
   SCHOOL_NAME: "TRƯỜNG THCS CHU VĂN AN",
@@ -69,6 +69,12 @@ var CONFIG = {
       4: "15h30 - 16h15",
       5: "16h20 - 17h05"
     }
+  },
+
+  // KHUNG GIỜ TOÀN CA HỌC (SÁNG: 07:00 - 11:15, CHIỀU: 12:45 - 17:00)
+  SESSION_HOURS: {
+    "sáng": "07:00 - 11:15",
+    "chiều": "12:45 - 17:00"
   }
 };
 
@@ -95,17 +101,28 @@ function initSheetsIfMissing() {
   var sheetUsers = ss.getSheetByName(CONFIG.SHEET_USERS);
   if (!sheetUsers) {
     sheetUsers = ss.insertSheet(CONFIG.SHEET_USERS);
-    sheetUsers.getRange(1, 1, 1, 8).setValues([[
-      "STT", "Họ và Tên", "Số Điện Thoại", "Tổ Chuyên Môn", "Email Công Vụ", "Zalo_Chat_ID", "Ngày Liên Kết", "Tên_Viết_Tắt_TKB"
+    sheetUsers.getRange(1, 1, 1, 9).setValues([[
+      "STT", "Họ và Tên", "Số Điện Thoại", "Tổ Chuyên Môn", "Email Công Vụ", "Zalo_Chat_ID", "Ngày Liên Kết", "Tên_Viết_Tắt_TKB", "Mã PIN"
     ]]);
-    sheetUsers.getRange(1, 1, 1, 8).setBackground("#1e40af").setFontColor("#ffffff").setFontWeight("bold");
+    sheetUsers.getRange(1, 1, 1, 9).setBackground("#1e40af").setFontColor("#ffffff").setFontWeight("bold");
     sheetUsers.setFrozenRows(1);
 
     // Thêm dữ liệu mẫu danh bạ
-    sheetUsers.appendRow([1, "Ban Giám hiệu", "02553850001", "Ban Giám hiệu", "bgh-dakha@quangngai.gov.vn", "", "", "BGH"]);
-    sheetUsers.appendRow([2, "Ngô Thị Liền", "0905123456", "Ban Giám hiệu", "cva.lien@quangngai.gov.vn", "", "", "Liền"]);
-    sheetUsers.appendRow([3, "Hà Văn Tý", "0912345678", "Tổ Toán - Tin", "cva.ty@thcschuvanan.edu.vn", "", "", "Tý"]);
-    sheetUsers.appendRow([4, "Trần Văn Nam", "0987654321", "Tổ Toán - Tin", "tvnam@thcschuvanan.edu.vn", "", "", "Nam"]);
+    sheetUsers.appendRow([1, "Ban Giám hiệu", "02553850001", "Ban Giám hiệu", "bgh-dakha@quangngai.gov.vn", "", "", "BGH", "0001"]);
+    sheetUsers.appendRow([2, "Ngô Thị Liền", "0905123456", "Ban Giám hiệu", "cva.lien@quangngai.gov.vn", "", "", "Liền", "3456"]);
+    sheetUsers.appendRow([3, "Hà Văn Tý", "0912345678", "Tổ Toán - Tin", "cva.ty@thcschuvanan.edu.vn", "", "", "Tý", "0007"]);
+    sheetUsers.appendRow([4, "Trần Văn Nam", "0987654321", "Tổ Toán - Tin", "tvnam@thcschuvanan.edu.vn", "", "", "Nam", "4321"]);
+  } else {
+    // Tự động kiểm tra và thêm tiêu đề cột 9 "Mã PIN" nếu bảng hiện tại chưa có
+    try {
+      var headerVal = sheetUsers.getRange(1, 9).getValue();
+      if (!headerVal || String(headerVal).trim() === "") {
+        sheetUsers.getRange(1, 9).setValue("Mã PIN")
+          .setBackground("#1e40af")
+          .setFontColor("#ffffff")
+          .setFontWeight("bold");
+      }
+    } catch (eH) {}
   }
 
   // 2. Khởi tạo Sheet "Sổ Lưu Báo Cáo"
@@ -146,15 +163,21 @@ function getDatabaseSpreadsheet() {
 // ====================================================================================================
 // 🚀 3. ĐĂNG KÝ WEBHOOK CHO ZALO BOT (Chạy 1 lần trong Apps Script)
 // ====================================================================================================
-function setZaloBotWebhook() {
+function setZaloBotWebhook(customUrl) {
   if (!CONFIG.ZALO_BOT_TOKEN) {
     Logger.log("❌ Vui lòng điền CONFIG.ZALO_BOT_TOKEN!");
     return;
   }
-  var webAppUrl = ScriptApp.getService().getUrl();
+  var webAppUrl = customUrl || "";
+  if (!webAppUrl && typeof ScriptApp !== "undefined" && ScriptApp.getService) {
+    webAppUrl = ScriptApp.getService().getUrl();
+  }
   if (!webAppUrl) {
-    Logger.log("❌ Vui lòng Triển khai (Deploy) dự án thành Web App trước khi set webhook!");
-    return;
+    webAppUrl = "https://script.google.com/macros/s/AKfycbwGBgauc9xHzRe31_IfCQD-Q9yHwGp4CfYLEam9IupcYhLpNBXbgW0J1t-weD6iUQ87ZQ/exec";
+  }
+  // Chống lỗi dùng nhầm link /dev trong trình biên tập Apps Script
+  if (webAppUrl.indexOf("/dev") !== -1) {
+    webAppUrl = webAppUrl.replace(/\/dev(\?|$)/, "/exec$1");
   }
   var apiUrl = "https://bot-api.zaloplatforms.com/bot" + CONFIG.ZALO_BOT_TOKEN + "/setWebhook";
   var payload = {
@@ -169,32 +192,116 @@ function setZaloBotWebhook() {
   };
   try {
     var response = UrlFetchApp.fetch(apiUrl, options);
-    Logger.log("✅ Kết quả đăng ký Webhook: " + response.getContentText());
+    Logger.log("✅ Kết quả đăng ký Webhook với URL: " + webAppUrl + " -> " + response.getContentText());
   } catch (err) {
     Logger.log("❌ Lỗi khi đăng ký Webhook: " + err.toString());
   }
 }
 
 // ====================================================================================================
-// ⏰ 4. THIẾT LẬP TRIGGER TỰ ĐỘNG GỬI LỊCH DẠY LÚC 6H00 SÁNG
+// ⏰ 4. THIẾT LẬP TRIGGER TỰ ĐỘNG GỬI LỊCH DẠY LÚC 6H00 SÁNG & BẢN TIN NHÓM
 // ====================================================================================================
-function setupDailyMorningTrigger() {
+
+/**
+ * Dọn dẹp các trigger cũ/trùng lặp để chống hiện tượng gửi tin nhắn lặp lại hoặc spam
+ * @param {string} [targetFnName] - Tên hàm cần xóa trigger (nếu không truyền sẽ dọn dẹp các hàm lịch sáng)
+ * @return {number} - Số trigger đã xóa
+ */
+function removeOldTriggers(targetFnName) {
+  if (typeof ScriptApp === "undefined" || !ScriptApp.getProjectTriggers) {
+    if (typeof Logger !== "undefined") Logger.log("⚠️ ScriptApp không khả dụng trong môi trường hiện tại.");
+    return 0;
+  }
+
   var triggers = ScriptApp.getProjectTriggers();
+  var removedCount = 0;
+  var targetList = targetFnName
+    ? [targetFnName]
+    : ["sendDailyMorningPersonalSchedule", "sendMorningBriefGroup", "sendDailyMorningBrief"];
+
   for (var i = 0; i < triggers.length; i++) {
-    var fnName = triggers[i].getHandlerFunction();
-    if (fnName === "sendDailyMorningPersonalSchedule" || fnName === "sendDailyMorningBrief") {
-      ScriptApp.deleteTrigger(triggers[i]);
+    var trigger = triggers[i];
+    var fnName = trigger.getHandlerFunction ? trigger.getHandlerFunction() : "";
+    if (targetList.indexOf(fnName) !== -1) {
+      try {
+        ScriptApp.deleteTrigger(trigger);
+        removedCount++;
+      } catch (err) {
+        if (typeof Logger !== "undefined") Logger.log("⚠️ Lỗi khi xóa trigger: " + err.toString());
+      }
     }
   }
 
-  // Tạo Trigger kích hoạt hàm gửi lịch cá nhân mỗi ngày lúc 6h00 sáng
-  ScriptApp.newTrigger("sendDailyMorningPersonalSchedule")
+  if (typeof Logger !== "undefined") {
+    Logger.log("🧹 Đã dọn dẹp " + removedCount + " trigger (" + (targetFnName || "tất cả trigger lịch sáng") + ").");
+  }
+  return removedCount;
+}
+
+/**
+ * Cấu hình tự động trigger gửi lịch giảng dạy cá nhân lúc 06:00 - 07:00 sáng hàng ngày
+ * Tự động loại bỏ các trigger trùng lặp trước khi thiết lập mới.
+ * Tự động loại trừ Chủ Nhật trong logic thực thi của sendDailyMorningPersonalSchedule.
+ */
+function setupDailyMorningTrigger() {
+  if (typeof ScriptApp === "undefined" || !ScriptApp.newTrigger) {
+    if (typeof Logger !== "undefined") Logger.log("⚠️ ScriptApp không khả dụng (môi trường ngoài Google Apps Script).");
+    return null;
+  }
+
+  // 1. Dọn dẹp trigger cũ để chống gửi trùng lặp/spam
+  removeOldTriggers("sendDailyMorningPersonalSchedule");
+  removeOldTriggers("sendDailyMorningBrief");
+
+  // 2. Tạo trigger mới lúc 06:00 - 07:00 sáng hàng ngày (thời gian chuẩn timeBased của GAS)
+  var trigger = ScriptApp.newTrigger("sendDailyMorningPersonalSchedule")
     .timeBased()
     .everyDays(1)
     .atHour(6)
     .create();
 
-  Logger.log("✅ ĐÃ THIẾT LẬP TRIGGER THÀNH CÔNG! Bot sẽ tự động gửi tin nhắn lịch dạy cho giáo viên lúc 6h00 sáng hàng ngày.");
+  if (typeof Logger !== "undefined") {
+    Logger.log("✅ ĐÃ THIẾT LẬP TRIGGER THÀNH CÔNG! Bot sẽ tự động gửi tin nhắn lịch dạy cho giáo viên lúc 06:00 - 07:00 sáng hàng ngày (thứ Hai đến thứ Bảy, trừ Chủ Nhật).");
+  }
+  return trigger;
+}
+
+/**
+ * Cấu hình tự động trigger gửi bản tin TKB tổng hợp toàn trường vào nhóm Zalo chung
+ * Khung giờ thực thi: 06:00 - 07:00 sáng (mục tiêu ~06:30 AM)
+ * Chỉ kích hoạt khi MORNING_BRIEF_CHAT_ID hoặc targetChatId được cấu hình
+ * @param {string} [targetChatId] - Chat ID nhóm Zalo (mặc định lấy CONFIG.MORNING_BRIEF_CHAT_ID)
+ * @return {object} - Trạng thái cấu hình trigger
+ */
+function setupMorningBriefGroupTrigger(targetChatId) {
+  var chatId = targetChatId || CONFIG.MORNING_BRIEF_CHAT_ID;
+  if (!chatId || String(chatId).trim() === "") {
+    if (typeof Logger !== "undefined") {
+      Logger.log("⚠️ Chưa cấu hình CONFIG.MORNING_BRIEF_CHAT_ID hoặc chat ID nhóm. Vui lòng cấu hình ID nhóm Zalo trường trước khi kích hoạt trigger này.");
+    }
+    return { success: false, error: "MISSING_GROUP_CHAT_ID" };
+  }
+
+  if (typeof ScriptApp === "undefined" || !ScriptApp.newTrigger) {
+    if (typeof Logger !== "undefined") Logger.log("⚠️ ScriptApp không khả dụng (môi trường ngoài Google Apps Script).");
+    return { success: false, error: "NO_SCRIPT_APP" };
+  }
+
+  // 1. Dọn dẹp trigger cũ
+  removeOldTriggers("sendMorningBriefGroup");
+  removeOldTriggers("sendDailyMorningBrief");
+
+  // 2. Tạo trigger thời gian lúc 06:00 - 07:00 sáng (~06:30 AM)
+  var trigger = ScriptApp.newTrigger("sendMorningBriefGroup")
+    .timeBased()
+    .everyDays(1)
+    .atHour(6)
+    .create();
+
+  if (typeof Logger !== "undefined") {
+    Logger.log("✅ ĐÃ THIẾT LẬP TRIGGER BẢN TIN NHÓM THÀNH CÔNG! Bot sẽ tự động gửi bản tin TKB tổng hợp tới nhóm (" + chatId + ") lúc 06:00 - 07:00 sáng hàng ngày.");
+  }
+  return { success: true, trigger: trigger, chatId: chatId };
 }
 
 // ====================================================================================================
@@ -305,9 +412,35 @@ function doPost(e) {
 
     var action = postData.action || "";
 
+    // Khắc phục DEFECT-ZALO-10: Kiểm tra chữ ký bảo mật Webhook Secret Token
+    var providedSecret = postData.secret_token || (e && e.parameter && e.parameter.secret_token) || "";
+    var SYSTEM_SECRET = "UnifiedZaloBotTHCSCVA2026Secret";
+
+    // Danh sách các hành động nhạy cảm bắt buộc phải có secret_token
+    var sensitiveActions = ["DELETE_REPORT", "BATCH_DELETE_REPORTS", "CLEAR_ALL_REPORTS", "NOTIFY_SIGN_EVENT", "SYNC_TEACHER", "SYNC_TEACHERS_BATCH"];
+    if (sensitiveActions.indexOf(action) !== -1) {
+      if (providedSecret !== SYSTEM_SECRET) {
+        Logger.log("⛔ Cảnh báo: Truy cập trái phép doPost không có secret_token hợp lệ!");
+        return ContentService.createTextOutput(JSON.stringify({ 
+          success: false, 
+          error: "UNAUTHORIZED_SECRET_TOKEN" 
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
+    }
+
     // ----------------------------------------------------------------------------------
-    // NHÁNH 1: NHẬN LỆNH TỪ SERVER KÝ SỐ EDUSIGN
+    // NHÁNH 1: NHẬN LỆNH TỪ SERVER KÝ SỐ EDUSIGN & ĐỒNG BỘ GIÁO VIÊN
     // ----------------------------------------------------------------------------------
+    if (action === "SYNC_TEACHER") {
+      var syncResult = handleSyncTeacher(postData);
+      return ContentService.createTextOutput(JSON.stringify(syncResult)).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    if (action === "SYNC_TEACHERS_BATCH") {
+      var batchSyncResult = handleSyncTeachersBatch(postData);
+      return ContentService.createTextOutput(JSON.stringify(batchSyncResult)).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (action === "NOTIFY_SIGN_EVENT") {
       var eventResult = handleEduSignNotification(postData);
       return ContentService.createTextOutput(JSON.stringify(eventResult)).setMimeType(ContentService.MimeType.JSON);
@@ -410,11 +543,38 @@ function processUnifiedZaloMessage(chatId, rawText) {
   // ----------------------------------------------------------------------------
   // 1. LIÊN KẾT TÀI KHOẢN QUA SỐ ĐIỆN THOẠI (Dành cho Giáo viên)
   // ----------------------------------------------------------------------------
-  var phoneDigits = text.replace(/[^0-9]/g, "");
-  if (phoneDigits.length >= 9 && phoneDigits.length <= 12 && !clean.startsWith("tkb") && !clean.startsWith("lop")) {
+  // Khắc phục DEFECT-ZALO-04: Bắt buộc cú pháp LK <SĐT> <PIN> để ngăn chặn Account Takeover
+  var linkPattern = text.match(/^(LK|LIENKET)\s+([0-9]{9,11})\s+([0-9A-Za-z]{4,8})$/i);
+  if (linkPattern) {
     if (chatId) {
-      return handlePhoneMapping(chatId, phoneDigits);
+      return handleSecurePhoneMapping(chatId, linkPattern[2], linkPattern[3]);
     }
+  }
+
+  // Nếu người dùng chỉ gõ trơ trọi số điện thoại, hướng dẫn bảo mật định danh
+  var rawDigits = text.replace(/[^0-9]/g, "");
+  if (rawDigits.length >= 9 && rawDigits.length <= 11 && !clean.startsWith("tkb") && !clean.startsWith("lop")) {
+    var phone4 = rawDigits.slice(-4);
+    return "🔐 BẢO VỆ ĐỊNH DANH GIÁO VIÊN:\n\n" +
+           "Để bảo vệ quyền riêng tư hồ sơ giáo án, Thầy/Cô vui lòng nhắn cú pháp kèm Mã PIN EduSign cá nhân:\n" +
+           "👉 Cú pháp: LK " + rawDigits + " [MãPIN]\n\n" +
+           "📌 Thầy/Cô có thể xem Mã PIN tại mục 'Thông tin cá nhân & Zalo' trên web EduSign, hoặc dùng ngay 4 số cuối SĐT (" + phone4 + "):\n" +
+           "👉 Ví dụ nhắn: LK " + rawDigits + " " + phone4;
+  }
+
+  // ----------------------------------------------------------------------------
+  // 1.1 TRA CỨU HỒ SƠ THEO MÃ ĐỊNH DANH (KHBD, BC, GA, HOSO) - DEFECT-ZALO-02
+  // ----------------------------------------------------------------------------
+  var docIdMatch = text.match(/^(KHBD|BC|GA|HOSO)[-_0-9A-Za-z]+/i);
+  if (docIdMatch) {
+    return handleLookupSpecificDocument(chatId, docIdMatch[0].toUpperCase());
+  }
+
+  // ----------------------------------------------------------------------------
+  // 1.2 TRA CỨU DANH SÁCH HỒ SƠ CHỜ DUYỆT (choduyet, pending) - DEFECT-ZALO-03
+  // ----------------------------------------------------------------------------
+  if (clean === "choduyet" || clean === "cho duyet" || clean === "pending" || clean === "choky" || clean === "cho ky" || clean === "danh sach cho duyet") {
+    return handleLookupPendingDocuments(chatId);
   }
 
   // ----------------------------------------------------------------------------
@@ -524,75 +684,228 @@ function formatDateSafe(date, fmt) {
 }
 
 // ====================================================================================================
-// 🌅 8. ENGINE TỰ ĐỘNG GỬI LỊCH DẠY 6H00 SÁNG CHO TỪNG GIÁO VIÊN THEO SĐT
+// 🌅 8. ENGINE TỰ ĐỘNG GỬI LỊCH DẠY 6H00 SÁNG CHO TỪNG GIÁO VIÊN THEO SĐT & BẢN TIN NHÓM
 // ====================================================================================================
 function sendDailyMorningPersonalSchedule() {
-  Logger.log("⏰ [MorningEngine] Bắt đầu quét lịch giảng dạy buổi sáng...");
+  try {
+    if (typeof Logger !== "undefined") Logger.log("⏰ [MorningEngine] Bắt đầu quét lịch giảng dạy buổi sáng...");
 
-  var todayDate = new Date();
-  var dayOfWeek = todayDate.getDay(); // 0: Chủ Nhật, 1: Thứ Hai, ..., 6: Thứ Bảy
+    var todayDate = new Date();
+    var dayOfWeek = todayDate.getDay(); // 0: Chủ Nhật, 1: Thứ Hai, ..., 6: Thứ Bảy
 
-  // Chủ Nhật: Không gửi lịch học chính khóa
-  if (dayOfWeek === 0) {
-    Logger.log("🌴 Hôm nay là Chủ Nhật. Bỏ qua gửi tin nhắn giảng dạy.");
-    return { status: "sunday_skip" };
-  }
-
-  var dayMap = { 1: "T2", 2: "T3", 3: "T4", 4: "T5", 5: "T6", 6: "T7" };
-  var dayKey = dayMap[dayOfWeek] || "T2";
-  var dayNames = { "T2": "Thứ Hai", "T3": "Thứ Ba", "T4": "Thứ Tư", "T5": "Thứ Năm", "T6": "Thứ Sáu", "T7": "Thứ Bảy" };
-
-  var schoolData = fetchSchoolTimetableData();
-  if (!schoolData) {
-    Logger.log("❌ Không thể kết nối dữ liệu Firebase TKB.");
-    return { status: "error", message: "NO_TKB_DATA" };
-  }
-
-  var ss = getDatabaseSpreadsheet();
-  var sheetUsers = ss.getSheetByName(CONFIG.SHEET_USERS);
-  if (!sheetUsers) {
-    Logger.log("❌ Không tìm thấy bảng Danh bạ GV.");
-    return { status: "error", message: "NO_SHEET_USERS" };
-  }
-
-  var usersData = sheetUsers.getDataRange().getValues();
-  var sentCount = 0;
-  var skipCount = 0;
-  var dateStr = formatDateSafe(todayDate, "dd/MM/yyyy");
-
-  for (var i = 1; i < usersData.length; i++) {
-    var teacherName = String(usersData[i][1] || "").trim();
-    var phone = String(usersData[i][2] || "").trim();
-    var chatId = String(usersData[i][5] || "").trim();
-    var shortName = String(usersData[i][7] || "").trim();
-
-    // Bỏ qua nếu giáo viên chưa liên kết Zalo
-    if (!chatId) {
-      skipCount++;
-      continue;
+    // Chủ Nhật: Không gửi lịch học chính khóa, xử lý an toàn
+    if (dayOfWeek === 0) {
+      if (typeof Logger !== "undefined") Logger.log("🌴 Hôm nay là Chủ Nhật. Bỏ qua gửi tin nhắn giảng dạy.");
+      return { status: "sunday_skip", message: "Sunday excluded gracefully" };
     }
 
-    // Tìm đối tượng giáo viên trong TKB
-    var searchKey = shortName || teacherName;
-    var matchedTeacher = findMatchingTeacher(searchKey, schoolData.teachers || []);
+    var dayMap = { 1: "T2", 2: "T3", 3: "T4", 4: "T5", 5: "T6", 6: "T7" };
+    var dayKey = dayMap[dayOfWeek] || "T2";
+    var dayNames = { "T2": "Thứ Hai", "T3": "Thứ Ba", "T4": "Thứ Tư", "T5": "Thứ Năm", "T6": "Thứ Sáu", "T7": "Thứ Bảy" };
 
-    if (!matchedTeacher) {
-      continue;
+    var schoolData = fetchSchoolTimetableData();
+    if (!schoolData) {
+      if (typeof Logger !== "undefined") Logger.log("⚠️ [MorningEngine] Không thể kết nối dữ liệu Firebase TKB (Firebase offline/unreachable). Tạm dừng gửi lịch an toàn.");
+      return { status: "error", error: "NO_TKB_DATA", message: "Firebase is unreachable or returned null" };
     }
 
-    // Soạn tin nhắn lịch dạy cá nhân hôm nay
-    var morningMsg = generateMorningTeacherMessage(matchedTeacher, schoolData, dayKey, dayNames[dayKey], dateStr);
-
-    if (morningMsg) {
-      sendZaloBotReply(chatId, morningMsg);
-      sentCount++;
-      // Nghỉ 150ms để chống nghẽn rate limit Zalo Bot API
-      Utilities.sleep(150);
+    var ss = getDatabaseSpreadsheet();
+    if (!ss) {
+      if (typeof Logger !== "undefined") Logger.log("⚠️ Không thể kết nối cơ sở dữ liệu Google Spreadsheet.");
+      return { status: "error", error: "NO_SPREADSHEET" };
     }
+
+    var sheetUsers = ss.getSheetByName(CONFIG.SHEET_USERS);
+    if (!sheetUsers) {
+      if (typeof Logger !== "undefined") Logger.log("❌ Không tìm thấy bảng Danh bạ GV: " + CONFIG.SHEET_USERS);
+      return { status: "error", error: "NO_SHEET_USERS" };
+    }
+
+    var usersData = sheetUsers.getDataRange().getValues();
+    if (!usersData || usersData.length <= 1) {
+      if (typeof Logger !== "undefined") Logger.log("ℹ️ Danh bạ giáo viên chưa có dữ liệu.");
+      return { status: "empty_users", sentCount: 0, skipCount: 0 };
+    }
+
+    var sentCount = 0;
+    var skipCount = 0;
+    var dateStr = formatDateSafe(todayDate, "dd/MM/yyyy");
+
+    for (var i = 1; i < usersData.length; i++) {
+      try {
+        var teacherName = String(usersData[i][1] || "").trim();
+        var phone = String(usersData[i][2] || "").trim();
+        var chatId = String(usersData[i][5] || "").trim();
+        var shortName = String(usersData[i][7] || "").trim();
+
+        // Bỏ qua nếu giáo viên chưa liên kết Zalo
+        if (!chatId) {
+          skipCount++;
+          continue;
+        }
+
+        // Tìm đối tượng giáo viên trong TKB
+        var searchKey = shortName || teacherName;
+        var matchedTeacher = findMatchingTeacher(searchKey, schoolData.teachers || []);
+
+        if (!matchedTeacher) {
+          continue;
+        }
+
+        // Soạn tin nhắn lịch dạy cá nhân hôm nay
+        var morningMsg = generateMorningTeacherMessage(matchedTeacher, schoolData, dayKey, dayNames[dayKey], dateStr);
+
+        if (morningMsg) {
+          sendZaloBotReply(chatId, morningMsg);
+          sentCount++;
+          // Nghỉ 150ms để chống nghẽn rate limit Zalo Bot API
+          if (typeof Utilities !== "undefined" && Utilities.sleep) {
+            Utilities.sleep(150);
+          }
+        }
+      } catch (teacherErr) {
+        if (typeof Logger !== "undefined") {
+          Logger.log("⚠️ Lỗi khi gửi lịch cho GV dòng " + (i + 1) + ": " + teacherErr.toString());
+        }
+      }
+    }
+
+    if (typeof Logger !== "undefined") {
+      Logger.log("🎉 [MorningEngine] Hoàn tất gửi lịch sáng: Đã gửi cho " + sentCount + " giáo viên. Bỏ qua " + skipCount + " chưa liên kết Zalo.");
+    }
+    return { status: "success", sentCount: sentCount, skipCount: skipCount };
+  } catch (err) {
+    if (typeof Logger !== "undefined") Logger.log("❌ Lỗi nghiêm trọng trong sendDailyMorningPersonalSchedule: " + err.toString());
+    return { status: "error", error: err.toString() };
+  }
+}
+
+/**
+ * Gửi bản tin Thời khóa biểu tổng hợp buổi sáng vào nhóm Zalo chung của nhà trường
+ * Thời gian gửi: ~06:30 sáng hàng ngày (tự động loại trừ Chủ Nhật)
+ * @return {object} - Kết quả gửi bản tin
+ */
+function sendMorningBriefGroup() {
+  try {
+    if (typeof Logger !== "undefined") Logger.log("⏰ [MorningBriefGroup] Bắt đầu tổng hợp bản tin TKB toàn trường...");
+
+    var todayDate = new Date();
+    var dayOfWeek = todayDate.getDay(); // 0: Chủ Nhật, 1: Thứ Hai, ..., 6: Thứ Bảy
+
+    // Chủ Nhật: Không gửi bản tin nhóm
+    if (dayOfWeek === 0) {
+      if (typeof Logger !== "undefined") Logger.log("🌴 Hôm nay là Chủ Nhật. Bỏ qua gửi bản tin TKB nhóm.");
+      return { status: "sunday_skip", message: "Sunday excluded gracefully" };
+    }
+
+    var groupId = CONFIG.MORNING_BRIEF_CHAT_ID;
+    if (!groupId || String(groupId).trim() === "") {
+      if (typeof Logger !== "undefined") Logger.log("⚠️ CONFIG.MORNING_BRIEF_CHAT_ID để trống. Bỏ qua gửi bản tin nhóm.");
+      return { status: "skipped", message: "NO_GROUP_CHAT_ID" };
+    }
+
+    var schoolData = fetchSchoolTimetableData();
+    if (!schoolData) {
+      if (typeof Logger !== "undefined") Logger.log("⚠️ [MorningBriefGroup] Không thể kết nối dữ liệu Firebase TKB (Firebase offline/unreachable). Tạm dừng gửi an toàn.");
+      return { status: "error", error: "NO_TKB_DATA", message: "Firebase is unreachable or returned null" };
+    }
+
+    var dayMap = { 1: "T2", 2: "T3", 3: "T4", 4: "T5", 5: "T6", 6: "T7" };
+    var dayKey = dayMap[dayOfWeek] || "T2";
+    var dayNames = { "T2": "Thứ Hai", "T3": "Thứ Ba", "T4": "Thứ Tư", "T5": "Thứ Năm", "T6": "Thứ Sáu", "T7": "Thứ Bảy" };
+    var dateStr = formatDateSafe(todayDate, "dd/MM/yyyy");
+
+    var briefMsg = generateMorningSchoolBriefMessage(schoolData, dayKey, dayNames[dayKey], dateStr);
+    if (!briefMsg) {
+      if (typeof Logger !== "undefined") Logger.log("ℹ️ Không có nội dung bản tin cho ngày hôm nay.");
+      return { status: "empty" };
+    }
+
+    var sendRes = sendZaloBotReply(groupId, briefMsg);
+    if (typeof Logger !== "undefined") {
+      Logger.log("🎉 [MorningBriefGroup] Đã gửi bản tin TKB tổng hợp tới nhóm Zalo (" + groupId + ").");
+    }
+    return { status: "success", delivered: true, groupId: groupId, result: sendRes };
+  } catch (err) {
+    if (typeof Logger !== "undefined") Logger.log("❌ Lỗi trong sendMorningBriefGroup: " + err.toString());
+    return { status: "error", error: err.toString() };
+  }
+}
+
+/**
+ * Soạn bản tin Thời khóa biểu tổng hợp buổi sáng cho toàn trường (đăng nhóm Zalo)
+ * Hiển thị tổng quan các ca học sáng/chiều và danh sách phân công dạy thay trong ngày
+ * @param {object} schoolData - Dữ liệu thời khóa biểu trường
+ * @param {string} dayKey - Mã ngày (T2, T3, ..., T7)
+ * @param {string} dayName - Tên ngày (Thứ Hai, Thứ Ba, ...)
+ * @param {string} dateStr - Chuỗi ngày định dạng dd/MM/yyyy
+ * @return {string|null} - Nội dung tin nhắn bản tin
+ */
+function generateMorningSchoolBriefMessage(schoolData, dayKey, dayName, dateStr) {
+  if (!schoolData) return null;
+
+  var active = getActiveTimetable(schoolData);
+  var timetable = active.timetable || {};
+  var classes = schoolData.classes || [];
+  var substitutions = schoolData.substitutions || [];
+
+  var morningClasses = [];
+  var afternoonClasses = [];
+
+  classes.forEach(function(c) {
+    var sess = (c.session || "sáng").toLowerCase();
+    var clsTkb = timetable[c.name];
+    var hasTeaching = false;
+    if (clsTkb && clsTkb[dayKey]) {
+      for (var p = 1; p <= 5; p++) {
+        if (clsTkb[dayKey][p] && clsTkb[dayKey][p].subject) {
+          hasTeaching = true;
+          break;
+        }
+      }
+    }
+    if (hasTeaching) {
+      if (sess === "sáng") morningClasses.push(c.name);
+      else afternoonClasses.push(c.name);
+    }
+  });
+
+  // Bóc tách ca dạy thay hôm nay
+  var todaySubs = [];
+  substitutions.forEach(function(s) {
+    if (!s) return;
+    var matches = true;
+    if (s.day && s.day !== dayKey) matches = false;
+    if (s.date && s.date !== "Hôm nay" && s.date !== dateStr) {
+      if (s.date.indexOf("/") !== -1 && s.date !== dateStr) matches = false;
+    }
+    if (matches) todaySubs.push(s);
+  });
+
+  var schoolTitle = CONFIG.SCHOOL_NAME || "TRƯỜNG THCS CHU VĂN AN";
+  var msg = "🌅 BẢN TIN THỜI KHÓA BIỂU TOÀN TRƯỜNG (*" + dayName + "* - " + dateStr + ")\n" +
+            "🏫 *" + schoolTitle.toUpperCase() + "*\n" +
+            "Chúc quý Thầy/Cô một ngày giảng dạy thành công và hiệu quả! ✨\n\n" +
+            "📊 TỔNG QUAN CÁC CA HỌC HÔM NAY:\n" +
+            "• 🌅 Buổi Sáng (07:00 - 11:15): " + morningClasses.length + " lớp học (" + (morningClasses.join(", ") || "Không có") + ")\n" +
+            "• 🌇 Buổi Chiều (12:45 - 17:00): " + afternoonClasses.length + " lớp học (" + (afternoonClasses.join(", ") || "Không có") + ")\n";
+
+  if (todaySubs.length > 0) {
+    msg += "\n🔄 PHÂN CÔNG DẠY THAY HÔM NAY (" + todaySubs.length + " ca):\n";
+    todaySubs.forEach(function(s, idx) {
+      msg += (idx + 1) + ". Tiết " + (s.period || "") + " | Lớp " + (s.className || "") + " (" + (s.subject || "") + ")\n" +
+             "   • GV vắng: " + (s.originalTeacher || "N/A") + "\n" +
+             "   • 👉 GV DẠY THAY: *" + (s.substituteTeacher || "Chưa phân công") + "*\n" +
+             (s.note ? ("   • Ghi chú: " + s.note + "\n") : "");
+    });
+  } else {
+    msg += "\n🔄 DẠY THAY: ✨ Toàn trường thực hiện đúng TKB chính khóa, không có ca dạy thay.\n";
   }
 
-  Logger.log("🎉 [MorningEngine] Hoàn tất gửi lịch sáng: Đã gửi cho " + sentCount + " giáo viên. Bỏ qua " + skipCount + " chưa liên kết Zalo.");
-  return { status: "success", sentCount: sentCount, skipCount: skipCount };
+  msg += "\n🌐 Cổng TKB Online: " + CONFIG.PUBLIC_TKB_PORTAL + "\n" +
+         "💡 Quý Thầy/Cô có thể gửi [Số Điện Thoại] hoặc gõ \"tkb [Tên GV]\" để tra cứu lịch riêng.";
+
+  return msg;
 }
 
 /**
@@ -689,6 +1002,19 @@ function formatPeriodTime(session, period) {
     return times[period];
   }
   return (sess === "chiều" ? "13h00 - 17h05" : "07h00 - 11h05");
+}
+
+/**
+ * Lấy khung giờ tổng quan toàn bộ ca học (sáng: 07:00 - 11:15, chiều: 12:45 - 17:00)
+ * @param {string} session - Buổi học ("sáng" hoặc "chiều")
+ * @return {string} - Chuỗi khung giờ ca học
+ */
+function getSessionSpan(session) {
+  var sess = (session || "sáng").toLowerCase();
+  if (CONFIG.SESSION_HOURS && CONFIG.SESSION_HOURS[sess]) {
+    return CONFIG.SESSION_HOURS[sess];
+  }
+  return (sess === "chiều" ? "12:45 - 17:00" : "07:00 - 11:15");
 }
 
 function formatDepartmentName(raw) {
@@ -1176,6 +1502,157 @@ function handleNewTimetableAnnouncement(schoolData) {
 }
 
 // ====================================================================================================
+// 🔗 12. HÀM MAPPING SỐ ĐIỆN THOẠI -> ZALO CHAT ID BẢO MẬT (DEFECT-ZALO-04)
+// ====================================================================================================
+function handleSecurePhoneMapping(chatId, phoneInput, secretPin) {
+  var ss = getDatabaseSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.SHEET_USERS);
+  if (!sheet) return "⚠️ Không tìm thấy bảng 'Danh bạ GV'.";
+
+  var data = sheet.getDataRange().getValues();
+  var normPhone = normalizePhone(phoneInput);
+  var matchedRow = -1;
+  var teacherName = "";
+  var department = "";
+  var storedPin = "";
+
+  for (var i = 1; i < data.length; i++) {
+    if (normalizePhone(String(data[i][2])) === normPhone) {
+      matchedRow = i + 1;
+      teacherName = data[i][1];
+      department = data[i][3];
+      storedPin = String(data[i][8] || "").trim(); // Cột 9: Mã PIN bí mật
+      break;
+    }
+  }
+
+  if (matchedRow === -1) {
+    return "⚠️ Số điện thoại [" + phoneInput + "] không có trong danh bạ trường THCS Chu Văn An.\n\nThầy/Cô vui lòng liên hệ Ban Quản trị nhà trường để kiểm tra cập nhật số điện thoại.";
+  }
+
+  // Kiểm tra mã PIN (khớp với Mã PIN được cấp hoặc 4 số cuối SĐT)
+  var pinClean = String(secretPin || "").trim();
+  var phone4 = normPhone.slice(-4);
+  var validPin = storedPin || phone4;
+  if (pinClean !== validPin && pinClean !== phone4) {
+    return "❌ Mã PIN bảo mật không chính xác!\n\n💡 Thầy/Cô chỉ cần nhắn cú pháp kèm 4 số cuối SĐT (" + phone4 + "):\n👉 LK " + phoneInput + " " + phone4;
+  }
+
+  sheet.getRange(matchedRow, 6).setValue(String(chatId));
+  sheet.getRange(matchedRow, 7).setValue(new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }));
+
+  return "🎉 LIÊN KẾT ZALO THÀNH CÔNG!\n\n" +
+         "👤 Thầy/Cô: " + teacherName + "\n" +
+         "🏫 Đơn vị: " + department + "\n" +
+         "📱 Số điện thoại: " + phoneInput + "\n" +
+         "⏰ Đã kích hoạt: Nhận nhắc Lịch dạy 6h00 sáng & Thông báo duyệt ký số giáo án!";
+}
+
+// ====================================================================================================
+// 📋 12.1 TRA CỨU HỒ SƠ THEO MÃ ĐỊNH DANH (DEFECT-ZALO-02)
+// ====================================================================================================
+function handleLookupSpecificDocument(chatId, docId) {
+  var ss = getDatabaseSpreadsheet();
+  if (!ss) return "⚠️ Cơ sở dữ liệu chưa sẵn sàng.";
+  var sheet = ss.getSheetByName(CONFIG.SHEET_REPORTS);
+  if (!sheet) return "⚠️ Không tìm thấy sổ báo cáo.";
+
+  var data = sheet.getDataRange().getValues();
+  var foundDoc = null;
+  var targetId = String(docId || "").trim().toUpperCase();
+
+  for (var i = 1; i < data.length; i++) {
+    var col0 = String(data[i][0] || "").trim().toUpperCase();
+    var col1 = String(data[i][1] || "").trim().toUpperCase();
+    if (col0 === targetId || col1 === targetId) {
+      if (col0 === targetId) {
+        foundDoc = {
+          id: data[i][0],
+          title: data[i][1],
+          author: data[i][2],
+          dept: data[i][4],
+          approver: data[i][5],
+          signedDate: data[i][6],
+          status: data[i][7],
+          viewUrl: data[i][8]
+        };
+      } else {
+        foundDoc = {
+          id: data[i][1],
+          title: data[i][2],
+          dept: data[i][3],
+          author: data[i][4],
+          approver: data[i][5],
+          status: data[i][6],
+          signedDate: data[i][7],
+          viewUrl: data[i][8]
+        };
+      }
+      break;
+    }
+  }
+
+  if (!foundDoc) {
+    return "🔍 Không tìm thấy hồ sơ có mã: [" + docId + "].\nThầy/Cô vui lòng kiểm tra lại mã trên hệ thống EduSign!";
+  }
+
+  return "╔════════════════════════════════════════╗\n" +
+         "  📋 THÔNG TIN HỒ SƠ: " + (foundDoc.id || docId) + "\n" +
+         "╚════════════════════════════════════════╝\n\n" +
+         "📄 Tên: " + (foundDoc.title || "Chưa có tên") + "\n" +
+         "🏫 Đơn vị: " + (foundDoc.dept || "Toàn trường") + "\n" +
+         "👤 Tác giả: " + (foundDoc.author || "Giáo viên") + "\n" +
+         "✍️ Người duyệt: " + (foundDoc.approver || "Chờ duyệt") + "\n" +
+         "📊 Trạng thái: " + (foundDoc.status || "Đang xử lý") + "\n" +
+         "⏰ Ngày ký: " + (foundDoc.signedDate || "Chưa ký") + "\n\n" +
+         (foundDoc.viewUrl ? ("📂 Tải tệp đã ký:\n👉 " + foundDoc.viewUrl) : "📌 Hồ sơ chưa hoàn tất ký số.");
+}
+
+// ====================================================================================================
+// ⏳ 12.2 TRA CỨU DANH SÁCH HỒ SƠ CHỜ DUYỆT (DEFECT-ZALO-03)
+// ====================================================================================================
+function handleLookupPendingDocuments(chatId) {
+  var teacher = getTeacherProfileByChatId(chatId);
+  if (!teacher) {
+    return "⚠️ Thầy/Cô chưa liên kết tài khoản. Vui lòng nhắn SĐT để liên kết trước!";
+  }
+
+  var ss = getDatabaseSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.SHEET_REPORTS);
+  if (!sheet) return "⚠️ Sổ báo cáo chưa được khởi tạo.";
+
+  var data = sheet.getDataRange().getValues();
+  var pendingList = [];
+  for (var i = 1; i < data.length; i++) {
+    var status = String(data[i][7] || data[i][6] || "").toUpperCase();
+    if (status.indexOf("CHỜ") !== -1 || status.indexOf("WAITING") !== -1 || status.indexOf("SUBMITTED") !== -1) {
+      pendingList.push({
+        id: data[i][0] || data[i][1],
+        title: data[i][1] || data[i][2],
+        author: data[i][2] || data[i][4],
+        dept: data[i][4] || data[i][3]
+      });
+    }
+  }
+
+  if (pendingList.length === 0) {
+    return "🎉 Hiện tại không có hồ sơ nào đang chờ duyệt! Tất cả hồ sơ đã được xử lý xong.";
+  }
+
+  var msg = "╔════════════════════════════════════════╗\n" +
+            "  ⏳ DANH SÁCH HỒ SƠ ĐANG CHỜ DUYỆT (" + pendingList.length + ")\n" +
+            "╚════════════════════════════════════════╝\n\n";
+
+  for (var k = 0; k < Math.min(pendingList.length, 5); k++) {
+    msg += (k + 1) + ". [" + pendingList[k].id + "] " + pendingList[k].title + "\n" +
+           "   👤 " + pendingList[k].author + " (" + (pendingList[k].dept || "Bộ môn") + ")\n\n";
+  }
+
+  msg += "👉 Kính mời Quý Thầy/Cô vào EduSign để phê duyệt.";
+  return msg;
+}
+
+// ====================================================================================================
 // 🔗 12. HÀM MAPPING SỐ ĐIỆN THOẠI -> ZALO CHAT ID
 // ====================================================================================================
 function handlePhoneMapping(chatId, phoneInput) {
@@ -1384,12 +1861,34 @@ function handleEduSignNotification(data) {
                   "✍️ Tác giả: " + senderName + "\n" +
                   "⏰ Thời gian ký: " + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + "\n\n" +
                   "🎉 Hồ sơ cá nhân của Thầy/Cô đã được ký số hợp lệ và lưu trữ vào sổ sách điện tử.";
+  } else if (eventType === "FORWARDED") {
+    // Khắc phục DEFECT-ZALO-01: Xử lý sự kiện chuyển tiếp hồ sơ cần ký duyệt
+    targetPhone = recipientPhone;
+    messageText = "╔════════════════════════════════════════╗\n" +
+                  "  📥 THÔNG BÁO: HỒ SƠ CHUYỂN TIẾP CẦN KÝ DUYỆT\n" +
+                  "╚════════════════════════════════════════╝\n\n" +
+                  "📋 Tên hồ sơ: " + docTitle + "\n" +
+                  "🆔 Mã hồ sơ: " + docId + "\n" +
+                  "👤 Người chuyển tiếp: " + senderName + "\n" +
+                  "⏰ Thời gian gửi: " + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + "\n\n" +
+                  "👉 Kính mời Thầy/Cô truy cập EduSign để kiểm tra và tiếp tục ký phối hợp.";
   }
 
   if (targetPhone && messageText) {
     var chatId = getChatIdByPhone(targetPhone);
     if (chatId) {
-      sendZaloBotReply(chatId, messageText);
+      // Khắc phục DEFECT-ZALO-12: Bắt mã phản hồi HTTP và xử lý lỗi mạng thực tế
+      var replyResult = sendZaloBotReply(chatId, messageText);
+      if (replyResult && replyResult.success === false) {
+        return { 
+          success: false, 
+          delivered: false, 
+          phone: targetPhone, 
+          chatId: chatId, 
+          statusCode: replyResult.statusCode, 
+          error: replyResult.error || "BOT_SEND_FAILED" 
+        };
+      }
       return { success: true, delivered: true, phone: targetPhone, chatId: chatId };
     } else {
       return { success: true, delivered: false, phone: targetPhone, note: "CHUA_LIEN_KET_ZALO" };
@@ -1397,6 +1896,145 @@ function handleEduSignNotification(data) {
   }
 
   return { success: false, reason: "INVALID_EVENT" };
+}
+
+// ====================================================================================================
+// 👥 14.1 TỰ ĐỘNG ĐỒNG BỘ THÔNG TIN GIÁO VIÊN VÀO GOOGLE SHEET "Danh bạ GV" & MÃ PIN
+// ====================================================================================================
+function handleSyncTeacher(postData) {
+  try {
+    var ss = getDatabaseSpreadsheet();
+    if (!ss) {
+      return { success: false, error: "Không mở được cơ sở dữ liệu Google Sheet" };
+    }
+
+    var sheetUsers = ss.getSheetByName(CONFIG.SHEET_USERS);
+    if (!sheetUsers) {
+      initSheetsIfMissing();
+      sheetUsers = ss.getSheetByName(CONFIG.SHEET_USERS);
+    }
+    if (!sheetUsers) {
+      return { success: false, error: "Không tìm thấy Sheet Danh bạ GV" };
+    }
+
+    // Đảm bảo tiêu đề cột 9 là "Mã PIN"
+    var headerRow = sheetUsers.getRange(1, 1, 1, Math.max(sheetUsers.getLastColumn(), 9)).getValues()[0];
+    if (!headerRow[8] || String(headerRow[8]).trim() === "") {
+      sheetUsers.getRange(1, 9).setValue("Mã PIN")
+        .setBackground("#1e40af")
+        .setFontColor("#ffffff")
+        .setFontWeight("bold");
+    }
+
+    var t = postData.teacher || postData;
+    var fullName = String(t.fullName || t.name || "").trim();
+    var phone = String(t.phone || "").trim();
+    var department = String(t.department || t.departmentName || "").trim();
+    var email = String(t.email || "").trim();
+    var pinCode = String(t.pinCode || t.pin || "").trim();
+    var shortName = String(t.shortName || t.tkbName || "").trim();
+
+    if (!fullName && !phone) {
+      return { success: false, error: "Thiếu thông tin Họ tên hoặc Số điện thoại giáo viên" };
+    }
+
+    // Tự động suy ra tên viết tắt TKB nếu chưa có (lấy từ cuối tên)
+    if (!shortName && fullName) {
+      var parts = fullName.split(/\s+/);
+      shortName = parts[parts.length - 1];
+    }
+
+    // Nếu chưa có PIN, tự động dùng 4 số cuối SĐT làm fallback mặc định
+    var normPhone = normalizePhone(phone);
+    if (!pinCode && normPhone.length >= 4) {
+      pinCode = normPhone.slice(-4);
+    }
+
+    var data = sheetUsers.getDataRange().getValues();
+    var matchedRow = -1;
+
+    // 1. Tìm theo Số điện thoại trước
+    if (normPhone) {
+      for (var i = 1; i < data.length; i++) {
+        var rowPhone = normalizePhone(String(data[i][2]));
+        if (rowPhone && rowPhone === normPhone) {
+          matchedRow = i + 1;
+          break;
+        }
+      }
+    }
+
+    // 2. Nếu không khớp SĐT, tìm theo Họ và Tên chính xác
+    if (matchedRow === -1 && fullName) {
+      var lowerName = fullName.toLowerCase();
+      for (var j = 1; j < data.length; j++) {
+        var rowName = String(data[j][1] || "").trim().toLowerCase();
+        if (rowName && rowName === lowerName) {
+          matchedRow = j + 1;
+          break;
+        }
+      }
+    }
+
+    if (matchedRow !== -1) {
+      // Cập nhật dòng đã có
+      if (fullName) sheetUsers.getRange(matchedRow, 2).setValue(fullName);
+      if (phone) sheetUsers.getRange(matchedRow, 3).setValue(phone);
+      if (department) sheetUsers.getRange(matchedRow, 4).setValue(department);
+      if (email) sheetUsers.getRange(matchedRow, 5).setValue(email);
+      if (shortName) sheetUsers.getRange(matchedRow, 8).setValue(shortName);
+      if (pinCode) sheetUsers.getRange(matchedRow, 9).setValue(pinCode);
+
+      Logger.log("✅ Đã cập nhật giáo viên dòng " + matchedRow + ": " + fullName + " (" + phone + ") - PIN: " + pinCode);
+      return {
+        success: true,
+        action_performed: "UPDATED",
+        row: matchedRow,
+        message: "Cập nhật thành công thông tin giáo viên [" + fullName + "] trên Google Sheet"
+      };
+    } else {
+      // Thêm mới dòng
+      var newStt = Math.max(1, data.length);
+      sheetUsers.appendRow([
+        newStt,
+        fullName,
+        phone,
+        department,
+        email,
+        "", // Zalo_Chat_ID ban đầu để trống (sẽ được điền khi GV gửi tin LK)
+        "", // Ngày Liên Kết
+        shortName,
+        pinCode
+      ]);
+
+      Logger.log("✅ Đã thêm mới giáo viên vào Sheet: " + fullName + " (" + phone + ") - PIN: " + pinCode);
+      return {
+        success: true,
+        action_performed: "CREATED",
+        row: data.length + 1,
+        message: "Thêm mới thành công giáo viên [" + fullName + "] vào Google Sheet"
+      };
+    }
+  } catch (err) {
+    Logger.log("❌ Lỗi đồng bộ giáo viên: " + err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+function handleSyncTeachersBatch(postData) {
+  try {
+    var teachers = postData.teachers || [];
+    if (!Array.isArray(teachers) || teachers.length === 0) {
+      return { success: false, error: "Danh sách giáo viên rỗng" };
+    }
+    var results = [];
+    for (var k = 0; k < teachers.length; k++) {
+      results.push(handleSyncTeacher({ teacher: teachers[k] }));
+    }
+    return { success: true, count: results.length, details: results };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 }
 
 // ====================================================================================================
@@ -1666,34 +2304,96 @@ function getUnifiedWelcomeGuideText() {
          CONFIG.PORTAL_URL;
 }
 
+/**
+ * Tải dữ liệu thời khóa biểu từ Firebase Realtime Database
+ * Bao gồm cơ chế bộ nhớ đệm CacheService, timeout và xử lý ngoại lệ chống crash an toàn
+ * @return {object|null} - Dữ liệu thời khóa biểu hoặc null nếu lỗi/mất kết nối
+ */
 function fetchSchoolTimetableData() {
+  // 1. Kiểm tra cache trước để tiết kiệm băng thông và tăng tốc
   try {
     if (typeof CacheService !== "undefined") {
       var cache = CacheService.getScriptCache();
       var cachedStr = cache ? cache.get("CACHED_TKB_DATA") : null;
       if (cachedStr) {
-        return JSON.parse(cachedStr);
+        var parsedCache = JSON.parse(cachedStr);
+        if (parsedCache && typeof parsedCache === "object") {
+          return parsedCache;
+        }
       }
     }
   } catch (ce) {}
 
-  try {
-    var response = UrlFetchApp.fetch(CONFIG.FIREBASE_DATABASE_URL, { muteHttpExceptions: true });
-    var text = response.getContentText();
-    var data = JSON.parse(text);
+  // 2. Kiểm tra tính hợp lệ của cấu hình URL Firebase
+  if (!CONFIG.FIREBASE_DATABASE_URL || typeof CONFIG.FIREBASE_DATABASE_URL !== "string" || !CONFIG.FIREBASE_DATABASE_URL.trim()) {
+    if (typeof Logger !== "undefined") {
+      Logger.log("⚠️ CONFIG.FIREBASE_DATABASE_URL chưa được cấu hình. Vui lòng cấu hình URL Firebase Realtime Database.");
+    }
+    return null;
+  }
 
+  // 3. Kiểm tra môi trường thực thi (UrlFetchApp khả dụng trên Apps Script)
+  if (typeof UrlFetchApp === "undefined" || !UrlFetchApp.fetch) {
+    if (typeof Logger !== "undefined") {
+      Logger.log("⚠️ UrlFetchApp không khả dụng trong môi trường hiện tại.");
+    }
+    return null;
+  }
+
+  // 4. Kết nối Firebase Realtime Database với cơ chế an toàn
+  try {
+    var options = {
+      method: "get",
+      muteHttpExceptions: true,
+      followRedirects: true,
+      validateHttpsCertificates: true
+    };
+
+    var response = UrlFetchApp.fetch(CONFIG.FIREBASE_DATABASE_URL, options);
+    if (!response) {
+      if (typeof Logger !== "undefined") Logger.log("⚠️ Phản hồi từ Firebase là null hoặc undefined.");
+      return null;
+    }
+
+    var statusCode = response.getResponseCode ? response.getResponseCode() : 200;
+    if (statusCode < 200 || statusCode >= 300) {
+      if (typeof Logger !== "undefined") {
+        Logger.log("⚠️ Firebase HTTP " + statusCode + " khi tải: " + CONFIG.FIREBASE_DATABASE_URL);
+      }
+      return null;
+    }
+
+    var text = response.getContentText ? response.getContentText() : String(response);
+    if (!text || text.trim() === "" || text.trim() === "null") {
+      if (typeof Logger !== "undefined") {
+        Logger.log("⚠️ Dữ liệu Firebase trả về rỗng hoặc null.");
+      }
+      return null;
+    }
+
+    var data = JSON.parse(text);
+    if (!data || typeof data !== "object") {
+      if (typeof Logger !== "undefined") {
+        Logger.log("⚠️ Dữ liệu Firebase không đúng định dạng JSON object.");
+      }
+      return null;
+    }
+
+    // Lưu cache ngắn 60 giây nếu dữ liệu hợp lệ
     try {
       if (typeof CacheService !== "undefined") {
-        var cache = CacheService.getScriptCache();
-        if (cache && text.length < 100000) {
-          cache.put("CACHED_TKB_DATA", text, 60);
+        var cacheToSave = CacheService.getScriptCache();
+        if (cacheToSave && text.length < 100000) {
+          cacheToSave.put("CACHED_TKB_DATA", text, 60);
         }
       }
     } catch (pe) {}
 
     return data;
   } catch (e) {
-    if (typeof Logger !== "undefined") Logger.log("Lỗi tải dữ liệu Firebase: " + e.toString());
+    if (typeof Logger !== "undefined") {
+      Logger.log("⚠️ Không thể kết nối hoặc phân tích dữ liệu Firebase TKB: " + e.toString());
+    }
     return null;
   }
 }
@@ -1934,21 +2634,33 @@ function getHomeroomTeacher(classObj, timetable, assignments, teachers) {
 }
 
 function sendZaloBotReply(chatId, text) {
-  if (!CONFIG.ZALO_BOT_TOKEN || !chatId) return;
+  if (!CONFIG.ZALO_BOT_TOKEN || !chatId) return { success: false, reason: "MISSING_PARAMS" };
   var apiUrl = "https://bot-api.zaloplatforms.com/bot" + CONFIG.ZALO_BOT_TOKEN + "/sendMessage";
   var payload = {
     chat_id: String(chatId),
     text: text
   };
+
   try {
-    UrlFetchApp.fetch(apiUrl, {
+    var response = UrlFetchApp.fetch(apiUrl, {
       method: "post",
       contentType: "application/json",
       payload: JSON.stringify(payload),
       muteHttpExceptions: true
     });
+
+    var statusCode = response ? (typeof response.getResponseCode === "function" ? response.getResponseCode() : 200) : 0;
+    var responseText = response ? (typeof response.getContentText === "function" ? response.getContentText() : "") : "";
+
+    if (statusCode !== 200) {
+      Logger.log("⚠️ Lỗi gửi tin Zalo Bot (HTTP " + statusCode + "): " + responseText);
+      return { success: false, statusCode: statusCode, error: responseText };
+    }
+
+    return { success: true, statusCode: 200, result: responseText };
   } catch (e) {
-    Logger.log("Lỗi gửi tin Zalo Bot: " + e.toString());
+    Logger.log("❌ Ngoại lệ mạng khi gọi Zalo Bot API: " + e.toString());
+    return { success: false, error: e.toString() };
   }
 }
 
@@ -2048,6 +2760,14 @@ if (typeof module !== "undefined" && module.exports) {
     processUnifiedZaloMessage: processUnifiedZaloMessage,
     handleEduSignNotification: handleEduSignNotification,
     fetchReportsFromSheet: fetchReportsFromSheet,
-    deleteReportFromSheet: deleteReportFromSheet
+    deleteReportFromSheet: deleteReportFromSheet,
+    setupDailyMorningTrigger: setupDailyMorningTrigger,
+    removeOldTriggers: removeOldTriggers,
+    setupMorningBriefGroupTrigger: setupMorningBriefGroupTrigger,
+    sendDailyMorningPersonalSchedule: sendDailyMorningPersonalSchedule,
+    sendMorningBriefGroup: sendMorningBriefGroup,
+    generateMorningSchoolBriefMessage: generateMorningSchoolBriefMessage,
+    fetchSchoolTimetableData: fetchSchoolTimetableData,
+    getSessionSpan: getSessionSpan
   };
 }

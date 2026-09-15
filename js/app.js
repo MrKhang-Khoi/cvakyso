@@ -60,6 +60,112 @@ async function sendZaloNotificationClientSide(payload) {
   }
 }
 
+
+/**
+ * Tự động đồng bộ thông tin tài khoản Giáo viên lên Google Sheet "Danh bạ GV" & Mã PIN Zalo Bot
+ */
+async function syncTeacherToGoogleSheet(teacher) {
+  try {
+    const url = DEFAULT_GAS_URL;
+    if (!url || !url.startsWith('http')) return;
+    if (!teacher || (!teacher.fullName && !teacher.phone)) return;
+
+    const nameParts = (teacher.fullName || teacher.name || '').trim().split(/\s+/);
+    const shortName = nameParts.length > 0 ? nameParts[nameParts.length - 1] : teacher.fullName;
+    const phoneDigits = (teacher.phone || '').replace(/\D/g, '');
+    const pinCode = teacher.pinCode || (phoneDigits.length >= 4 ? phoneDigits.slice(-4) : '1234');
+
+    const payload = {
+      action: "SYNC_TEACHER",
+      secret_token: "UnifiedZaloBotTHCSCVA2026Secret",
+      teacher: {
+        fullName: teacher.fullName || teacher.name || '',
+        phone: teacher.phone || '',
+        department: teacher.departmentName || teacher.department || '',
+        email: teacher.email || '',
+        pinCode: pinCode,
+        shortName: teacher.shortName || shortName,
+        role: teacher.role || 'TEACHER',
+        cccd: teacher.cccd || ''
+      }
+    };
+
+    console.log('[GoogleSheet Sync] Đang đồng bộ tài khoản lên Google Sheet:', payload.teacher.fullName, payload.teacher.phone, 'PIN:', payload.teacher.pinCode);
+
+    await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      },
+      body: JSON.stringify(payload),
+      redirect: 'follow',
+      mode: 'no-cors'
+    }).catch(e => console.warn('[GoogleSheet Sync] Fetch warning:', e.message));
+  } catch (err) {
+    console.warn('[GoogleSheet Sync] Exception:', err.message);
+  }
+}
+
+/**
+ * Đồng bộ hàng loạt toàn bộ danh bạ giáo viên và mã PIN lên Google Sheets
+ */
+async function handleSyncAllTeachersToSheet() {
+  const teachers = (appState.users || []).filter(u => u && (u.fullName || u.name));
+  if (teachers.length === 0) {
+    showToast('Chưa có danh sách giáo viên để đồng bộ!', 'warning');
+    return;
+  }
+
+  showToast(`Đang đồng bộ ${teachers.length} giáo viên lên Google Sheet...`, 'info');
+  const btn = document.getElementById('btnSyncSheetAll');
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add('opacity-60', 'cursor-not-allowed');
+  }
+
+  try {
+    const formattedList = teachers.map(u => {
+      const nameParts = (u.fullName || u.name || '').trim().split(/\s+/);
+      const shortName = nameParts.length > 0 ? nameParts[nameParts.length - 1] : (u.fullName || u.name);
+      const phoneDigits = (u.phone || '').replace(/\D/g, '');
+      const pinCode = u.pinCode || (phoneDigits.length >= 4 ? phoneDigits.slice(-4) : '1234');
+      return {
+        fullName: u.fullName || u.name,
+        phone: u.phone || '',
+        department: u.departmentName || u.department || '',
+        email: u.email || '',
+        pinCode: pinCode,
+        shortName: shortName,
+        role: u.role || 'TEACHER',
+        cccd: u.cccd || ''
+      };
+    });
+
+    const payload = {
+      action: "SYNC_TEACHERS_BATCH",
+      secret_token: "UnifiedZaloBotTHCSCVA2026Secret",
+      teachers: formattedList
+    };
+
+    await fetch(DEFAULT_GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload),
+      redirect: 'follow',
+      mode: 'no-cors'
+    });
+
+    showToast(`Đã gửi lệnh đồng bộ ${teachers.length} giáo viên lên Google Sheet thành công!`, 'success');
+  } catch (err) {
+    showToast('Lỗi khi đồng bộ Google Sheet: ' + err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove('opacity-60', 'cursor-not-allowed');
+    }
+  }
+}
+
 // ==================== FIREBASE REALTIME CLIENT ====================
 let firebaseDb = null;
 const RTDB_URL = "https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app";
@@ -311,18 +417,35 @@ async function handleLogin(e) {
       console.warn('[Direct Auth Note]', fbErr.message);
     }
 
-    // 2. Nếu chưa xong, thử gọi API Backend nếu có
-    if (!authenticatedUser && !isStaticOrGitHub) {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: usernameInput, password: passwordInput })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Tên đăng nhập hoặc mật khẩu không đúng.');
-      authenticatedUser = data.user;
-      appState.token = data.token;
-      localStorage.setItem('edusign_token', data.token);
+    // 2. Nếu chưa xong hoặc chưa có Token máy chủ, gọi API Backend nếu có
+    if (!isStaticOrGitHub) {
+      if (!authenticatedUser) {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: usernameInput, password: passwordInput })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Tên đăng nhập hoặc mật khẩu không đúng.');
+        authenticatedUser = data.user;
+        appState.token = data.token;
+        localStorage.setItem('edusign_token', data.token);
+      } else if (!appState.token) {
+        try {
+          const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: usernameInput, password: passwordInput })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.token) {
+              appState.token = data.token;
+              localStorage.setItem('edusign_token', data.token);
+            }
+          }
+        } catch (tokenErr) {}
+      }
     }
 
     if (!authenticatedUser) {
@@ -665,6 +788,7 @@ function renderTeachersTable() {
               <div class="text-[11px] text-slate-400 font-mono flex items-center gap-1.5 flex-wrap">
                 <span>@${escapeHtml(userHandle)}</span>
                 ${u.phone ? `<span>•</span><span class="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">📱 ${escapeHtml(u.phone)}</span>` : '<span class="text-rose-500 font-medium">⚠️ Chưa có SĐT</span>'}
+                ${(u.pinCode || (u.phone && u.phone.replace(/\D/g, '').length >= 4 ? u.phone.replace(/\D/g, '').slice(-4) : '')) ? `<span>•</span><span class="font-bold text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200" title="Mã PIN Zalo Bot: dùng để liên kết Zalo">🔑 PIN: ${escapeHtml(String(u.pinCode || u.phone.replace(/\D/g, '').slice(-4)))}</span>` : ''}
                 ${u.cccd ? `<span>•</span><span class="font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-100">CCCD: ${escapeHtml(u.cccd)}</span>` : ''}
                 ${u.email ? `<span>•</span><span>${escapeHtml(u.email)}</span>` : ''}
               </div>
@@ -891,18 +1015,26 @@ async function scanUsbTokenForModalUser() {
       }, 3500);
     }
 
+    const isInvalid = Boolean(targetCccd && !/^\d{9,12}$/.test(targetCccd));
+    const titleText = isInvalid
+      ? '⚠️ SỐ CCCD KHÔNG HỢP LỆ - CẦN NHẬP ĐỦ 9 ĐẾN 12 CHỮ SỐ'
+      : '⚠️ CẦN NHẬP SỐ CCCD - YÊU CẦU NHẬP SỐ CCCD TRƯỚC KHI QUÉT USB TOKEN';
+    const statusText = isInvalid
+      ? 'Số CCCD không hợp lệ (cần đủ 9-12 chữ số, chỉ gồm các chữ số)'
+      : 'Chưa nhập số CCCD';
+
     const warnHtml = `
       <div class="space-y-2 text-left">
-        <p class="text-rose-700 font-bold text-[13px]">⚠️ YÊU CẦU NHẬP SỐ CCCD TRƯỚC KHI QUÉT USB TOKEN</p>
+        <p class="text-rose-700 font-bold text-[13px]">${titleText}</p>
         <div class="p-3 bg-rose-50 border border-rose-200 rounded-xl space-y-1 text-xs text-rose-950">
           <div>• Thầy/Cô đang cấu hình: <strong>[${targetName || targetUsername || 'Chưa nhập tên'}]</strong></div>
-          <div>• Trạng thái CCCD: <span class="text-rose-600 font-bold underline">Chưa nhập hoặc chưa đủ 9-12 chữ số</span></div>
+          <div>• Trạng thái CCCD: <span class="text-rose-600 font-bold underline">${statusText}</span></div>
         </div>
         <p class="text-xs text-slate-700 leading-relaxed">
           Theo quy định an toàn định danh ký số, Quản trị viên <strong>bắt buộc phải nhập Số CCCD (12 chữ số)</strong> của Thầy/Cô trước khi quét USB Token để hệ thống đối soát, chống cắm nhầm thiết bị của người khác.
         </p>
         <p class="text-xs font-semibold text-purple-700">
-          👉 Vui lòng nhập Số CCCD vào ô trên rồi bấm nút <strong>"🔍 Quét USB đang cắm"</strong> lại!
+          👉 Vui lòng nhập Số CCCD hợp lệ vào ô trên rồi bấm nút <strong>"🔍 Quét USB đang cắm"</strong> lại!
         </p>
       </div>
     `;
@@ -913,8 +1045,7 @@ async function scanUsbTokenForModalUser() {
       alertBox.classList.remove('hidden');
     }
 
-    showModalAlert('YÊU CẦU NHẬP SỐ CCCD TRƯỚC', warnHtml, 'warning');
-    showToast('⚠️ Vui lòng nhập Số CCCD của Thầy/Cô trước khi quét USB Token!', 'warning');
+    showToast(isInvalid ? '⚠️ Số CCCD không hợp lệ (cần đủ 9-12 chữ số)!' : '⚠️ Vui lòng nhập Số CCCD của Thầy/Cô trước khi quét USB Token!', 'warning');
     return;
   }
 
@@ -937,7 +1068,6 @@ async function scanUsbTokenForModalUser() {
         alertBox.innerHTML = `<span>⚠️</span><div><strong class="block mb-0.5 text-amber-800">KHÔNG TÌM THẤY THIẾT BỊ</strong>${msg}</div>`;
         alertBox.classList.remove('hidden');
       }
-      showModalAlert('KHÔNG TÌM THẤY THIẾT BỊ', msg, 'warning');
       showToast('⚠️ ' + msg, 'warning');
       return;
     }
@@ -1028,7 +1158,6 @@ async function scanUsbTokenForModalUser() {
           alertBox.innerHTML = msgHtml;
           alertBox.classList.remove('hidden');
         }
-        showModalAlert('PHÁT HIỆN TOKEN CON DẤU NHÀ TRƯỜNG', msgHtml, 'warning');
         showToast(`⚠️ Đây là USB Token Con dấu cơ quan [${actualSigner}], cần cấp quyền đóng dấu trước!`, 'warning');
         return;
       } else {
@@ -1103,7 +1232,6 @@ async function scanUsbTokenForModalUser() {
         alertBox.classList.remove('hidden');
       }
 
-      showModalAlert('CẢNH BÁO CẮM NHẦM THIẾT BỊ', mismatchHtml, 'error');
       showToast(`⛔ USB Token đang cắm là của [${actualSigner}], không khớp với tài khoản [${targetName || targetUsername}] (CCCD: ${targetCccd})!`, 'error');
       return;
     }
@@ -1175,6 +1303,11 @@ function openModalEditUser(userId) {
   if (document.getElementById('userCertSerial')) document.getElementById('userCertSerial').value = u.certSerial || u.certificateSerial || '';
   document.getElementById('userEmail').value = u.email || '';
   document.getElementById('userPhone').value = u.phone || ((u.username === 'cva.ty' || u.id === 'user_cvaty') ? '0818810007' : '');
+  if (document.getElementById('userZaloPin')) {
+    const cleanPhone = (u.phone || '').replace(/\D/g, '');
+    const cleanCccd = (u.cccd || '').replace(/\D/g, '');
+    document.getElementById('userZaloPin').value = u.pinCode || u.zaloPin || (cleanPhone.length >= 4 ? cleanPhone.slice(-4) : (cleanCccd.length >= 4 ? cleanCccd.slice(-4) : '1234'));
+  }
   if (document.getElementById('userCanUploadWord')) {
     document.getElementById('userCanUploadWord').checked = (u.canUploadWord !== false);
   }
@@ -1242,6 +1375,7 @@ async function handleSaveUser(e) {
   const certSerial = (document.getElementById('userCertSerial')?.value || '').trim();
   const email = document.getElementById('userEmail').value.trim();
   const phone = document.getElementById('userPhone').value.trim();
+  const pinCode = (document.getElementById('userZaloPin')?.value || '').trim();
   const canUploadWord = document.getElementById('userCanUploadWord') ? document.getElementById('userCanUploadWord').checked : true;
   const canStampSeal = (role === 'ADMIN' || id === 'admin') ? false : Boolean(document.getElementById('userCanStampSeal')?.checked);
 
@@ -1279,6 +1413,7 @@ async function handleSaveUser(e) {
           certSerial,
           email,
           phone,
+          pinCode: pinCode || (phone.replace(/\D/g, '').length >= 4 ? phone.replace(/\D/g, '').slice(-4) : '1234'),
           canUploadWord,
           canStampSeal,
           updatedAt: new Date().toISOString()
@@ -1297,6 +1432,7 @@ async function handleSaveUser(e) {
           appState.currentUser.cccd = cccd;
           appState.currentUser.signType = signType;
           appState.currentUser.fullName = fullName;
+          appState.currentUser.pinCode = users[idx].pinCode;
           appState.currentUser.name = fullName;
           appState.currentUser.role = role;
           appState.currentUser.departmentId = departmentId;
@@ -1337,7 +1473,8 @@ async function handleSaveUser(e) {
         }
 
         await syncUsersToFirebase(users);
-        showToast('Cập nhật thông tin giáo viên thành công!', 'success');
+        syncTeacherToGoogleSheet(users[idx]);
+        showToast('Cập nhật thông tin giáo viên và đồng bộ Google Sheet thành công!', 'success');
 
         // Tự động phân quyền thư mục Google Drive ngay nếu có email
         if (email && email.includes('@')) {
@@ -1368,6 +1505,7 @@ async function handleSaveUser(e) {
         certSerial,
         email,
         phone,
+        pinCode: pinCode || (phone.replace(/\D/g, '').length >= 4 ? phone.replace(/\D/g, '').slice(-4) : '1234'),
         canUploadWord,
         canStampSeal,
         isLocked: false,
@@ -1395,7 +1533,8 @@ async function handleSaveUser(e) {
       }
 
       await syncUsersToFirebase(users);
-      showToast('Thêm giáo viên mới thành công!', 'success');
+      syncTeacherToGoogleSheet(newUser);
+      showToast('Thêm giáo viên mới và đồng bộ Google Sheet thành công!', 'success');
     }
 
     closeModal('modalUser');
@@ -3419,22 +3558,22 @@ function renderSchoolReportsTable() {
               <span>Xem</span>
             </button>
             ${(isCompleted && !hasSchoolSeal && (isAdminOrBgh || Boolean(user?.canStampSeal))) ? `
-              <button onclick="handleOpenReportToStampSeal('${escapeHtml(doc.id)}')" title="Đóng dấu số nhà trường bằng USB Token con dấu" class="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-[11px] transition flex items-center gap-1 cursor-pointer">
+              <button onclick="handleOpenReportToStampSeal('${escapeHtml(doc.id)}')" title="Đóng dấu số nhà trường bằng USB Token con dấu" class="min-h-[36px] px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs transition flex items-center gap-1 cursor-pointer shadow-2xs">
                 <span class="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse"></span>
                 <span>Đóng dấu</span>
               </button>
             ` : ''}
             ${(driveUrl || (doc.fileBase64 && isCompleted) || doc.fileBase64) ? `
-              <button onclick="handleOpenReportDriveLink('${escapeHtml(doc.id)}')" title="Mở tệp trên Google Drive" class="px-2 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[11px] transition flex items-center gap-1 cursor-pointer">
+              <button onclick="handleOpenReportDriveLink('${escapeHtml(doc.id)}')" title="Mở tệp trên Google Drive" class="min-w-[36px] min-h-[36px] p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-xs transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs">
                 <span>📁</span>
               </button>
-              <button onclick="handleSaveReportToLocalFolder('${escapeHtml(doc.id)}', event)" title="Lưu tệp về thư mục máy tính (tự động ghi nhớ thư mục, giữ Shift để đổi thư mục)" class="px-2 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] transition flex items-center gap-1 cursor-pointer">
-                <svg class="w-3.5 h-3.5 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+              <button onclick="handleSaveReportToLocalFolder('${escapeHtml(doc.id)}', event)" title="Lưu tệp về thư mục máy tính (tự động ghi nhớ thư mục, giữ Shift để đổi thư mục)" class="min-w-[36px] min-h-[36px] p-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-xs transition flex items-center justify-center gap-1 cursor-pointer shadow-2xs">
+                <svg class="w-4 h-4 text-emerald-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
               </button>
             ` : ''}
             ${(isAdminOrBgh || isReturned || isCreator) ? `
-              <button onclick="handleDeleteReportInline('${escapeHtml(doc.id)}', '${escapeHtml(doc.title || '')}')" title="Xóa báo cáo này" class="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition cursor-pointer">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              <button onclick="handleDeleteReportInline('${escapeHtml(doc.id)}', '${escapeHtml(doc.title || '')}')" title="Xóa báo cáo này" class="min-w-[36px] min-h-[36px] p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 transition flex items-center justify-center cursor-pointer shadow-2xs">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
               </button>
             ` : ''}
           </div>
@@ -6052,6 +6191,16 @@ function setPdfViewerZoom(zoomMode) {
   pdfFrame.src = currentPdfBlobUrl + hash;
 }
 
+window.toggleMobileZoomQuick = function() {
+  if (currentPdfZoom === 'FitH') {
+    setPdfViewerZoom('125');
+  } else if (currentPdfZoom === '125') {
+    setPdfViewerZoom('150');
+  } else {
+    setPdfViewerZoom('FitH');
+  }
+};
+
 function toggleViewerFullscreen() {
   const viewerBox = document.getElementById('viewerModalContainer');
   const btnIcon = document.getElementById('btnFullscreenIcon');
@@ -6652,9 +6801,12 @@ function initDraggableSignature() {
     }
   }
 
+  // Khắc phục DEF-04: Thiết lập touchAction = none và lắng nghe pointercancel
+  stamp.style.touchAction = 'none';
   stamp.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerUp);
 }
 
 // Phím tắt bàn phím tinh chỉnh vị trí & kích cỡ khi xem trước
@@ -8460,6 +8612,18 @@ async function scanBghUsbTokenFromAgent() {
     alertEl.innerHTML = '';
   }
 
+  const targetCccd = (cccdInput ? cccdInput.value : '').trim();
+  if (!targetCccd) {
+    const msg = 'CẦN NHẬP SỐ CCCD: Vui lòng nhập số CCCD của Lãnh đạo (12 chữ số) trước khi thực hiện quét đối soát USB Token!';
+    if (alertEl) {
+      alertEl.className = 'p-3.5 rounded-xl text-xs font-medium bg-amber-50 text-amber-900 border border-amber-300 block';
+      alertEl.innerHTML = `<strong>⚠️ CẦN NHẬP SỐ CCCD:</strong> ${msg}`;
+      alertEl.classList.remove('hidden');
+    }
+    showToast('⚠️ Vui lòng nhập số CCCD trước khi quét USB Token!', 'warning');
+    return;
+  }
+
   showToast('🔍 Đang kết nối EduSign Agent để quét USB Token Nhà trường...', 'info');
 
   try {
@@ -8477,13 +8641,44 @@ async function scanBghUsbTokenFromAgent() {
       if (alertEl) {
         alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-amber-50 text-amber-800 border border-amber-300 block';
         alertEl.innerHTML = `<strong>⚠️ KHÔNG TÌM THẤY THIẾT BỊ:</strong> ${msg}`;
+        alertEl.classList.remove('hidden');
       }
       showModalAlert('KHÔNG TÌM THẤY THIẾT BỊ', msg, 'warning');
       showToast('⚠️ ' + msg, 'warning');
       return;
     }
 
-    // Phân tích danh sách chứng thư: tìm chứng thư của Nhà trường (tổ chức)
+    const primaryCert = certs[0];
+    const certCccd = (primaryCert.cccd || '').trim();
+
+    // 1. Đối soát CCCD: Nếu thiết bị có CCCD nhưng KHÔNG khớp với số CCCD đã nhập
+    if (certCccd && targetCccd && certCccd !== targetCccd && !certCccd.includes(targetCccd) && !targetCccd.includes(certCccd)) {
+      const mismatchHtml = `
+        <div class="space-y-1.5 text-left">
+          <div class="text-rose-700 font-bold flex items-center gap-1.5 text-[13px]">
+            <span>🚫</span>
+            <span>CẢNH BÁO LỆCH ĐỊNH DANH CCCD</span>
+          </div>
+          <div class="p-2.5 bg-white rounded-xl border border-rose-200 text-xs space-y-1 text-slate-800">
+            <div>• Chủ sở hữu Token: <strong class="text-rose-700">${primaryCert.signerName || 'Không xác định'}</strong></div>
+            <div>• Số CCCD trên Token: <strong class="text-rose-700 font-mono">${certCccd}</strong></div>
+            <div>• Số CCCD cấu hình yêu cầu: <strong class="text-purple-700 font-mono">${targetCccd}</strong></div>
+          </div>
+          <p class="text-[11px] text-rose-700 font-medium">
+            Thiết bị đang cắm không thuộc về lãnh đạo có CCCD ${targetCccd}. Vui lòng cắm đúng USB Token!
+          </p>
+        </div>
+      `;
+      if (alertEl) {
+        alertEl.className = 'p-3.5 rounded-xl text-xs font-medium bg-rose-50 text-rose-900 border border-rose-300 block';
+        alertEl.innerHTML = mismatchHtml;
+        alertEl.classList.remove('hidden');
+      }
+      showToast(`⛔ CẢNH BÁO LỆCH ĐỊNH DANH CCCD: CCCD ${certCccd} không khớp ${targetCccd}!`, 'error');
+      return;
+    }
+
+    // 2. Phân tích danh sách chứng thư: tìm chứng thư của Nhà trường (tổ chức) hoặc Lãnh đạo BGH
     let orgCert = null;
     let personalCert = null;
 
@@ -8499,7 +8694,10 @@ async function scanBghUsbTokenFromAgent() {
       const isOrgName = (normSigner.startsWith('truong ') || normSigner.includes('thcs chu van an') || normSigner.includes('trung hoc co so') || normSigner.startsWith('ubnd ')) &&
                         !normSigner.includes('ty') && !normSigner.includes('lien') && !normSigner.includes('lam') && !normSigner.includes('hien');
 
-      if (hasTaxCode || isOrgName) {
+      // Hoặc nếu CCCD khớp với targetCccd và tên là lãnh đạo / chủ sở hữu
+      const isLeaderMatch = targetCccd && c.cccd && (c.cccd === targetCccd || c.cccd.includes(targetCccd)) && !normSigner.includes('ty');
+
+      if (hasTaxCode || isOrgName || isLeaderMatch) {
         orgCert = c;
         break;
       } else {
@@ -8535,6 +8733,7 @@ async function scanBghUsbTokenFromAgent() {
       if (alertEl) {
         alertEl.className = 'p-3.5 rounded-xl text-xs font-medium bg-rose-50 text-rose-900 border border-rose-300 block';
         alertEl.innerHTML = alertHtml;
+        alertEl.classList.remove('hidden');
       }
 
       showModalAlert('CẮM SAI THIẾT BỊ CON DẤU NHÀ TRƯỜNG', alertHtml, 'error');
@@ -8553,25 +8752,28 @@ async function scanBghUsbTokenFromAgent() {
 
     const certSerial = (orgCert.serialNumber || '').trim().toUpperCase();
     const certOrgName = orgCert.signerName || 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN';
+    const normCertName = removeVietnameseTones(certOrgName).toLowerCase();
 
     if (serialInput) serialInput.value = certSerial;
     if (taxCodeInput) taxCodeInput.value = extractedMst;
-    if (schoolInput) schoolInput.value = certOrgName;
+    if (schoolInput && !normCertName.includes('lien') && !normCertName.includes('hien') && !normCertName.includes('ty')) {
+      schoolInput.value = certOrgName;
+    }
 
     const successHtml = `
       <div class="space-y-1.5 text-left">
         <div class="text-emerald-800 font-bold flex items-center gap-1.5 text-[13px]">
           <span>✅</span>
-          <span>ĐÃ NHẬN DIỆN CHÍNH XÁC CHỨNG THƯ SỐ NHÀ TRƯỜNG</span>
+          <span>ĐÃ QUÉT & ĐỐI SOÁT KHỚP THÀNH CÔNG</span>
         </div>
         <div class="p-2.5 bg-white rounded-xl border border-emerald-200 text-xs space-y-1 text-slate-800">
-          <div>• Cơ quan / Nhà trường: <strong>${certOrgName}</strong></div>
-          <div>• Mã số thuế (MST): <strong class="text-purple-700 font-mono font-bold">${extractedMst}</strong></div>
+          <div>• Chủ sở hữu / Cơ quan: <strong>${certOrgName}</strong></div>
+          <div>• Mã số thuế / Định danh: <strong class="text-purple-700 font-mono font-bold">${extractedMst}</strong></div>
           <div>• Số Serial Token: <code class="font-mono font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded">${certSerial}</code></div>
           <div>• Nhà cung cấp (CA): <strong>${orgCert.issuer || 'Ban Cơ yếu Chính phủ / Viettel-CA'}</strong></div>
         </div>
         <p class="text-[11px] text-emerald-700 font-medium">
-          Thông tin Số Serial và Mã số thuế đã được tự động điền vào cấu hình. Hãy bấm <strong>"Lưu cấu hình Chữ ký Nhà trường"</strong> bên dưới để hoàn tất.
+          Thông tin Số Serial đã được tự động điền và đối soát khớp với CCCD. Hãy bấm <strong>"Lưu cấu hình Chữ ký Nhà trường"</strong> bên dưới để hoàn tất.
         </p>
       </div>
     `;
@@ -8579,17 +8781,24 @@ async function scanBghUsbTokenFromAgent() {
     if (alertEl) {
       alertEl.className = 'p-3.5 rounded-xl text-xs font-medium bg-emerald-50 text-emerald-900 border border-emerald-300 block';
       alertEl.innerHTML = successHtml;
+      alertEl.classList.remove('hidden');
     }
 
-    showToast(`✅ Đã nhận diện đúng USB Token Con dấu Nhà trường (MST: ${extractedMst})`, 'success');
+    showToast(`✅ ĐÃ QUÉT & ĐỐI SOÁT KHỚP THÀNH CÔNG USB Token [${certSerial}]!`, 'success');
   } catch (err) {
-    const errHtml = `
-      <strong>⚠️ KHÔNG THỂ KẾT NỐI EDUSIGN AGENT:</strong><br>
-      Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng kiểm tra ứng dụng <strong>EduSign_Agent.exe</strong> đã được khởi chạy trên máy tính.
+    console.error('Lỗi quét USB Token Nhà trường:', err);
+    const alertHtml = `
+      <div class="space-y-1 text-left">
+        <p class="text-rose-700 font-bold text-xs">⚠️ CHƯA KHỞI CHẠY EDUSIGN AGENT</p>
+        <p class="text-xs text-slate-700">
+          Không thể kết nối tới EduSign Agent (cổng 18888). Thầy/Cô vui lòng khởi động phần mềm <strong>EduSign_Agent.exe</strong> trên máy tính rồi quét lại.
+        </p>
+      </div>
     `;
     if (alertEl) {
-      alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-rose-50 text-rose-800 border border-rose-300 block';
-      alertEl.innerHTML = errHtml;
+      alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-amber-50 text-amber-900 border border-amber-300 block';
+      alertEl.innerHTML = alertHtml;
+      alertEl.classList.remove('hidden');
     }
     showModalAlert('CHƯA KHỞI CHẠY EDUSIGN AGENT', 'Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng khởi động EduSign_Agent.exe trên máy tính để quét thiết bị.', 'warning');
     showToast('⚠️ Không thể kết nối tới EduSign Agent (cổng 18888).', 'error');
@@ -8667,3 +8876,67 @@ document.addEventListener('DOMContentLoaded', () => {
   checkSession();
 });
 
+
+
+// ==================== QUẢN LÝ MÃ PIN ZALO & THÔNG TIN CÁ NHÂN ====================
+function generateDefaultPinForModalUser() {
+  const phone = (document.getElementById('userPhone')?.value || '').replace(/\D/g, '');
+  const cccd = (document.getElementById('userCccd')?.value || '').replace(/\D/g, '');
+  let defPin = '1234';
+  if (phone && phone.length >= 4) {
+    defPin = phone.slice(-4);
+  } else if (cccd && cccd.length >= 4) {
+    defPin = cccd.slice(-4);
+  }
+  const pinInput = document.getElementById('userZaloPin');
+  if (pinInput) {
+    pinInput.value = defPin;
+    showToast(`Đã tạo mã PIN gợi ý: ${defPin} (4 số cuối)`, 'info');
+  }
+}
+
+function openModalUserProfile() {
+  const user = appState.currentUser;
+  if (!user) {
+    showToast('Vui lòng đăng nhập để xem thông tin cá nhân.', 'warning');
+    return;
+  }
+  const displayName = user.fullName || user.name || user.username;
+  const rawPhone = user.phone || ((user.username === 'cva.ty' || user.id === 'user_cvaty' || (user.username && user.username.includes('ty'))) ? '0818810007' : '');
+  const cleanPhone = rawPhone.replace(/\D/g, '');
+  const cleanCccd = (user.cccd || '').replace(/\D/g, '');
+  const pin = user.pinCode || user.zaloPin || (cleanPhone.length >= 4 ? cleanPhone.slice(-4) : (cleanCccd.length >= 4 ? cleanCccd.slice(-4) : '1234'));
+  const phoneDisplay = rawPhone || 'Chưa cập nhật';
+
+  if (document.getElementById('profFullName')) document.getElementById('profFullName').textContent = displayName;
+  if (document.getElementById('profUsername')) document.getElementById('profUsername').textContent = user.username || '';
+  if (document.getElementById('profDepartment')) document.getElementById('profDepartment').textContent = user.department || user.departmentName || 'Ban Giám hiệu';
+  if (document.getElementById('profRole')) document.getElementById('profRole').textContent = user.roleTitle || (user.role === 'ADMIN' ? 'Quản trị viên' : (user.role === 'BGH' ? 'Ban Giám hiệu' : (user.role === 'LEADER' ? 'Tổ trưởng' : 'Giáo viên')));
+  if (document.getElementById('profCccd')) document.getElementById('profCccd').textContent = user.cccd || 'Chưa cập nhật';
+  if (document.getElementById('profPhone')) document.getElementById('profPhone').textContent = phoneDisplay;
+  if (document.getElementById('profPinCode')) document.getElementById('profPinCode').textContent = pin;
+  if (document.getElementById('profSyntaxPhone')) document.getElementById('profSyntaxPhone').textContent = cleanPhone || '0818810007';
+  if (document.getElementById('profSyntaxFull')) document.getElementById('profSyntaxFull').textContent = `LK ${cleanPhone || '0818810007'} ${pin}`;
+
+  openModal('modalUserProfile');
+}
+
+function copyZaloLinkSyntax() {
+  const user = appState.currentUser;
+  if (!user) return;
+  const rawPhone = user.phone || ((user.username === 'cva.ty' || user.id === 'user_cvaty' || (user.username && user.username.includes('ty'))) ? '0818810007' : '');
+  const cleanPhone = rawPhone.replace(/\D/g, '');
+  const cleanCccd = (user.cccd || '').replace(/\D/g, '');
+  const pin = user.pinCode || user.zaloPin || (cleanPhone.length >= 4 ? cleanPhone.slice(-4) : (cleanCccd.length >= 4 ? cleanCccd.slice(-4) : '1234'));
+  const syntax = cleanPhone ? `LK ${cleanPhone} ${pin}` : `LK 0818810007 ${pin}`;
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(syntax).then(() => {
+      showToast(`✅ Đã sao chép cú pháp liên kết: ${syntax}`, 'success');
+    }).catch(() => {
+      prompt('Sao chép cú pháp liên kết Zalo:', syntax);
+    });
+  } else {
+    prompt('Sao chép cú pháp liên kết Zalo:', syntax);
+  }
+}

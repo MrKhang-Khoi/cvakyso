@@ -295,7 +295,7 @@
   </div>
 
   <!-- MODAL XÁC THỰC QUẢN TRỊ VIÊN -->
-  <div id="modalAdminAuth" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+  <div id="modalAdminAuth" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4 hidden">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-200">
       <div class="flex items-center justify-between pb-4 border-b border-slate-100">
         <div class="flex items-center gap-2 text-slate-900">
@@ -318,7 +318,7 @@
             <input type="password" id="adminPasswordInput" class="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:bg-white focus:outline-none transition"
                    placeholder="Nhập mật khẩu quản trị..." onkeydown="if(event.key==='Enter') handleAdminLogin()">
           </div>
-          <p id="adminAuthError" class="text-xs text-rose-500 font-medium mt-1.5 hidden">Mật khẩu quản trị không chính xác!</p>
+          <p id="adminAuthError" class="text-xs text-rose-700 font-bold mt-1.5 hidden">Mật khẩu quản trị không chính xác!</p>
         </div>
       </div>
       <div class="mt-6 flex justify-end gap-2">
@@ -329,7 +329,7 @@
   </div>
 
   <!-- MODAL XÁC NHẬN XÓA BÁO CÁO -->
-  <div id="modalConfirmDelete" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+  <div id="modalConfirmDelete" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[90] flex items-center justify-center p-4 hidden">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-200">
       <div class="flex items-center gap-3 pb-3 border-b border-slate-100 text-rose-600">
         <div class="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0">
@@ -359,7 +359,7 @@
   </div>
 
   <!-- MODAL XÁC NHẬN XÓA HÀNG LOẠT BÁO CÁO ĐÃ CHỌN -->
-  <div id="modalConfirmBatchDelete" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+  <div id="modalConfirmBatchDelete" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[90] flex items-center justify-center p-4 hidden">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-200">
       <div class="flex items-center gap-3 pb-3 border-b border-slate-100 text-rose-600">
         <div class="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0">
@@ -388,7 +388,7 @@
   </div>
 
   <!-- MODAL XÁC NHẬN XÓA TẤT CẢ BÁO CÁO -->
-  <div id="modalConfirmClearAll" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+  <div id="modalConfirmClearAll" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[95] flex items-center justify-center p-4 hidden">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-slate-200">
       <div class="flex items-center gap-3 pb-3 border-b border-slate-100 text-rose-600">
         <div class="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center flex-shrink-0">
@@ -476,9 +476,12 @@
     }
 
     function openAdminModal() {
-      document.getElementById('adminPasswordInput').value = '';
-      document.getElementById('adminAuthError').classList.add('hidden');
-      document.getElementById('modalAdminAuth').classList.remove('hidden');
+      const adminInput = document.getElementById('adminPasswordInput');
+      if (adminInput) adminInput.value = '';
+      const adminErr = document.getElementById('adminAuthError');
+      if (adminErr) adminErr.classList.add('hidden');
+      const adminModal = document.getElementById('modalAdminAuth');
+      if (adminModal) adminModal.classList.remove('hidden');
       setTimeout(() => {
         const inp = document.getElementById('adminPasswordInput');
         if (inp) inp.focus();
@@ -486,11 +489,13 @@
     }
 
     function closeAdminModal() {
-      document.getElementById('modalAdminAuth').classList.add('hidden');
+      const adminModal = document.getElementById('modalAdminAuth');
+      if (adminModal) adminModal.classList.add('hidden');
     }
 
     function handleAdminLogin() {
-      const pwd = document.getElementById('adminPasswordInput').value.trim();
+      const adminInput = document.getElementById('adminPasswordInput');
+      const pwd = adminInput ? adminInput.value.trim() : '';
       const errEl = document.getElementById('adminAuthError');
       if (pwd === 'admin123' || pwd === 'cva@admin2026' || pwd === '123456') {
         isPortalAdmin = true;
@@ -501,7 +506,7 @@
         renderTableRows(currentReportsData, (currentPage - 1) * currentLimit);
         alert('🛡️ Đã xác thực thành công quyền Quản trị viên!\nBây giờ Thầy/Cô có thể quản lý, chọn xóa hàng loạt hoặc dọn dẹp kho báo cáo.');
       } else {
-        errEl.classList.remove('hidden');
+        if (errEl) errEl.classList.remove('hidden');
       }
     }
 
@@ -724,16 +729,20 @@
         openAdminModal();
         return;
       }
-      document.getElementById('inputConfirmClearAllKeyword').value = '';
-      document.getElementById('modalConfirmClearAll').classList.remove('hidden');
+      const kwInput = document.getElementById('inputConfirmClearAllKeyword');
+      if (kwInput) kwInput.value = '';
+      const clearModal = document.getElementById('modalConfirmClearAll');
+      if (clearModal) clearModal.classList.remove('hidden');
     }
 
     function closeClearAllModal() {
-      document.getElementById('modalConfirmClearAll').classList.add('hidden');
+      const clearModal = document.getElementById('modalConfirmClearAll');
+      if (clearModal) clearModal.classList.add('hidden');
     }
 
     async function executeClearAllReports() {
-      const kw = (document.getElementById('inputConfirmClearAllKeyword').value || '').trim().toUpperCase();
+      const kwInput = document.getElementById('inputConfirmClearAllKeyword');
+      const kw = (kwInput ? kwInput.value : '').trim().toUpperCase();
       if (kw !== 'XAC NHAN XOA') {
         alert('⚠️ Thầy/Cô cần nhập chính xác từ khóa "XAC NHAN XOA" để xác nhận xóa toàn bộ!');
         return;
@@ -946,21 +955,24 @@
                 ${statusIcon} ${statusText}
               </span>
             </td>
-            <!-- Thao Tác -->
+            <!-- Thao Tác (Khắc phục DEF-06: Vùng chạm an toàn >= 36-40px, tách biệt nút Xóa) -->
             <td class="py-3.5 px-4 text-center whitespace-nowrap">
-              <div class="inline-flex items-center gap-1.5">
+              <div class="inline-flex items-center gap-2.5">
                 ${item.viewUrl ? `
-                  <button onclick="openPdfModal('${safeViewUrl}', '${safeTitle}')" class="p-1.5 text-blue-600 hover:text-white hover:bg-blue-600 rounded-lg transition border border-blue-200 shadow-sm cursor-pointer" title="Xem trước báo cáo">
+                  <button onclick="openPdfModal('${safeViewUrl}', '${safeTitle}')" 
+                    class="min-w-[36px] min-h-[36px] p-2 text-blue-600 hover:text-white hover:bg-blue-600 rounded-xl transition border border-blue-200 shadow-2xs flex items-center justify-center cursor-pointer" title="Xem trước báo cáo">
                     <i data-lucide="eye" class="w-4 h-4"></i>
                   </button>
                 ` : ''}
                 ${item.downloadUrl || item.viewUrl ? `
-                  <a href="${item.downloadUrl || item.viewUrl}" target="_blank" class="p-1.5 text-emerald-600 hover:text-white hover:bg-emerald-600 rounded-lg transition border border-emerald-200 shadow-sm cursor-pointer" title="Tải báo cáo về máy">
+                  <a href="${item.downloadUrl || item.viewUrl}" target="_blank" 
+                    class="min-w-[36px] min-h-[36px] p-2 text-emerald-600 hover:text-white hover:bg-emerald-600 rounded-xl transition border border-emerald-200 shadow-2xs flex items-center justify-center cursor-pointer" title="Tải báo cáo về máy">
                     <i data-lucide="download" class="w-4 h-4"></i>
                   </a>
                 ` : ''}
                 ${isPortalAdmin ? `
-                  <button onclick="confirmDeleteReport('${safeDocId}', '${safeTitle}')" class="btn-delete-report p-1.5 text-rose-600 hover:text-white hover:bg-rose-600 rounded-lg transition border border-rose-200 shadow-sm cursor-pointer" title="Xóa báo cáo này (Admin)">
+                  <button onclick="confirmDeleteReport('${safeDocId}', '${safeTitle}')" 
+                    class="btn-delete-report min-w-[36px] min-h-[36px] p-2 text-rose-600 hover:text-white hover:bg-rose-600 rounded-xl transition border border-rose-200 shadow-2xs flex items-center justify-center cursor-pointer" title="Xóa báo cáo này (Admin)">
                     <i data-lucide="trash-2" class="w-4 h-4"></i>
                   </button>
                 ` : ''}

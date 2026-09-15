@@ -1,0 +1,23 @@
+[
+  {
+    "id": "DEFECT-ZALO-08",
+    "name": "Dual-dispatch message duplication between client app.js and server.js",
+    "severity": "MEDIUM",
+    "status": "CONFIRMED_DEFECT",
+    "evidence": "Client app.js (6 call sites) and server.js fire concurrent POST requests to GAS Webhook for identical events, producing 2 duplicate Zalo messages per event."
+  },
+  {
+    "id": "DEFECT-ZALO-09",
+    "name": "Public unauthenticated exposure of school seal and teacher signatures on /uploads",
+    "severity": "CRITICAL",
+    "status": "CONFIRMED_DEFECT",
+    "evidence": "GET /uploads/signatures/school_seal.png returned HTTP 200 (2990 bytes) and sig_user_cvaty.png returned HTTP 200 (87869 bytes) with zero authentication!"
+  },
+  {
+    "id": "DEFECT-ZALO-11",
+    "name": "Absence of Zalo OA v3 OAuth 2.0 PKCE refresh token architecture",
+    "severity": "HIGH",
+    "status": "CONFIRMED_DEFECT",
+    "evidence": "Codebase strictly uses static Zalo Bot Platform token (bot-api.zaloplatforms.com). Lacks OAuth 2.0 PKCE refresh flow, 25h access_token rotation, and concurrency mutex required for official Zalo OA verification."
+  }
+]

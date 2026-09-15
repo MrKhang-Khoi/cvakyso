@@ -464,13 +464,37 @@ async function runTests() {
     });
     assert(sealDirectRes.status === 200, 'Tải thành công con dấu đỏ nhà trường từ /school_seal.png (Mã 200)');
 
-    const sealUploadRes = await httpRequest({
+    // Kiểm tra bảo mật: Con dấu đỏ nhà trường trong /uploads/signatures/school_seal.png
+    // Phải chặn truy cập unauthenticated (401), chặn giáo viên thường (403), và cho phép Admin/BGH (200)
+    const sealUnauthRes = await httpRequest({
       hostname: '127.0.0.1',
       port: TEST_PORT,
       path: '/uploads/signatures/school_seal.png',
       method: 'GET'
     });
-    assert(sealUploadRes.status === 200, 'Tải thành công con dấu đỏ nhà trường từ /uploads/signatures/school_seal.png (Mã 200)');
+    assert(sealUnauthRes.status === 401, 'Bảo vệ thành công: Chặn truy cập trái phép con dấu đỏ từ /uploads/signatures/school_seal.png khi chưa xác thực (Mã 401)');
+
+    const sealTeacherRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: TEST_PORT,
+      path: '/uploads/signatures/school_seal.png',
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${teacherToken}`
+      }
+    });
+    assert(sealTeacherRes.status === 403, 'Bảo vệ thành công: Chặn giáo viên thường truy cập con dấu đỏ nhà trường (Mã 403)');
+
+    const sealUploadRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: TEST_PORT,
+      path: '/uploads/signatures/school_seal.png',
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${adminToken}`
+      }
+    });
+    assert(sealUploadRes.status === 200, 'Tải thành công con dấu đỏ nhà trường từ /uploads/signatures/school_seal.png với quyền Quản trị viên (Mã 200)');
 
     // 3.10 Kiểm tra tính năng THU HỒI BÀI NỘP (Recall) khi tổ trưởng chưa ký duyệt
     const docToRecallRes = await httpRequest({

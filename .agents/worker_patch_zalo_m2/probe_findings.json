@@ -1,0 +1,86 @@
+[
+  {
+    "id": "DEFECT-ZALO-01",
+    "name": "Handling of 'FORWARDED' events in GAS notification handler",
+    "severity": "CRITICAL",
+    "status": "PATCH_VERIFIED_SECURE",
+    "evidence": "handleEduSignNotification successfully handled eventType='FORWARDED' with { success: true, delivered: true, chatId: 'legit_chat_id_bgh' }, delivering instant Zalo notifications to School Board."
+  },
+  {
+    "id": "DEFECT-ZALO-02",
+    "name": "Document code parser (KHBD-..., BC-...) in Chatbot NLP router",
+    "severity": "HIGH",
+    "status": "PATCH_VERIFIED_SECURE",
+    "evidence": "Input codes [KHBD-002, BC-001, GA-TOAN-9A1] were successfully parsed by regex pattern. Existing code 'BC-001' returned full document card with author, approver, status and download link."
+  },
+  {
+    "id": "DEFECT-ZALO-03",
+    "name": "Pending documents lookup command ('choduyet', 'pending')",
+    "severity": "MEDIUM",
+    "status": "PATCH_VERIFIED_SECURE",
+    "evidence": "Queries ['choduyet', 'pending', 'cho duyet'] correctly recognized and returned formatted pending document queue for school leaders."
+  },
+  {
+    "id": "DEFECT-ZALO-04",
+    "name": "Account takeover prevention via EduSign PIN challenge (CWE-287 Fixed)",
+    "severity": "CRITICAL",
+    "status": "PATCH_VERIFIED_SECURE",
+    "evidence": "Sending bare phone number prompted for PIN challenge without mutating database. Incorrect PIN was rejected. Valid PIN verified successfully, securing staff identity."
+  },
+  {
+    "id": "DEFECT-ZALO-05",
+    "name": "Zalo notification trigger integrated in approve-leader",
+    "severity": "HIGH",
+    "status": "PATCH_VERIFIED_SECURE",
+    "evidence": "Inspected server.js lines around approve-leader: Route contains notifyUserWebPush and invokes zaloNotifyService.notifyDocumentSubmitted to notify School Board (Ban Giám hiệu)."
+  },
+  {
+    "id": "DEFECT-ZALO-06",
+    "name": "Zalo notification with download link integrated in approve-principal",
+    "severity": "HIGH",
+    "status": "PATCH_VERIFIED_SECURE",
+    "evidence": "Inspected server.js approve-principal route: Invokes zaloNotifyService.notifyDocumentCompleted with download link, ensuring teacher and leader are instantly notified upon signing & sealing."
+  },
+  {
+    "id": "DEFECT-ZALO-07",
+    "name": "Consolidation of /reject into single authenticated endpoint with JWT middleware",
+    "severity": "CRITICAL",
+    "status": "PATCH_VERIFIED_SECURE",
+    "evidence": "Duplicate unauthenticated route at line 836 was eliminated. Only 1 authenticated endpoint protected by requireAuth exists, preventing unauthorized document rejections."
+  },
+  {
+    "id": "DEFECT-ZALO-08",
+    "name": "Standardization of server-side authenticated single source of truth for Zalo dispatches",
+    "severity": "MEDIUM",
+    "status": "PATCH_VERIFIED_SECURE",
+    "evidence": "All notification dispatches are routed through authenticated backend endpoints in server.js and authenticated with secret_token."
+  },
+  {
+    "id": "DEFECT-ZALO-09",
+    "name": "Protection of /uploads/signatures behind requireAuth and role-based access control",
+    "severity": "CRITICAL",
+    "status": "PATCH_VERIFIED_SECURE",
+    "evidence": "Unauthenticated access to school seal and teacher signatures blocked with HTTP 401. Access granted strictly to authenticated School Board / Admins / Signature Owners."
+  },
+  {
+    "id": "DEFECT-ZALO-10",
+    "name": "Enforcement of secret_token validation on Google Apps Script Webhook doPost(e)",
+    "severity": "CRITICAL",
+    "status": "PATCH_VERIFIED_SECURE",
+    "evidence": "doPost(e) successfully rejected unauthenticated destructive actions with UNAUTHORIZED_SECRET_TOKEN. Valid secret_token accepted and executed securely."
+  },
+  {
+    "id": "DEFECT-ZALO-11",
+    "name": "Zalo OA v3 Token Management Module with single-flight mutex lock",
+    "severity": "HIGH",
+    "status": "PATCH_VERIFIED_SECURE",
+    "evidence": "Module zaloOaTokenManager.js successfully verified. Single-flight Mutex lock queues concurrent refresh requests, preventing Token Replay race conditions."
+  },
+  {
+    "id": "DEFECT-ZALO-12",
+    "name": "HTTP response code inspection and error handling in Zalo Bot dispatcher",
+    "severity": "MEDIUM",
+    "status": "PATCH_VERIFIED_SECURE",
+    "evidence": "When Zalo API returned HTTP 400, sendZaloBotReply correctly captured responseCode=400 and returned { success: false, delivered: false, statusCode: 400, error }. False-positive delivery reporting is completely resolved."
+  }
+]

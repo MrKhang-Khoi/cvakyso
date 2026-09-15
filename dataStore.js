@@ -99,34 +99,206 @@ function readJsonSafe(filePath, defaultVal = []) {
   }
 }
 
-// Đọc danh sách người dùng
-function getUsers() {
-  return readJsonSafe(USERS_FILE, []);
+// =================== CƠ CHẾ HÀNG ĐỢI GHI ĐĨA BẤT ĐỒNG BỘ & BỘ NHỚ ĐỆM ===================
+let _usersCache = null;
+
+// Đọc danh sách người dùng (ưu tiên bộ nhớ RAM, chống lệch pha dữ liệu)
+function getUsers(forceReload = false) {
+  if (forceReload || !_usersCache) {
+    _usersCache = readJsonSafe(USERS_FILE, []);
+  }
+  return _usersCache;
 }
 
-function saveJsonSafe(filePath, data) {
+// Dọn dẹp các tệp tạm .tmp tồn đọng từ các phiên làm việc trước
+try {
+  const dataDir = path.dirname(USERS_FILE);
+  if (fs.existsSync(dataDir)) {
+    fs.readdirSync(dataDir).forEach(f => {
+      if (f.endsWith('.tmp')) {
+        try { fs.unlinkSync(path.join(dataDir, f)); } catch {}
+      }
+    });
+  }
+} catch {}
+
+/**
+ * Ghi tệp JSON bất đồng bộ an toàn với cơ chế retry phi nghẽn (non-blocking).
+ * TUYỆT ĐỐI KHÔNG dùng Atomics.wait gây đóng băng V8 Event Loop.
+ */
+async function _writeJsonAsyncWithRetry(filePath, data, maxAttempts = 12) {
   const content = JSON.stringify(data, null, 2);
-  for (let attempt = 0; attempt < 12; attempt++) {
+  let tempPath = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const tempPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2, 6)}.tmp`;
-      fs.writeFileSync(tempPath, content, 'utf8');
-      fs.renameSync(tempPath, filePath);
+      tempPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2, 6)}.tmp`;
+      await fs.promises.writeFile(tempPath, content, 'utf8');
+      try {
+        await fs.promises.rename(tempPath, filePath);
+      } catch (renameErr) {
+        // Khắc phục tranh chấp khóa tệp NTFS trên Windows: copy đè và xóa tệp tạm
+        try {
+          await fs.promises.copyFile(tempPath, filePath);
+          try { await fs.promises.unlink(tempPath); } catch {}
+        } catch (copyErr) {
+          throw renameErr;
+        }
+      }
       return;
     } catch (err) {
+      if (tempPath) {
+        try {
+          if (fs.existsSync(tempPath)) {
+            await fs.promises.unlink(tempPath);
+          }
+        } catch {}
+      }
       try {
-        fs.writeFileSync(filePath, content, 'utf8');
+        // Fallback ghi trực tiếp nếu thao tác đổi tên tạm thất bại
+        await fs.promises.writeFile(filePath, content, 'utf8');
         return;
       } catch (err2) {
-        if (attempt === 11) throw err2;
-        const start = Date.now();
-        while (Date.now() - start < 100) {}
+        if (attempt === maxAttempts - 1) {
+          throw err2;
+        }
+        // Non-blocking backoff delay: nhường CPU cho Event Loop xử lý các request khác
+        const delay = Math.min(200, 15 * Math.pow(1.3, attempt) + Math.random() * 10);
+        await new Promise(r => setTimeout(r, delay));
       }
     }
   }
 }
 
+// Quản lý hàng đợi ghi đĩa tuần tự độc lập cho từng file đường dẫn (Serialized Queue)
+const _fileQueues = new Map();
+
+function _getFileQueue(filePath) {
+  const normalizedPath = path.resolve(filePath);
+  let q = _fileQueues.get(normalizedPath);
+  if (!q) {
+    q = {
+      isWriting: false,
+      hasPending: false,
+      pendingData: null,
+      resolvers: []
+    };
+    _fileQueues.set(normalizedPath, q);
+  }
+  return q;
+}
+
+function _hasPendingWrites(filePath) {
+  const normalizedPath = path.resolve(filePath);
+  const q = _fileQueues.get(normalizedPath);
+  return q ? (q.isWriting || q.hasPending) : false;
+}
+
+function _queueFileSave(filePath, data) {
+  if (!filePath) return Promise.resolve(true);
+  const normalizedPath = path.resolve(filePath);
+  const q = _getFileQueue(normalizedPath);
+
+  q.pendingData = data;
+
+  const promise = new Promise((resolve, reject) => {
+    q.resolvers.push({ resolve, reject });
+
+    if (q.isWriting) {
+      // Đã có luồng ghi đang chạy -> đánh dấu pending để gom đợt ghi tiếp theo (coalescing)
+      q.hasPending = true;
+      return;
+    }
+
+    _processFileQueue(normalizedPath, q);
+  });
+
+  // Bắt lỗi ngầm để tránh unhandledRejection nếu caller gọi save không dùng await
+  promise.catch(() => {});
+  return promise;
+}
+
+async function _processFileQueue(filePath, q) {
+  q.isWriting = true;
+
+  while (true) {
+    q.hasPending = false;
+    const currentResolvers = q.resolvers;
+    q.resolvers = [];
+
+    // Đối với DOCS_FILE, luôn lấy trực tiếp _docsCache mới nhất trong RAM để tránh Lost Update
+    let dataToSave;
+    if (path.resolve(filePath) === path.resolve(DOCS_FILE)) {
+      dataToSave = _docsCache || [];
+    } else {
+      dataToSave = q.pendingData;
+    }
+
+    let success = false;
+    let writeErr = null;
+
+    try {
+      await _writeJsonAsyncWithRetry(filePath, dataToSave);
+      success = true;
+    } catch (err) {
+      writeErr = err;
+      console.error(`[DataStore] Lỗi khi ghi đĩa file ${path.basename(filePath)}:`, err);
+    }
+
+    for (const r of currentResolvers) {
+      try {
+        if (success) {
+          r.resolve(true);
+        } else {
+          r.reject(writeErr);
+        }
+      } catch {}
+    }
+
+    // Nếu trong lúc ghi vừa rồi có yêu cầu lưu mới đến, tiếp tục vòng lặp ghi đợt tiếp theo
+    if (q.hasPending) {
+      continue;
+    } else {
+      break;
+    }
+  }
+
+  q.isWriting = false;
+}
+
+async function waitForPendingWrites(filePath = DOCS_FILE) {
+  const normalizedPath = path.resolve(filePath);
+  const q = _fileQueues.get(normalizedPath);
+  if (!q || (!q.isWriting && !q.hasPending)) {
+    return true;
+  }
+  return new Promise(resolve => {
+    q.resolvers.push({ resolve, reject: resolve });
+  });
+}
+
+function saveJsonSafe(filePath, data) {
+  return _queueFileSave(filePath, data);
+}
+
+function saveJsonSafeSync(filePath, data) {
+  const content = JSON.stringify(data, null, 2);
+  const tempPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2, 6)}.tmp`;
+  try {
+    fs.writeFileSync(tempPath, content, 'utf8');
+    fs.renameSync(tempPath, filePath);
+  } catch {
+    if (fs.existsSync(tempPath)) {
+      try { fs.unlinkSync(tempPath); } catch {}
+    }
+    fs.writeFileSync(filePath, content, 'utf8');
+  }
+}
+
 function saveUsers(users) {
-  saveJsonSafe(USERS_FILE, users);
+  if (Array.isArray(users)) {
+    _usersCache = users;
+  }
+  return saveJsonSafe(USERS_FILE, _usersCache);
 }
 
 function getUserById(id) {
@@ -139,12 +311,20 @@ function getUserByUsername(username) {
 }
 
 // =================== QUẢN LÝ TỔ CHUYÊN MÔN (DEPARTMENTS) ===================
-function getDepartments() {
-  return readJsonSafe(DEPTS_FILE, []);
+let _deptsCache = null;
+
+function getDepartments(forceReload = false) {
+  if (forceReload || !_deptsCache) {
+    _deptsCache = readJsonSafe(DEPTS_FILE, []);
+  }
+  return _deptsCache;
 }
 
 function saveDepartments(depts) {
-  saveJsonSafe(DEPTS_FILE, depts);
+  if (Array.isArray(depts)) {
+    _deptsCache = depts;
+  }
+  return saveJsonSafe(DEPTS_FILE, _deptsCache);
 }
 
 function getDepartmentById(id) {
@@ -193,12 +373,20 @@ function deleteDepartment(id) {
 }
 
 // =================== QUẢN LÝ THÔNG BÁO WEB PUSH (PWA) ===================
-function getSubscriptions() {
-  return readJsonSafe(SUBS_FILE, []);
+let _subsCache = null;
+
+function getSubscriptions(forceReload = false) {
+  if (forceReload || !_subsCache) {
+    _subsCache = readJsonSafe(SUBS_FILE, []);
+  }
+  return _subsCache;
 }
 
 function saveSubscriptions(subs) {
-  saveJsonSafe(SUBS_FILE, subs);
+  if (Array.isArray(subs)) {
+    _subsCache = subs;
+  }
+  return saveJsonSafe(SUBS_FILE, _subsCache);
 }
 
 function saveSubscription(userId, subscription) {
@@ -257,6 +445,7 @@ function createUser(userData) {
     certSerial: userData.certSerial ? userData.certSerial.trim() : '',
     school: 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN',
     phone: userData.phone ? userData.phone.trim() : '',
+    pinCode: userData.pinCode ? String(userData.pinCode).trim() : ((userData.phone && userData.phone.replace(/\D/g, '').length >= 4) ? userData.phone.replace(/\D/g, '').slice(-4) : '1234'),
     canUploadWord: userData.canUploadWord !== undefined ? Boolean(userData.canUploadWord) : true,
     canStampSeal: (userData.role === 'ADMIN') ? false : (userData.canStampSeal !== undefined ? Boolean(userData.canStampSeal) : false),
     signatureImage: null,
@@ -316,6 +505,8 @@ function updateUser(id, updates) {
   if (updates.canStampSeal !== undefined) users[index].canStampSeal = Boolean(updates.canStampSeal);
   if (updates.certSerial !== undefined) users[index].certSerial = updates.certSerial.trim();
   if (updates.phone !== undefined) users[index].phone = updates.phone.trim();
+  if (updates.pinCode !== undefined) users[index].pinCode = String(updates.pinCode).trim();
+  if (updates.zaloPin !== undefined) users[index].pinCode = String(updates.zaloPin).trim();
   if (updates.signatureImage !== undefined) users[index].signatureImage = updates.signatureImage;
   if (updates.vgcaAuth !== undefined) users[index].vgcaAuth = updates.vgcaAuth;
 
@@ -453,17 +644,37 @@ function sanitizeDocuments(docs) {
   return docs;
 }
 
-function getDocuments() {
-  const docs = readJsonSafe(DOCS_FILE, []);
-  if (!_hasRunSanitization) {
-    _hasRunSanitization = true;
-    return sanitizeDocuments(docs);
+let _docsCache = null;
+
+function getDocuments(forceReload = false) {
+  const hasPending = _hasPendingWrites(DOCS_FILE);
+  if ((forceReload && !hasPending) || !_docsCache) {
+    const docs = readJsonSafe(DOCS_FILE, []);
+    _docsCache = docs;
+    if (!_hasRunSanitization) {
+      _hasRunSanitization = true;
+      _docsCache = sanitizeDocuments(_docsCache);
+    }
   }
-  return docs;
+  return _docsCache;
 }
 
 function saveDocuments(docs) {
-  saveJsonSafe(DOCS_FILE, docs);
+  if (Array.isArray(docs)) {
+    _docsCache = docs;
+  }
+  return saveJsonSafe(DOCS_FILE, _docsCache);
+}
+
+/**
+ * Đảm bảo tất cả các cập nhật hồ sơ đang trong hàng đợi được ghi hoàn tất vào đĩa
+ */
+async function flushDocuments() {
+  if (_docsCache) {
+    saveDocuments(_docsCache);
+  }
+  await waitForPendingWrites(DOCS_FILE);
+  return true;
 }
 
 function getDocumentById(id) {
@@ -698,14 +909,19 @@ function deleteDocument(id) {
 }
 
 const BGH_CONFIG_FILE = path.join(DATA_DIR, 'bgh_signing_config.json');
+let _bghConfigCache = null;
 
-function getBghSigningConfig() {
+function getBghSigningConfig(forceReload = false) {
+  if (!forceReload && _bghConfigCache) {
+    return _bghConfigCache;
+  }
   try {
     if (fs.existsSync(BGH_CONFIG_FILE)) {
-      return JSON.parse(fs.readFileSync(BGH_CONFIG_FILE, 'utf8'));
+      _bghConfigCache = JSON.parse(fs.readFileSync(BGH_CONFIG_FILE, 'utf8'));
+      return _bghConfigCache;
     }
   } catch (err) {}
-  return {
+  _bghConfigCache = {
     signType: 'USB_TOKEN', // 'USB_TOKEN' hoặc 'SMART_CA'
     serialNumber: '025E056A3F133DA9', // USB Token Ban Giám hiệu (Cô Ngô Thị Liền)
     certOwner: 'Ngô Thị Liền',
@@ -713,6 +929,7 @@ function getBghSigningConfig() {
     school: 'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN',
     updatedAt: new Date().toISOString()
   };
+  return _bghConfigCache;
 }
 
 function saveBghSigningConfig(config) {
@@ -722,6 +939,7 @@ function saveBghSigningConfig(config) {
     ...config,
     updatedAt: new Date().toISOString()
   };
+  _bghConfigCache = updated;
   saveJsonSafe(BGH_CONFIG_FILE, updated);
   return updated;
 }
@@ -750,8 +968,13 @@ module.exports = {
   getSubscriptionsForUser,
   getDocuments,
   saveDocuments,
+  flushDocuments,
+  waitForPendingWrites,
+  saveJsonSafe,
+  saveJsonSafeSync,
   getDocumentById,
   createDocument,
+  addDocument: createDocument,
   updateDocument,
   deleteDocument,
   archiveDocument,
