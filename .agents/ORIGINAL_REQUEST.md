@@ -313,3 +313,42 @@ Integrity mode: development
 ### Đóng gói & Hướng dẫn Code.gs
 - [ ] Toàn bộ test suite Playwright và unit tests đạt 100% PASS.
 - [ ] Cung cấp hướng dẫn chi tiết cập nhật Code.gs và thực hiện git push origin main.
+
+## 2026-09-15T07:38:54Z
+
+Tập trung xử lý triệt để nguyên nhân Zalo Bot không nhắn tin luồng ký báo cáo khi người dùng khởi tạo báo cáo: Bổ sung secret_token cho toàn bộ webhook phát từ client, gửi tin nhắn xác nhận luồng ký cho chính tác giả khởi tạo và người duyệt tiếp theo trong Google Apps Script, kiểm thử thực nghiệm mạng thật có minh chứng và đẩy lên GitHub.
+
+Requested team: Multi-Agent Team (Agent 1: Coder, Agent 2: Tester, Agent 3: Cross-Checker & Auditor)
+
+Working directory: c:\Users\HPZBook\Desktop\KÝ SỐ
+Integrity mode: development
+
+## Requirements
+
+### R1. Sửa Lỗi Thiếu secret_token trong sendZaloNotificationClientSide (js/app.js, public/js/app.js, docs/js/app.js)
+- **Nguyên nhân**: Google Apps Script yêu cầu secret_token: "UnifiedZaloBotTHCSCVA2026Secret" cho mọi hành động NOTIFY_SIGN_EVENT. Hiện tại các lệnh gọi từ client thiếu trường này nên Google Apps Script từ chối với lỗi UNAUTHORIZED_SECRET_TOKEN.
+- **Khắc phục**: Tự động chèn payload.secret_token = "UnifiedZaloBotTHCSCVA2026Secret" ngay bên trong hàm sendZaloNotificationClientSide để mọi thông báo ký số (SUBMITTED, FORWARDED, PERSONAL_SIGNED, COMPLETED, REJECTED) đều vượt qua kiểm tra an ninh 100%.
+
+### R2. Nâng Cấp Logic Gửi Tin Zalo trong google-apps-script-zalo-edusign.js (Sự kiện SUBMITTED & FORWARDED)
+- **Nguyên nhân**: Khi nhận sự kiện SUBMITTED, code hiện tại chỉ gửi cho recipientPhone (người duyệt). Nếu người duyệt chưa liên kết Zalo thì không ai nhận được tin, và chính người tạo hồ sơ (authorPhone) hoàn toàn không có tin nhắn xác nhận.
+- **Khắc phục**:
+  1. **Gửi tin nhắn xác nhận luồng ký cho Tác giả khởi tạo (authorPhone)**:
+     * Tiêu đề: 📤 XÁC NHẬN: KHỞI TẠO BÁO CÁO & TRÌNH KÝ THÀNH CÔNG
+     * Nội dung: Tên hồ sơ, Mã hồ sơ, Người tạo, Luồng ký: Đã chuyển tiếp tới [Tên người duyệt] ([SĐT]), Thời gian.
+  2. **Gửi tin nhắn mời ký duyệt cho Người duyệt tiếp theo (recipientPhone)**:
+     * Nếu người duyệt đã liên kết Zalo: Gửi thông báo có hồ sơ mới cần ký duyệt.
+     * Nếu người duyệt chưa liên kết Zalo: Không làm gián đoạn luồng của tác giả.
+
+### R3. Kiểm Thử Thực Nghiệm Mạng Thật (Live Network Trace) & Minh Chứng
+- Chạy script kiểm thử gửi request thật sang Webhook Google Apps Script xác nhận:
+  * Phản hồi HTTP 200 success: true.
+  * Gửi tin nhắn thực tế về Zalo Chat của thầy Hà Văn Tý (0818810007).
+- Chạy bộ test hồi quy Playwright và unit test xác nhận 100% PASS.
+- Đẩy toàn bộ mã nguồn lên GitHub origin/main và hướng dẫn người dùng cập nhật Code.gs.
+
+## Acceptance Criteria
+- [ ] Hàm sendZaloNotificationClientSide tự động gắn secret_token trong mọi request.
+- [ ] Khi giáo viên khởi tạo báo cáo, Zalo Bot gửi tin nhắn xác nhận luồng ký ngay lập tức về Zalo của tác giả.
+- [ ] Người duyệt tiếp theo (nếu đã liên kết Zalo) cũng nhận được tin nhắn mời ký duyệt.
+- [ ] Kịch bản test mạng thật đạt 100% PASS, có nhật ký minh chứng rõ ràng.
+- [ ] Toàn bộ mã nguồn được commit và push lên GitHub origin/main.

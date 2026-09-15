@@ -346,7 +346,6 @@ runTest("Chuẩn hóa số điện thoại Việt Nam chuẩn", () => {
 });
 
 runTest("Xử lý sự kiện ký số: HỒ SƠ BỊ TRẢ VỀ (REJECTED)", () => {
-  // Mock hàm getChatIdByPhone trả về chat id
   const eventData = {
     eventType: "REJECTED",
     docTitle: "Giáo án Ngữ văn Tuần 4",
@@ -357,6 +356,137 @@ runTest("Xử lý sự kiện ký số: HỒ SƠ BỊ TRẢ VỀ (REJECTED)", ()
   };
   const res = gasBot.handleEduSignNotification(eventData);
   assert.ok(res.success);
+});
+
+// Thiết lập môi trường Spreadsheet và UrlFetch cho các kịch bản Dual-Delivery
+const mockSheetUsers = [
+  ["STT", "Họ và Tên", "Số Điện Thoại", "Tổ Chuyên Môn", "Email Công Vụ", "Zalo_Chat_ID", "Ngày Liên Kết", "Tên_Viết_Tắt_TKB", "Mã_PIN_EduSign"],
+  [1, "Hà Văn Tý", "0818810007", "Tổ Toán - Tin", "cva.ty@thcschuvanan.edu.vn", "chat_id_ty_0818810007", "10/09/2026", "Tý", "0007"],
+  [2, "Ngô Thị Liền", "0905123456", "Ban Giám hiệu", "cva.lien@quangngai.gov.vn", "chat_id_lien_0905123456", "10/09/2026", "Liền", "3456"],
+  [3, "Giáo viên mới", "0911222333", "Tổ Khoa học Tự nhiên", "cva.new@thcschuvanan.edu.vn", "", "", "Mới", "2233"]
+];
+
+global.SpreadsheetApp = {
+  open: () => global.SpreadsheetApp.openById("mock_spreadsheet_id"),
+  openById: () => ({
+    getSheetByName: (name) => {
+      if (name === "Danh bạ GV") {
+        return {
+          getDataRange: () => ({
+            getValues: () => mockSheetUsers
+          })
+        };
+      }
+      return null;
+    }
+  })
+};
+
+let lastSentZaloMessages = [];
+global.UrlFetchApp = {
+  fetch: (url, options) => {
+    if (options && options.payload) {
+      try {
+        const p = JSON.parse(options.payload);
+        lastSentZaloMessages.push(p);
+      } catch (e) {}
+    }
+    return {
+      getResponseCode: () => 200,
+      getContentText: () => JSON.stringify({ ok: true, result: { message_id: 12345 } })
+    };
+  }
+};
+
+runTest("Sự kiện SUBMITTED: Cơ chế gửi kép (Dual-Delivery) cho cả Tác giả và Người duyệt", () => {
+  lastSentZaloMessages = [];
+  const eventData = {
+    action: "NOTIFY_SIGN_EVENT",
+    secret_token: "UnifiedZaloBotTHCSCVA2026Secret",
+    eventType: "SUBMITTED",
+    docId: "BC-2026-TOAN-01",
+    docTitle: "Báo cáo thực hành môn Toán 9",
+    authorPhone: "0818810007",
+    recipientPhone: "0905123456",
+    recipientName: "Cô Ngô Thị Liền",
+    senderName: "Thầy Hà Văn Tý"
+  };
+
+  const res = gasBot.handleEduSignNotification(eventData);
+
+  assert.strictEqual(res.success, true, "SUBMITTED phải thành công");
+  assert.strictEqual(res.eventType, "SUBMITTED");
+  assert.strictEqual(res.delivered, true, "Đã gửi ít nhất 1 tin nhắn");
+  assert.strictEqual(res.authorDelivered, true, "Tác giả khởi tạo phải nhận được tin nhắn xác nhận");
+  assert.strictEqual(res.authorPhone, "0818810007");
+  assert.strictEqual(res.recipientDelivered, true, "Người duyệt tiếp theo phải nhận được tin nhắn mời ký");
+  assert.strictEqual(res.recipientPhone, "0905123456");
+
+  // Kiểm tra nội dung tin nhắn gửi đi
+  assert.strictEqual(lastSentZaloMessages.length, 2, "Phải gửi 2 tin nhắn riêng biệt");
+  const authorMsg = lastSentZaloMessages.find(m => m.chat_id === "chat_id_ty_0818810007");
+  const approverMsg = lastSentZaloMessages.find(m => m.chat_id === "chat_id_lien_0905123456");
+
+  assert.ok(authorMsg, "Phải có tin nhắn gửi về chat_id của Thầy Tý");
+  assert.ok(authorMsg.text.includes("XÁC NHẬN: KHỞI TẠO BÁO CÁO & TRÌNH KÝ THÀNH CÔNG"), "Tiêu đề xác nhận tác giả chuẩn");
+  assert.ok(authorMsg.text.includes("Cô Ngô Thị Liền"), "Chứa tên người duyệt tiếp theo");
+
+  assert.ok(approverMsg, "Phải có tin nhắn gửi về chat_id của Cô Liền");
+  assert.ok(approverMsg.text.includes("THÔNG BÁO: CÓ HỒ SƠ MỚI CẦN KÝ DUYỆT"), "Tiêu đề mời duyệt chuẩn");
+  assert.ok(approverMsg.text.includes("Báo cáo thực hành môn Toán 9"), "Chứa tên hồ sơ");
+});
+
+runTest("Sự kiện SUBMITTED: Fallback êm dịu khi Người duyệt chưa liên kết Zalo (Tác giả vẫn nhận tin)", () => {
+  lastSentZaloMessages = [];
+  const eventData = {
+    action: "NOTIFY_SIGN_EVENT",
+    secret_token: "UnifiedZaloBotTHCSCVA2026Secret",
+    eventType: "SUBMITTED",
+    docId: "BC-2026-TOAN-02",
+    docTitle: "Báo cáo chuyên đề 2",
+    authorPhone: "0818810007",
+    recipientPhone: "0911222333", // Chưa liên kết Zalo
+    recipientName: "Giáo viên mới",
+    senderName: "Thầy Hà Văn Tý"
+  };
+
+  const res = gasBot.handleEduSignNotification(eventData);
+
+  assert.strictEqual(res.success, true, "Không được crash hoặc báo lỗi toàn cục");
+  assert.strictEqual(res.delivered, true, "Vẫn tính là delivered vì tác giả đã nhận");
+  assert.strictEqual(res.authorDelivered, true, "Tác giả Thầy Tý vẫn nhận được xác nhận");
+  assert.strictEqual(res.recipientDelivered, false, "Người duyệt chưa liên kết thì recipientDelivered = false");
+  assert.strictEqual(res.recipientNote, "CHUA_LIEN_KET_ZALO", "Ghi nhận mã fallback CHUA_LIEN_KET_ZALO");
+
+  assert.strictEqual(lastSentZaloMessages.length, 1, "Chỉ gửi 1 tin nhắn cho tác giả");
+  assert.strictEqual(lastSentZaloMessages[0].chat_id, "chat_id_ty_0818810007");
+});
+
+runTest("Sự kiện FORWARDED: Cơ chế gửi chuyển tiếp và xác nhận người chuyển", () => {
+  lastSentZaloMessages = [];
+  const eventData = {
+    action: "NOTIFY_SIGN_EVENT",
+    secret_token: "UnifiedZaloBotTHCSCVA2026Secret",
+    eventType: "FORWARDED",
+    docId: "BC-2026-CHUYEN-01",
+    docTitle: "Hồ sơ liên môn Toán - Tin",
+    authorPhone: "0818810007",
+    recipientPhone: "0905123456",
+    recipientName: "Cô Ngô Thị Liền",
+    senderName: "Thầy Hà Văn Tý"
+  };
+
+  const res = gasBot.handleEduSignNotification(eventData);
+
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(res.eventType, "FORWARDED");
+  assert.strictEqual(res.delivered, true);
+  assert.strictEqual(res.authorDelivered, true);
+  assert.strictEqual(res.recipientDelivered, true);
+
+  assert.strictEqual(lastSentZaloMessages.length, 2);
+  const forwardMsg = lastSentZaloMessages.find(m => m.chat_id === "chat_id_lien_0905123456");
+  assert.ok(forwardMsg.text.includes("THÔNG BÁO: HỒ SƠ CHUYỂN TIẾP CẦN KÝ DUYỆT"));
 });
 
 // -----------------------------------------------------------------------------

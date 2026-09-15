@@ -77,6 +77,31 @@ Phiên bản cập nhật 2026 giải quyết triệt để 5 bài toán kỹ th
 ### 1.5. Cơ chế Tự Phục Hồi Dữ Liệu (Self-Healing Algorithm)
 - Khi giáo viên gửi lệnh liên kết thành công trên Zalo, hệ thống tự động kiểm tra lại ô dữ liệu trên Google Sheets. Nếu phát hiện ô bị thiếu tiền tố text `"'"` hoặc chưa định dạng `@`, script tự động ghi đè định dạng chuẩn `setNumberFormat("@")` và `setValue("'" + normPhone)`.
 
+### 1.6. Nâng Cấp Thông Báo Ký Số: Cơ Chế Gửi Kép (Dual-Delivery) & Bảo Mật secret_token
+- **Nguyên nhân phát hiện trước đây**:
+  1. Webhook từ trình duyệt (Client-side) phát sự kiện `NOTIFY_SIGN_EVENT` nhưng thiếu `secret_token: "UnifiedZaloBotTHCSCVA2026Secret"`, dẫn đến Google Apps Script từ chối với lỗi `UNAUTHORIZED_SECRET_TOKEN`.
+  2. Sự kiện `SUBMITTED` trước đây chỉ gửi tới `recipientPhone` (người duyệt). Khiến tác giả khởi tạo (`authorPhone`) hoàn toàn không nhận được tin xác nhận luồng ký, và nếu người duyệt chưa liên kết Zalo thì toàn bộ thông báo bị gián đoạn.
+- **Giải pháp Nâng cấp Toàn diện (Dual-Delivery & Graceful Fallback)**:
+  1. **Bảo mật Single-Point secret_token**: Hàm `sendZaloNotificationClientSide` tự động gắn `payload.secret_token = "UnifiedZaloBotTHCSCVA2026Secret"` cho mọi sự kiện (`SUBMITTED`, `FORWARDED`, `PERSONAL_SIGNED`, `COMPLETED`, `REJECTED`).
+  2. **Cơ chế Gửi Kép (Dual-Delivery) cho sự kiện SUBMITTED**:
+     * **Nhánh 1 (Xác nhận Tác giả - `authorPhone`)**: Gửi tin nhắn xác nhận khởi tạo thành công:
+       ```text
+       ╔════════════════════════════════════════╗
+         📤 XÁC NHẬN: KHỞI TẠO BÁO CÁO & TRÌNH KÝ THÀNH CÔNG
+       ╚════════════════════════════════════════╝
+
+       📋 Tên hồ sơ: {docTitle}
+       🆔 Mã hồ sơ: {docId}
+       👤 Người tạo: {senderName}
+       🔄 Luồng ký: Đã chuyển tiếp tới {recipientName} ({recipientPhone || "Chưa có SĐT"})
+       ⏰ Thời gian: {Thời gian định dạng vi-VN, timeZone: "Asia/Ho_Chi_Minh"}
+
+       📌 Hệ thống đã tự động ghi nhận và chuyển tiếp hồ sơ trong luồng ký số điện tử.
+       ```
+     * **Nhánh 2 (Mời ký duyệt - `recipientPhone`)**: Gửi tin nhắn thông báo có hồ sơ mới cần ký duyệt.
+     * **Fallback êm dịu (Graceful Fallback)**: Nếu người duyệt chưa liên kết Zalo, hệ thống tự động ghi nhận `recipientNote: "CHUA_LIEN_KET_ZALO"` và vẫn gửi thành công tin nhắn xác nhận cho tác giả, không gây crash hay chặn luồng.
+  3. **Hỗ trợ Sự kiện FORWARDED**: Bổ sung xác nhận chuyển tiếp cho người chuyển và thông báo cho người duyệt tiếp theo.
+
 ---
 
 ## 2. KIẾN TRÚC TÍCH HỢP HỆ THỐNG TỔNG QUAN

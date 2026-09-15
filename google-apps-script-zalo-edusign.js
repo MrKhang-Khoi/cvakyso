@@ -1854,6 +1854,7 @@ function handleEduSignNotification(data) {
   var docId = data.docId || "";
   var authorPhone = normalizePhone(data.authorPhone || "");
   var recipientPhone = normalizePhone(data.recipientPhone || "");
+  var recipientName = data.recipientName || "Người duyệt";
   var senderName = data.senderName || "Giáo viên";
   var approverName = data.approverName || "Ban Giám hiệu";
   var reason = data.reason || "";
@@ -1885,15 +1886,89 @@ function handleEduSignNotification(data) {
                   (viewUrl ? ("📂 Link xem tài liệu: " + viewUrl + "\n\n") : "\n") +
                   "🌐 Tra cứu tại Cổng báo cáo: " + CONFIG.PORTAL_URL;
   } else if (eventType === "SUBMITTED") {
-    targetPhone = recipientPhone;
-    messageText = "╔════════════════════════════════════════╗\n" +
-                  "  📥 THÔNG BÁO: CÓ HỒ SƠ MỚI CẦN KÝ DUYỆT\n" +
-                  "╚════════════════════════════════════════╝\n\n" +
-                  "📋 Tên hồ sơ: " + docTitle + "\n" +
-                  "🆔 Mã hồ sơ: " + docId + "\n" +
-                  "👤 Người trình ký: " + senderName + "\n" +
-                  "⏰ Thời gian gửi: " + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + "\n\n" +
-                  "👉 Kính mời Quý Thầy/Cô vào phần mềm EduSign để kiểm tra và ký duyệt.";
+    var nowStr = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+
+    // Branch 1: Author Confirmation (authorPhone)
+    var authorDelivered = false;
+    var authorChatId = authorPhone ? getChatIdByPhone(authorPhone) : null;
+    var authorNote = "";
+    var replyAuthor = null;
+    if (authorChatId) {
+      var authorMsg = "╔════════════════════════════════════════╗\n" +
+                      "  📤 XÁC NHẬN: KHỞI TẠO BÁO CÁO & TRÌNH KÝ THÀNH CÔNG\n" +
+                      "╚════════════════════════════════════════╝\n\n" +
+                      "📋 Tên hồ sơ: " + docTitle + "\n" +
+                      "🆔 Mã hồ sơ: " + docId + "\n" +
+                      "👤 Người tạo: " + senderName + "\n" +
+                      "🔄 Luồng ký: Đã chuyển tiếp tới " + recipientName + " (" + (recipientPhone || "Chưa có SĐT") + ")\n" +
+                      "⏰ Thời gian: " + nowStr + "\n\n" +
+                      "📌 Hệ thống đã tự động ghi nhận và chuyển tiếp hồ sơ trong luồng ký số điện tử.";
+      replyAuthor = sendZaloBotReply(authorChatId, authorMsg);
+      if (replyAuthor && replyAuthor.success === false) {
+        authorNote = replyAuthor.error || "BOT_SEND_FAILED";
+      } else {
+        authorDelivered = true;
+      }
+    } else {
+      authorNote = authorPhone ? "CHUA_LIEN_KET_ZALO" : "NO_AUTHOR_PHONE";
+    }
+
+    // Branch 2: Approver Invitation (recipientPhone)
+    var recipientDelivered = false;
+    var recipientChatId = recipientPhone ? getChatIdByPhone(recipientPhone) : null;
+    var recipientNote = "";
+    var replyApprover = null;
+    if (recipientChatId) {
+      var approverMsg = "╔════════════════════════════════════════╗\n" +
+                        "  📥 THÔNG BÁO: CÓ HỒ SƠ MỚI CẦN KÝ DUYỆT\n" +
+                        "╚════════════════════════════════════════╝\n\n" +
+                        "📋 Tên hồ sơ: " + docTitle + "\n" +
+                        "🆔 Mã hồ sơ: " + docId + "\n" +
+                        "👤 Người trình ký: " + senderName + "\n" +
+                        "⏰ Thời gian gửi: " + nowStr + "\n\n" +
+                        "👉 Kính mời Quý Thầy/Cô vào phần mềm EduSign để kiểm tra và ký duyệt.";
+      replyApprover = sendZaloBotReply(recipientChatId, approverMsg);
+      if (replyApprover && replyApprover.success === false) {
+        recipientNote = replyApprover.error || "BOT_SEND_FAILED";
+      } else {
+        recipientDelivered = true;
+      }
+    } else {
+      // Graceful fallback: If recipientPhone is NOT linked to Zalo (!approverChatId), DO NOT crash or abort author's delivery!
+      recipientNote = recipientPhone ? "CHUA_LIEN_KET_ZALO" : "NO_RECIPIENT_PHONE";
+      Logger.log("ℹ️ [EduSign] Người duyệt (" + recipientPhone + ") chưa liên kết Zalo. Ghi nhận CHUA_LIEN_KET_ZALO.");
+    }
+
+    var isDelivered = Boolean(authorDelivered || recipientDelivered);
+
+    if (!isDelivered && (replyApprover && replyApprover.statusCode || replyAuthor && replyAuthor.statusCode)) {
+      var activeReply = (replyApprover && replyApprover.statusCode) ? replyApprover : replyAuthor;
+      return {
+        success: false,
+        delivered: false,
+        phone: recipientPhone || authorPhone,
+        chatId: recipientChatId || authorChatId,
+        statusCode: activeReply.statusCode,
+        error: activeReply.error || "BOT_SEND_FAILED"
+      };
+    }
+
+    return {
+      success: true,
+      eventType: "SUBMITTED",
+      delivered: isDelivered,
+      authorDelivered: authorDelivered,
+      authorPhone: authorPhone,
+      authorChatId: authorChatId,
+      recipientDelivered: recipientDelivered,
+      recipientPhone: recipientPhone,
+      recipientChatId: recipientChatId,
+      recipientNote: recipientNote,
+      authorNote: authorNote,
+      phone: recipientPhone || authorPhone,
+      chatId: (recipientDelivered ? recipientChatId : (authorDelivered ? authorChatId : null)),
+      note: isDelivered ? undefined : (recipientNote || authorNote || "CHUA_LIEN_KET_ZALO")
+    };
   } else if (eventType === "PERSONAL_SIGNED") {
     targetPhone = authorPhone;
     messageText = "╔════════════════════════════════════════╗\n" +
@@ -1905,16 +1980,88 @@ function handleEduSignNotification(data) {
                   "⏰ Thời gian ký: " + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + "\n\n" +
                   "🎉 Hồ sơ cá nhân của Thầy/Cô đã được ký số hợp lệ và lưu trữ vào sổ sách điện tử.";
   } else if (eventType === "FORWARDED") {
-    // Khắc phục DEFECT-ZALO-01: Xử lý sự kiện chuyển tiếp hồ sơ cần ký duyệt
-    targetPhone = recipientPhone;
-    messageText = "╔════════════════════════════════════════╗\n" +
-                  "  📥 THÔNG BÁO: HỒ SƠ CHUYỂN TIẾP CẦN KÝ DUYỆT\n" +
-                  "╚════════════════════════════════════════╝\n\n" +
-                  "📋 Tên hồ sơ: " + docTitle + "\n" +
-                  "🆔 Mã hồ sơ: " + docId + "\n" +
-                  "👤 Người chuyển tiếp: " + senderName + "\n" +
-                  "⏰ Thời gian gửi: " + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + "\n\n" +
-                  "👉 Kính mời Thầy/Cô truy cập EduSign để kiểm tra và tiếp tục ký phối hợp.";
+    var nowStr = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+
+    // Branch 1: Author Confirmation (authorPhone if available)
+    var authorDelivered = false;
+    var authorChatId = authorPhone ? getChatIdByPhone(authorPhone) : null;
+    var authorNote = "";
+    var replyAuthor = null;
+    if (authorChatId) {
+      var authorMsg = "╔════════════════════════════════════════╗\n" +
+                      "  🔄 XÁC NHẬN: CHUYỂN TIẾP HỒ SƠ THÀNH CÔNG\n" +
+                      "╚════════════════════════════════════════╝\n\n" +
+                      "📋 Tên hồ sơ: " + docTitle + "\n" +
+                      "🆔 Mã hồ sơ: " + docId + "\n" +
+                      "👤 Người chuyển: " + senderName + "\n" +
+                      "🔄 Chuyển tiếp tới: " + recipientName + " (" + (recipientPhone || "Chưa có SĐT") + ")\n" +
+                      "⏰ Thời gian: " + nowStr + "\n\n" +
+                      "📌 Hệ thống đã tự động ghi nhận và chuyển tiếp hồ sơ trong luồng ký số điện tử.";
+      replyAuthor = sendZaloBotReply(authorChatId, authorMsg);
+      if (replyAuthor && replyAuthor.success === false) {
+        authorNote = replyAuthor.error || "BOT_SEND_FAILED";
+      } else {
+        authorDelivered = true;
+      }
+    } else {
+      authorNote = authorPhone ? "CHUA_LIEN_KET_ZALO" : "NO_AUTHOR_PHONE";
+    }
+
+    // Branch 2: Approver Invitation (recipientPhone)
+    var recipientDelivered = false;
+    var recipientChatId = recipientPhone ? getChatIdByPhone(recipientPhone) : null;
+    var recipientNote = "";
+    var replyApprover = null;
+    if (recipientChatId) {
+      var approverMsg = "╔════════════════════════════════════════╗\n" +
+                        "  📥 THÔNG BÁO: HỒ SƠ CHUYỂN TIẾP CẦN KÝ DUYỆT\n" +
+                        "╚════════════════════════════════════════╝\n\n" +
+                        "📋 Tên hồ sơ: " + docTitle + "\n" +
+                        "🆔 Mã hồ sơ: " + docId + "\n" +
+                        "👤 Người chuyển tiếp: " + senderName + "\n" +
+                        "⏰ Thời gian gửi: " + nowStr + "\n\n" +
+                        "👉 Kính mời Thầy/Cô truy cập EduSign để kiểm tra và tiếp tục ký phối hợp.";
+      replyApprover = sendZaloBotReply(recipientChatId, approverMsg);
+      if (replyApprover && replyApprover.success === false) {
+        recipientNote = replyApprover.error || "BOT_SEND_FAILED";
+      } else {
+        recipientDelivered = true;
+      }
+    } else {
+      recipientNote = recipientPhone ? "CHUA_LIEN_KET_ZALO" : "NO_RECIPIENT_PHONE";
+      Logger.log("ℹ️ [EduSign] Người duyệt tiếp theo (" + recipientPhone + ") chưa liên kết Zalo. Ghi nhận CHUA_LIEN_KET_ZALO.");
+    }
+
+    var isDelivered = Boolean(authorDelivered || recipientDelivered);
+
+    if (!isDelivered && (replyApprover && replyApprover.statusCode || replyAuthor && replyAuthor.statusCode)) {
+      var activeReply = (replyApprover && replyApprover.statusCode) ? replyApprover : replyAuthor;
+      return {
+        success: false,
+        delivered: false,
+        phone: recipientPhone || authorPhone,
+        chatId: recipientChatId || authorChatId,
+        statusCode: activeReply.statusCode,
+        error: activeReply.error || "BOT_SEND_FAILED"
+      };
+    }
+
+    return {
+      success: true,
+      eventType: "FORWARDED",
+      delivered: isDelivered,
+      authorDelivered: authorDelivered,
+      authorPhone: authorPhone,
+      authorChatId: authorChatId,
+      recipientDelivered: recipientDelivered,
+      recipientPhone: recipientPhone,
+      recipientChatId: recipientChatId,
+      recipientNote: recipientNote,
+      authorNote: authorNote,
+      phone: recipientPhone || authorPhone,
+      chatId: (recipientDelivered ? recipientChatId : (authorDelivered ? authorChatId : null)),
+      note: isDelivered ? undefined : (recipientNote || authorNote || "CHUA_LIEN_KET_ZALO")
+    };
   }
 
   if (targetPhone && messageText) {

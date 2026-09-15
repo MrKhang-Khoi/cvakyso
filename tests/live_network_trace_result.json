@@ -1,0 +1,55 @@
+{
+  "mirrorCheck": {
+    "hashes": [
+      {
+        "file": "js\\app.js",
+        "hash": "594d50cb1266a7309a12045ba051c65b02299819240438212bfd4dcd82550944",
+        "size": 435188
+      },
+      {
+        "file": "public\\js\\app.js",
+        "hash": "594d50cb1266a7309a12045ba051c65b02299819240438212bfd4dcd82550944",
+        "size": 435188
+      },
+      {
+        "file": "docs\\js\\app.js",
+        "hash": "594d50cb1266a7309a12045ba051c65b02299819240438212bfd4dcd82550944",
+        "size": 435188
+      }
+    ],
+    "allEqual": true,
+    "hasTokenEnforcement": true,
+    "hasForwardedFields": true
+  },
+  "probeA": {
+    "status": 200,
+    "latencyMs": 1777,
+    "body": {
+      "success": false,
+      "error": "UNAUTHORIZED_SECRET_TOKEN"
+    },
+    "pass": true
+  },
+  "probeB": {
+    "status": 200,
+    "latencyMs": 2676,
+    "body": {
+      "success": true,
+      "delivered": true,
+      "phone": "0818810007",
+      "chatId": "db63a6b282f96ba732e8"
+    },
+    "pass": true
+  },
+  "probeC": {
+    "status": 200,
+    "latencyMs": 2092,
+    "body": {
+      "success": true,
+      "delivered": false,
+      "phone": "0905123456",
+      "note": "CHUA_LIEN_KET_ZALO"
+    },
+    "pass": true
+  }
+}

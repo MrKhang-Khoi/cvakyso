@@ -295,8 +295,40 @@ check('R5.6: Xác nhận logic phát hiện trùng lặp Username và CCCD khi i
 });
 
 // -----------------------------------------------------------------------------
+// R6: THÔNG BÁO ZALO BOT LUỒNG KÝ BÁO CÁO (SECRET_TOKEN & DUAL-DELIVERY)
+// -----------------------------------------------------------------------------
+console.log('\n--------------------------------------------------------------------------------');
+console.log('🔍 [R6] Kiểm định Thông Báo Zalo Bot Luồng Ký Báo Cáo (secret_token & Dual-Delivery)');
+console.log('--------------------------------------------------------------------------------');
+
+check('R6.1: sendZaloNotificationClientSide tự động chèn secret_token hợp lệ', () => {
+  assert.ok(appJsContent.includes('payload.secret_token = "UnifiedZaloBotTHCSCVA2026Secret"'), 'Phải tự động gán secret_token trong sendZaloNotificationClientSide');
+});
+
+check('R6.2: Sự kiện FORWARDED trong js/app.js mang theo authorPhone và recipientName', () => {
+  assert.ok(appJsContent.includes("eventType: 'FORWARDED'"), 'Phải có sự kiện FORWARDED');
+  assert.ok(appJsContent.includes('recipientName: nextSignerName'), 'FORWARDED phải truyền recipientName');
+});
+
+check('R6.3: google-apps-script-zalo-edusign.js trích xuất recipientName và hỗ trợ Dual-Delivery cho SUBMITTED', () => {
+  assert.ok(gasContent.includes('var recipientName = data.recipientName || "Người duyệt";'), 'Phải trích xuất recipientName');
+  assert.ok(gasContent.includes('📤 XÁC NHẬN: KHỞI TẠO BÁO CÁO & TRÌNH KÝ THÀNH CÔNG'), 'Phải có tin nhắn xác nhận cho tác giả');
+  assert.ok(gasContent.includes('📥 THÔNG BÁO: CÓ HỒ SƠ MỚI CẦN KÝ DUYỆT'), 'Phải có tin nhắn mời duyệt cho người duyệt');
+  assert.ok(gasContent.includes('authorDelivered: authorDelivered'), 'Phải trả về trạng thái authorDelivered');
+  assert.ok(gasContent.includes('recipientDelivered: recipientDelivered'), 'Phải trả về trạng thái recipientDelivered');
+});
+
+check('R6.4: Đối soát 3 gương SHA-256 sau khi cập nhật mã nguồn js/app.js', () => {
+  const j1 = sha256(APP_JS_PATH);
+  const j2 = sha256(PUBLIC_APP_JS_PATH);
+  const j3 = sha256(DOCS_APP_JS_PATH);
+  assert.strictEqual(j1, j2, 'public/js/app.js phải khớp từng byte với js/app.js');
+  assert.strictEqual(j1, j3, 'docs/js/app.js phải khớp từng byte với js/app.js');
+});
+
+// -----------------------------------------------------------------------------
 // TỔNG KẾT
 // -----------------------------------------------------------------------------
 console.log('\n================================================================================');
-console.log(`🎉 HOÀN THÀNH KIỂM ĐỊNH 5 YÊU CẦU CỐT LÕI: ${passedChecks}/${totalChecks} KIỂM TRA ĐẠT 100%`);
+console.log(`🎉 HOÀN THÀNH KIỂM ĐỊNH TOÀN BỘ YÊU CẦU: ${passedChecks}/${totalChecks} KIỂM TRA ĐẠT 100%`);
 console.log('================================================================================\n');

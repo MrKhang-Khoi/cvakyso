@@ -1,81 +1,83 @@
-# Sentinel Handoff Report — EduSign VGCA R1, R2, R3 Completion
+# Sentinel Handoff Report — EduSign VGCA R1 to R5 Completion
 
-**Date**: 2026-09-15T13:03:00+07:00
+**Date**: 2026-09-15T14:21:00+07:00
 **Sentinel Identity**: fd78a7f8-22cb-4ef0-a71a-72f67297be00
 **Status**: PROJECT COMPLETED & VICTORY CONFIRMED
 
 ---
 
 ## 1. Observation
-Người dùng yêu cầu giải quyết trọn gói 3 nhóm nhiệm vụ lớn cho nền tảng KÝ SỐ EduSign VGCA:
-1. **R1**: Khắc phục triệt để lỗi mất số 0 ở đầu của Số điện thoại và Mã PIN khi đồng bộ lên Google Sheets (khiến Zalo Bot không nhận diện được liên kết).
-2. **R2**: Tái thiết kế toàn diện giao diện Quản trị Giáo viên (Hình 3) theo tiêu chuẩn công thái học hiện đại, khoa học và thẩm mỹ cao.
-3. **R3**: Kiểm thử độc lập đa trình duyệt & xác thực dữ liệu thực tế bằng Playwright trên cả 2 độ phân giải Desktop (1920x1080) và Laptop (1366x768), chụp ảnh minh chứng, cập nhật tài liệu hướng dẫn và git push origin main.
+Người dùng yêu cầu triển khai trọn gói 5 yêu cầu nghiệp vụ và công thái học theo phản hồi thực tế từ giáo viên và Ban Giám hiệu nhà trường:
+1. **R1 (Hình 1)**: Tái thiết kế Modal Sửa/Thêm Giáo viên (`#modalUser`) dạng 2 cột ngang khoa học, hiển thị trọn vẹn trong màn hình Desktop & Laptop với chiều cao $\le 85\text{vh}$, loại bỏ hoàn toàn việc cuộn chuột tìm nút Lưu.
+2. **R2 (Hình 2)**: Sửa triệt để lỗi đồng bộ Mã PIN từ Admin sang tài khoản Giáo viên trên mọi tầng lưu trữ (appState.users, localStorage, currentUser, Firebase RTDB), re-hydrate dữ liệu tươi khi mở modal.
+3. **R3 (Hình 3)**: Xóa bỏ 100% gợi ý 4 số cuối SĐT trong hướng dẫn Zalo Bot và Web UI; bắt buộc đối soát khớp chính xác `secretPin === storedPin` với 0 bypass.
+4. **R4 (Hình 4)**: Dọn dẹp sạch sẽ 100% tài liệu thử nghiệm (17 văn bản hiển thị / 397 bản ghi rác) trong `data/documents.json`, Firebase RTDB node `documents/`, và localStorage.
+5. **R5**: Bổ sung tính năng Tải file Excel mẫu `.xlsx` (11 cột chuẩn) và Modal Nhập danh sách giáo viên từ Excel (sử dụng thư viện SheetJS) có kiểm tra trùng lặp và đồng bộ tức thời.
 
-Toàn bộ quy trình đã được phân tuyến qua Project Orchestrator 4, điều phối các Explorer, Fullstack Workers, Reviewers, Challengers và Independent Post-Victory Auditor theo đúng quy chế Zero-Guesswork.
+Hệ thống được Sentinel phân tuyến qua Project Orchestrator 5 (`teamwork_preview_orchestrator_5`), điều phối `worker_r1_to_r5`, 5 subagent thẩm định chéo (`reviewer_1`, `reviewer_2`, `challenger_1`, `challenger_2`, `auditor_1`), `worker_deploy_m5`, và Independent Post-Victory Auditor (`teamwork_preview_victory_auditor_4`).
 
 ---
 
 ## 2. Logic Chain
 
-### 2.1. Khắc phục Triệt để Lỗi Mất Số 0 Đầu (R1)
-- **Nguồn ghi Google Sheets (`google-apps-script-zalo-edusign.js`)**: 
-  - Đặt định dạng hiển thị dạng Text thuần túy `setNumberFormat("@")` cho các cột Số điện thoại (cột C), Mã PIN (cột I) và CCCD (cột F).
-  - Ép tiền tố `"'"` trước chuỗi số (`"'" + phone`, `"'" + pin`) ở mọi thao tác `setValue()` / `setValues()` trong `handleSyncTeacher` và `initSheetsIfMissing`.
-  - Sửa lỗi falsy value đối với mã PIN `0000` (`var rawPinVal = data[i][8]`, phân biệt rõ ràng giữa giá trị rỗng/undefined và số 0).
-- **Cơ chế phòng thủ đa tầng Zalo Bot**:
-  - `normalizePhone`: Mở rộng nhận diện SĐT 9 số, 10 số, 11 số và định dạng quốc tế (`+84`, `840...`), chuẩn hóa về dạng `0...`.
-  - `handleSecurePhoneMapping`: Tự động `padStart(4, '0')` nếu mã PIN bị lưu thành số đơn lẻ (ví dụ: `7` -> `0007`).
-  - Cơ chế Self-Healing Writeback: Tự động ghi đè giá trị đã chuẩn hóa có dấu `"'"` và format `@` trở lại Google Sheet khi giáo viên liên kết thành công.
-  - Loại bỏ hoàn toàn nguy cơ bypass mã PIN bằng 4 số cuối SĐT; bảo vệ an toàn mã PIN riêng biệt.
-- **Phía Frontend (`js/app.js`, `public/js/app.js`, `docs/js/app.js`)**:
-  - Bổ sung các hàm helper `normalizeTeacherPhone()` và `normalizeTeacherPin()`.
-  - Giữ nguyên vẹn số 0 đầu trong mọi payload gửi lên Webhook và API backend.
-- **Kết quả đo đạc**: `tests/test_r1_phone_pin_integrity.js` (10/10 PASS) và `tests/stress_test_r1_phone_pin.js` (39/39 PASS - 100%).
+### 2.1. Tái Thiết Kế Modal User 2 Cột Ngang (R1)
+- **Tái cấu trúc khung Modal (`index.html`)**:
+  - Chuyển đổi từ bố cục dọc hẹp (`max-w-lg`) sang lưới 2 cột ngang cân đối (`grid grid-cols-1 md:grid-cols-2 gap-4`), độ rộng tối ưu `max-w-4xl`.
+  - **Cột trái**: Họ tên, Tên đăng nhập, Mật khẩu, Tổ chuyên môn & Chức vụ, Số CCCD, Email công vụ.
+  - **Cột phải**: Số điện thoại, Mã PIN Zalo Bot cá nhân (kèm nút tạo PIN ngẫu nhiên 4 số), Loại chữ ký số (SmartCA / USB Token), Khối phân quyền gửi Word & Ủy quyền đóng dấu mộc đỏ.
+  - Chiều cao thực tế đo đạc: **$456.5\text{px} \le 85\text{vh}$** (giới hạn Laptop $1366\times 768$ là $652.8\text{px}$, Desktop $1920\times 1080$ là $918\text{px}$). Nút Lưu & Hủy hiển thị cố định ngay trong tầm mắt, `scrollY === 0`.
 
-### 2.2. Tái Thiết Kế Giao Diện Quản Trị Giáo Viên Hình 3 (R2)
-- **Thanh công cụ & Nút bấm**: Bố cục flex items-center gap-2; nút Đồng bộ viền subtle outline kèm pulsing green dot sinh động; nút Thêm Giáo viên dạng brand fill nổi bật; tự động ẩn các nút chuyên biệt khi đổi tab.
-- **Phân tầng thị giác 3 cấp (Visual Hierarchy)**:
-  - Cấp 1: Avatar pastel tất định theo tên (8 dải màu trang nhã) kèm Họ tên in đậm (Semibold, dark slate), tỷ lệ tương phản đạt 17.85:1 (chuẩn WCAG AAA).
-  - Cấp 2: Tên đăng nhập `@username`, email công vụ và CCCD định dạng rõ ràng.
-  - Cấp 3: Thẻ Smart Zalo Capsule `[ 📱 0818810007 • PIN: 0007 ]` tích hợp nút sao chép 1-click có phản hồi toast tiện dụng.
-- **Gom nhóm biểu tượng & Quyền hạn**:
-  - Biểu tượng USB Token / SmartCA và quyền thao tác tinh gọn, có tooltip trực quan.
-  - Bảo toàn tuyệt đối chuỗi text bất biến `'Đóng dấu OK'` phục vụ bộ kiểm thử Playwright.
-- **Cột Thao tác**: Action button bar tối giản với kích thước tối thiểu $36 \times 36\text{px}$, hiệu ứng hover mượt mà.
-- **Đồng bộ 3 mirror**: `index.html` và `js/app.js` giữa 3 cây thư mục (`root`, `public/`, `docs/`) đạt 100% trùng khớp mã băm SHA256.
+### 2.2. Đồng Bộ Mã PIN Admin - Giáo Viên Tức Thời (R2)
+- Cập nhật luồng Reactive 4 tầng trong `handleSaveUser`:
+  1. Cập nhật `appState.users`.
+  2. Lưu `localStorage.setItem('edusign_users', ...)`.
+  3. Cập nhật `appState.currentUser` và `localStorage.setItem('edusign_user', ...)`.
+  4. Đồng bộ Firebase RTDB qua node `users/{id}/pinCode` và Webhook Google Sheets.
+- Hàm `openModalUserProfile()` và `copyZaloLinkSyntax()` luôn re-hydrate dữ liệu tươi từ `appState.users.find(u => u.id === currentUser.id)` hoặc Firebase RTDB thay vì snapshot cũ.
 
-### 2.3. Kiểm Thử Đa Trình Duyệt & Nghiệm Thu Zero-Bug (R3)
-- Độc lập chạy lại toàn bộ 10 test suites đạt 100% PASS:
-  1. `tests/test_verify_patches.js` (3/3 PASS)
-  2. `tests/stress_test_r1_phone_pin.js` (39/39 PASS)
-  3. `tests/test_r1_phone_pin_integrity.js` (10/10 PASS)
-  4. `tests/test_zalo_unified_bot.js` (26/26 PASS)
-  5. `tests/test_zalo_security_and_logic_audit.js` (12/12 PASS)
-  6. `tests/test_r3_visual_multi_resolution.spec.mjs` (6/6 PASS trên Desktop 1920x1080 và Laptop 1366x768)
-  7. `tests/adversarial_ui_layout_challenge.spec.mjs` (5/5 PASS)
-  8. `tests/07_school_seal_delegation.spec.mjs` (5/5 PASS)
-  9. `tests/08_revoke_seal_permission.spec.mjs` (3/3 PASS)
-  10. `tests/test_cross_device_ui_ux_audit.spec.mjs -g "Admin"` (4/4 PASS)
-- Kiểm tra bẫy tràn ngang: 0px overflow trap (`scrollWidth === clientWidth`) trên mọi độ phân giải.
-- Ảnh chụp màn hình kiểm chứng đã lưu tại `tests/screenshots/r2_teacher_management/`.
-- Independent Post-Victory Auditor 3 tiến hành điều tra pháp y độc lập và xác nhận: **VERDICT: VICTORY CONFIRMED**.
+### 2.3. Bảo Mật Tuyệt Đối Zalo Bot (R3)
+- Trong `google-apps-script-zalo-edusign.js`:
+  - Xóa bỏ 100% nội dung gợi ý 4 số cuối SĐT. Mẫu tin nhắn hướng dẫn bảo mật chuẩn hóa:
+    `🔐 BẢO VỆ ĐỊNH DANH GIÁO VIÊN: Để bảo vệ quyền riêng tư hồ sơ giáo án, Thầy/Cô vui lòng nhắn cú pháp kèm Mã PIN EduSign cá nhân: 👉 Cú pháp: LK [SốĐiệnThoại] [MãPIN] 📌 Thầy/Cô xem Mã PIN tại mục 'Thông tin cá nhân & Zalo' trên trang web EduSign của trường.`
+  - Trong hàm `handleSecurePhoneMapping`: Ép buộc đối soát khớp chính xác `secretPin === storedPin` (có tự động bù `padStart(4, '0')` nếu mã PIN lưu số đơn lẻ), loại bỏ hoàn toàn fallback cho phép bypass bằng 4 số cuối SĐT.
+- Cập nhật modal `#modalUserProfile` trên web: Xóa sạch gợi ý 4 số cuối SĐT.
+
+### 2.4. Dọn Dẹp Xóa Sạch Dữ Liệu Rác Thử Nghiệm (R4)
+- Ghi đè `data/documents.json` thành mảng rỗng `[]` (kích thước đúng 2 bytes, loại bỏ 33,836 dòng dữ liệu rác cũ).
+- Thực thi REST DELETE làm sạch hoàn toàn node `documents/` trên Firebase Realtime Database (xác nhận trả về phản hồi HTTP 200/204 và truy vấn trả về `null`).
+- Thêm hàm `cleanGarbageDocuments()` trong `js/app.js` tự động dọn sạch cache `localStorage` và RAM `appState.documents`.
+
+### 2.5. Tải File Excel Mẫu & Nhập Danh Sách Giáo Viên (R5)
+- Tích hợp thư viện SheetJS `xlsx@0.18.5` vào hệ thống.
+- **Nút 1 ("Tải file mẫu Excel")**: Tự động tạo và tải xuống file `.xlsx` chuẩn gồm 11 cột nghiệp vụ: STT, Họ và Tên, Tên đăng nhập, Mật khẩu, Tổ Chuyên Môn, Chức vụ, Số CCCD, Email Công Vụ, Số Điện Thoại, Mã PIN, Loại chữ ký (SmartCA/USB).
+- **Nút 2 ("Nhập từ Excel")**: Modal `#modalImportTeacherExcel` có vùng kéo thả file, tự động đọc dữ liệu bằng SheetJS, hiển thị bảng xem trước (Preview) chi tiết, tự động phát hiện và cảnh báo trùng lặp Username / CCCD.
+- Bấm "Xác nhận nhập": Lưu vào `appState.users`, cập nhật `localStorage`, đồng bộ lên Firebase RTDB và gọi Webhook đồng bộ Google Sheet Danh bạ GV.
+
+### 2.6. Đồng Bộ Gương 3 Bản Sao (Mirror Consistency)
+- Cả 3 cây thư mục (`root`, `public/`, `docs/`) đạt độ trùng khớp tuyệt đối 100% mã băm SHA-256:
+  - `index.html`: `0bffc3a7b1e926ef850d7c4352fd67b4f5e8be8fbdaa3b60c60b231b56459bb8`
+  - `js/app.js`: `2d336f06f92c991cc93e432bf39137f988e267c6c3a11c2b754e0e0e47f02df5`
 
 ---
 
 ## 3. Caveats & Ghi Chú Vận Hành
-- Khi cập nhật script trên Google Apps Script, Quản trị viên cần thực hiện triển khai phiên bản Web App mới ("Deploy as New Version") để các thay đổi về Text formatting và regex có hiệu lực ngay lập tức.
-- Chi tiết từng bước cập nhật đã được biên soạn trực quan trong `HUONG_DAN_CAP_NHAT_CODE_GS.md`.
+- **Cập nhật Code.gs trên script.google.com**: Quản trị viên chỉ cần sao chép nội dung tệp `google-apps-script-zalo-edusign.js` dán vào `Code.gs`, sau đó chọn **Triển khai (Deploy) -> Quản lý bản triển khai (Manage deployments) -> Sửa -> Chọn Phiên bản mới (New version) -> Triển khai**. Chi tiết có sẵn trong `HUONG_DAN_CAP_NHAT_CODE_GS.md`.
+- **Dữ liệu Google Sheets**: Khi nhập danh sách giáo viên từ Excel, hệ thống sẽ tự động đồng bộ sang Google Sheet Danh bạ GV có sẵn định dạng Text `@` và tiền tố `'` để bảo toàn số 0 ở đầu.
 
 ---
 
 ## 4. Conclusion
-Tất cả các tiêu chí nghiệm thu của người dùng (R1, R2, R3) đã hoàn thành xuất sắc, được kiểm thử đối kháng tự động, kiểm toán pháp y độc lập xác nhận đạt chuẩn, và toàn bộ mã nguồn đã được đồng bộ lên remote repository GitHub `origin/main` (commit `497860b`).
+Tất cả 5 yêu cầu nghiệp vụ và công thái học (R1, R2, R3, R4, R5) đã được hoàn thành xuất sắc, vượt qua 100% các bài kiểm thử Playwright đa độ phân giải, kiểm toán pháp y độc lập xác nhận đạt chuẩn **VERDICT: VICTORY CONFIRMED**, và toàn bộ mã nguồn đã được đồng bộ lên remote repository GitHub `origin/main` (commit `b8e4b5e` / `4443bbe`).
 
 ---
 
 ## 5. Verification Method
-- Kiểm chứng dữ liệu SĐT & PIN: `node tests/test_r1_phone_pin_integrity.js` && `node tests/stress_test_r1_phone_pin.js`.
-- Kiểm chứng giao diện & bẫy tràn ngang Playwright: `npx playwright test tests/test_r3_visual_multi_resolution.spec.mjs`.
-- Kiểm chứng mã băm SHA256 các file giao diện: Khớp tuyệt đối giữa `root`, `public/`, `docs/`.
-- Kiểm tra trạng thái Git: `git log -1 --oneline` -> `497860b (HEAD -> main, origin/main)`.
+- **Test suite R1 - R5**: `node tests/test_requirements_r1_to_r5.js` (22/22 checks PASS - 100%).
+- **Adversarial & Security Stress Test**: `node tests/adversarial_stress_r2_r3_r4_r5.js` (28/28 checks PASS - 100%).
+- **Playwright E2E & Ergonomics**:
+  - `npx playwright test tests/test_r1_r5_e2e_ergonomics.spec.mjs` (2/2 suites PASS trên Desktop 1920x1080 và Laptop 1366x768).
+  - `npx playwright test tests/test_reviewer_2_ergonomics_r1_r3_r5.spec.mjs` (12/12 tests PASS).
+- **Zalo Security & Patches**: `node tests/test_zalo_security_and_logic_audit.js` (12/12 PASS) & `node tests/test_verify_patches.js` (3/3 PASS).
+- **Trạng thái Git**: `git log -1 --oneline` -> Commit đẩy thành công lên `origin/main`.
+- **Independent Victory Audit**: Biên bản kiểm toán pháp y tại `.agents/teamwork_preview_victory_auditor_4/handoff.md` xác nhận **VICTORY CONFIRMED**.
+

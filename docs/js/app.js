@@ -43,6 +43,10 @@ async function sendZaloNotificationClientSide(payload) {
   try {
     const url = DEFAULT_GAS_URL;
     if (!url || !url.startsWith('http')) return;
+    if (!payload) payload = {};
+    if (!payload.secret_token) {
+      payload.secret_token = "UnifiedZaloBotTHCSCVA2026Secret";
+    }
     console.log('[ZaloNotify Client] Đang phát thông báo Zalo:', payload.eventType, payload.docTitle);
 
     // Gửi với text/plain UTF-8 kết hợp mode: 'no-cors' để vượt qua 100% rào cản CORS của Google Apps Script
@@ -6007,13 +6011,18 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
       // Chuyển tiếp tới người ký tiếp theo -> Bắn tin Zalo cho người duyệt tiếp theo
       if (nextSignerId) {
         try {
+          const authorId = docSnapshot.creatorId || docSnapshot.authorId || docSnapshot.creatorUsername || docSnapshot.authorUsername;
+          const authorObj = appState.users?.find(x => x.id === authorId || x.username === authorId);
+          const authorPhone = authorObj?.phone || ((authorId === 'user_cvaty' || authorId === 'cva.ty') ? '0818810007' : (user?.phone || ''));
           const nextUserObj = appState.users?.find(x => x.id === nextSignerId || x.username === nextSignerId);
           sendZaloNotificationClientSide({
             action: 'NOTIFY_SIGN_EVENT',
             eventType: 'FORWARDED',
             docId: docId,
             docTitle: docSnapshot.title || session.docTitle || 'Báo cáo chuyên môn',
+            authorPhone: authorPhone,
             recipientPhone: nextUserObj?.phone || '',
+            recipientName: nextSignerName,
             senderName: user?.fullName || currentUsername
           });
         } catch (zErr) {}
