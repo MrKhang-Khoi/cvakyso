@@ -25,13 +25,13 @@ Khắc phục triệt để lỗi mất số 0 đầu SĐT & PIN đồng bộ Go
 4. **Succession**:
    - Threshold: 16 spawns. Write handoff.md, cancel crons, spawn successor, exit.
 - **Work items**:
-  1. Survey & Investigation (M1 + M2 baseline) [pending]
-  2. M1: Phone & PIN Leading Zero Fix (GAS, Zalo Bot, Frontend) [pending]
-  3. M2: Teacher Management UI/UX Redesign [pending]
-  4. M3: Comprehensive Playwright & Verification Suite [pending]
-  5. M4: Audit, Docs & Git Push [pending]
-- **Current phase**: 1 (Decompose & Survey)
-- **Current focus**: Survey & initial investigation
+  1. Survey & Investigation (M1 + M2 baseline) [done]
+  2. M1: Phone & PIN Leading Zero Fix (GAS, Zalo Bot, Frontend) [done]
+  3. M2: Teacher Management UI/UX Redesign [done]
+  4. M3: Comprehensive Playwright & Verification Suite [done]
+  5. M4: Audit, Docs & Git Push [done]
+- **Current phase**: 4 (Audit, Docs & Git Push - COMPLETED)
+- **Current focus**: Final Reporting & Delivery
 
 ## 🔒 Key Constraints
 - NEVER write, modify, or create source code files directly.
@@ -61,12 +61,12 @@ Khắc phục triệt để lỗi mất số 0 đầu SĐT & PIN đồng bộ Go
 | challenger_r1 | teamwork_preview_challenger | Stress Test Challenger R1 Phone PIN | completed | c08f1996-c3cc-4898-8ace-bc5509ece96a |
 | challenger_r2 | teamwork_preview_challenger | Visual Layout Challenger R2 R3 | completed | 07e5fa38-8316-4699-ab80-e3fee75afa08 |
 | auditor_r1_r2_r3 | teamwork_preview_auditor | Forensic Integrity Auditor | completed | 5d2892fb-24d1-448f-8a5c-aba6c5a947a1 |
-| worker_patch_deploy | teamwork_preview_worker | Patch Edge Cases, Touch Targets, Docs & Git Push | in-progress | d96d1a6f-7441-4380-aa3a-dfcb110619b3 |
+| worker_patch_deploy | teamwork_preview_worker | Patch Edge Cases, Touch Targets, Docs & Git Push | completed | d96d1a6f-7441-4380-aa3a-dfcb110619b3 |
 
 ## Succession Status
 - Succession required: no
 - Spawn count: 11 / 16
-- Pending subagents: d96d1a6f-7441-4380-aa3a-dfcb110619b3
+- Pending subagents: none
 - Predecessor: none
 - Successor: not yet spawned
 

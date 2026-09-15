@@ -568,12 +568,10 @@ function processUnifiedZaloMessage(chatId, rawText) {
   var rawDigits = text.replace(/[^0-9]/g, "");
   if (rawDigits.length >= 9 && rawDigits.length <= 12 && !clean.startsWith("tkb") && !clean.startsWith("lop")) {
     var normRaw = normalizePhone(rawDigits);
-    var phone4 = normRaw.length >= 4 ? normRaw.slice(-4) : "1234";
     return "🔐 BẢO VỆ ĐỊNH DANH GIÁO VIÊN:\n\n" +
            "Để bảo vệ quyền riêng tư hồ sơ giáo án, Thầy/Cô vui lòng nhắn cú pháp kèm Mã PIN EduSign cá nhân:\n" +
            "👉 Cú pháp: LK " + normRaw + " [MãPIN]\n\n" +
-           "📌 Thầy/Cô có thể xem Mã PIN tại mục 'Thông tin cá nhân & Zalo' trên web EduSign, hoặc dùng ngay 4 số cuối SĐT (" + phone4 + "):\n" +
-           "👉 Ví dụ nhắn: LK " + normRaw + " " + phone4;
+           "📌 Thầy/Cô xem Mã PIN tại mục 'Thông tin cá nhân & Zalo' trên trang web EduSign của trường.";
   }
 
   // ----------------------------------------------------------------------------
@@ -1558,14 +1556,9 @@ function handleSecurePhoneMapping(chatId, phoneInput, secretPin) {
     pinClean = pinClean.padStart(4, "0");
   }
 
-  var phone4 = normPhone.length >= 4 ? normPhone.slice(-4) : "1234";
-  var validPin = storedPin || phone4;
-  if (pinClean !== validPin) {
-    if (storedPin) {
-      return "❌ Mã PIN bảo mật không chính xác!\n\n💡 Tài khoản của Thầy/Cô đã được cài đặt Mã PIN bảo mật riêng. Vui lòng kiểm tra lại tại website EduSign hoặc liên hệ Quản trị viên.";
-    } else {
-      return "❌ Mã PIN bảo mật không chính xác!\n\n💡 Thầy/Cô chỉ cần nhắn cú pháp kèm 4 số cuối SĐT (" + phone4 + "):\n👉 LK " + phoneInput + " " + phone4;
-    }
+  // Bắt buộc đối soát khớp chính xác secretPin === storedPin, loại bỏ hoàn toàn fallback bypass bằng 4 số cuối SĐT
+  if (!storedPin || pinClean !== storedPin) {
+    return "❌ Mã PIN bảo mật không chính xác!\n\n💡 Vui lòng kiểm tra Mã PIN tại mục 'Thông tin cá nhân & Zalo' trên trang web EduSign của trường hoặc liên hệ Quản trị viên.";
   }
 
   sheet.getRange(matchedRow, 6).setValue(String(chatId));

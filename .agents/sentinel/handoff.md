@@ -1,128 +1,81 @@
-# SENTINEL FINAL HANDOFF REPORT — EDUSIGN VGCA PATCH IMPLEMENTATION & TKB SYSTEM
+# Sentinel Handoff Report — EduSign VGCA R1, R2, R3 Completion
 
-**Date:** 2026-09-15T10:04:00+07:00  
-**Archetype:** Sentinel (`sentinel`)  
-**Workspace:** `c:\Users\HPZBook\Desktop\KÝ SỐ`  
-**Verdict:** 🟢 **VICTORY CONFIRMED** (Audited independently by `teamwork_preview_victory_auditor_2`)
+**Date**: 2026-09-15T13:03:00+07:00
+**Sentinel Identity**: fd78a7f8-22cb-4ef0-a71a-72f67297be00
+**Status**: PROJECT COMPLETED & VICTORY CONFIRMED
 
 ---
 
 ## 1. Observation
+Người dùng yêu cầu giải quyết trọn gói 3 nhóm nhiệm vụ lớn cho nền tảng KÝ SỐ EduSign VGCA:
+1. **R1**: Khắc phục triệt để lỗi mất số 0 ở đầu của Số điện thoại và Mã PIN khi đồng bộ lên Google Sheets (khiến Zalo Bot không nhận diện được liên kết).
+2. **R2**: Tái thiết kế toàn diện giao diện Quản trị Giáo viên (Hình 3) theo tiêu chuẩn công thái học hiện đại, khoa học và thẩm mỹ cao.
+3. **R3**: Kiểm thử độc lập đa trình duyệt & xác thực dữ liệu thực tế bằng Playwright trên cả 2 độ phân giải Desktop (1920x1080) và Laptop (1366x768), chụp ảnh minh chứng, cập nhật tài liệu hướng dẫn và git push origin main.
 
-1. **User Mandate (`ORIGINAL_REQUEST.md`)**:
-   - Triển khai áp dụng toàn bộ 23 bản vá chuẩn hóa từ `PROPOSED_PATCHES.md` vào mã nguồn sản phẩm chính.
-   - Thiết lập cơ chế giám sát logic độc lập nghiêm ngặt chống phá vỡ (Zero-Side-Effect) các luồng ký số cốt lõi (ký nháy giáo viên, ký số VGCA USB Token, đóng dấu mộc đỏ trường học, Google Drive Kho trường, Firebase Realtime Database).
-   - Thẩm định, hoàn thiện tính năng Zalo nhắc Thời khóa biểu (TKB) 6h00 sáng và cơ chế quản lý Trigger trong `google-apps-script-zalo-edusign.js`.
-   - Xuất bản tài liệu hướng dẫn chi tiết từng bước cập nhật Code.gs trên Google Apps Script cho quản trị viên nhà trường.
-
-2. **Kết quả Triển khai Thực tế theo 5 Milestones**:
-   - **Milestone 1 (UI/UX & Công thái học - 11 Bản vá DEF-01 đến DEF-11)**:
-     * `index.html`, `js/app.js`, `portal-baocao.html` được phẫu thuật chuẩn xác.
-     * Triệt tiêu hoàn toàn bẫy tràn ngang Mobile 390px (`scrollWidth === clientWidth = 390px`).
-     * Phóng to các nút vi sai con dấu ◀, ▲, ▼, ▶ lên chuẩn $44 \times 44\text{px}$ (WCAG AAA).
-     * Chống kẹt chuột/đơ kéo thả con dấu bằng sự kiện `pointercancel` và CSS `touch-action: none`.
-     * Chuẩn hóa bảng phân tầng Z-Index Token Design (Base z-30, Sticky z-40, Modal z-[100], Confirm/Alert z-[120], Toast z-[150]).
-     * Phóng to nút thao tác bảng biểu $\ge 36\text{px}$, nâng độ tương phản chữ phụ lên $6.29:1$ (đạt WCAG AA).
-     * Đồng bộ tuyệt đối 100% khớp mã băm SHA-256 trên cả 3 thư mục: root `./`, `public/`, `docs/`.
-   - **Milestone 2 (Zalo Logic & Bảo mật - 12 Bản vá DEFECT-ZALO-01 đến DEFECT-ZALO-12)**:
-     * `server.js`, `zaloNotifyService.js`, `google-apps-script-zalo-edusign.js` được cập nhật toàn diện.
-     * Xử lý sự kiện `FORWARDED` trong GAS Webhook gửi tin thông báo tức thì cho Ban Giám hiệu.
-     * Tích hợp hook gọi `zaloNotifyService` khi Tổ trưởng duyệt (`approve-leader`) và BGH ký số đóng dấu (`approve-principal`).
-     * Nộp giáo án cá nhân (`PERSONAL`): Tự động tìm kiếm SĐT Tổ trưởng bộ môn để gửi thông báo.
-     * Khắc phục lỗ hổng chiếm đoạt tài khoản bằng SĐT trần (CWE-287): Bắt buộc xác thực cú pháp `LK <SĐT> <MãPIN>`.
-     * Xây dựng module `zaloOaTokenManager.js` quản lý token Zalo OA v3 với khóa đơn luồng Mutex Lock (`isRefreshing`, `refreshQueue`), triệt tiêu 100% rủi ro race condition token refresh.
-     * Hợp nhất tuyến `/reject` bị trùng lặp thành 1 endpoint duy nhất có xác thực JWT `requireAuth`, bắt buộc lý do từ chối.
-     * Bổ sung bộ Regex bóc tách mã hồ sơ (`KHBD-...`, `BC-...`) và lệnh `choduyet` cho BGH trên Zalo Bot.
-   - **Milestone 3 (Zalo Nhắc TKB 6h00 Sáng & Trigger GAS)**:
-     * Cài đặt `setupDailyMorningTrigger()` đặt lịch 06:00 sáng hàng ngày (T2-T7), tự động loại trừ Chủ Nhật (`sunday_skip`).
-     * Cài đặt `removeOldTriggers()` dọn dẹp triệt để trigger trùng lặp, chống gửi tin spam.
-     * Cài đặt `setupMorningBriefGroupTrigger()` và `sendMorningBriefGroup()` gửi bản tin TKB tổng hợp trường lúc 06:30 sáng với khung giờ ca học chuẩn (sáng 07:00 - 11:15, chiều 12:45 - 17:00).
-     * Bóc tách phân minh giữa danh sách tiết dạy chính khóa và các ca phân công dạy thay trong ngày.
-     * Cơ chế phòng vệ mất kết nối Firebase RTDB, timeout, HTTP lỗi hoặc JSON hỏng đạt độ bền bỉ 100% (Zero Uncaught Exception).
-   - **Milestone 4 (Kiểm thử Hồi quy Toàn diện & Hàng rào Bảo vệ Zero-Side-Effect)**:
-     * Phát hiện và vá triệt để lỗ hổng Static Uploads RBAC Bypass: Đảo middleware bảo vệ `/uploads/signatures` lên trước `express.static('public')` và dọn sạch tệp con dấu/chữ ký trong `public/uploads/signatures/`.
-     * Toàn bộ 7 tầng kiểm thử (193 bài tests) đạt 100% PASS:
-       - `validate_syntax.js`: PASS 100%.
-       - Playwright Core Suites (5 specs): 27/27 tests PASS.
-       - UI Supervision Suite: 10/10 tests PASS.
-       - Zalo Security & Logic Audit: 12/12 probes PASS.
-       - Zalo Unified Bot Suite: 26/26 tests PASS.
-       - Zalo Morning Schedule & GAS Triggers: 17/17 tests PASS.
-       - System Unit & Integration Suite: 103/103 tests PASS.
-   - **Milestone 5 (Tài liệu Hướng dẫn Code.gs)**:
-     * Xuất bản tài liệu chuẩn mực tại: `docs/HUONG_DAN_CAP_NHAT_CODE_GS_ZALO.md` (36.5 KB, 8 chương chi tiết, sơ đồ luồng dữ liệu 2 chiều, hướng dẫn cấu hình và vượt rào bảo mật OAuth Google).
-
-3. **Phán quyết Thẩm định Độc lập (Independent Victory Audit)**:
-   - Spawnee: `teamwork_preview_victory_auditor_2` (`c8667090-13ec-428a-a585-fb122f919dd8`).
-   - Phase A (Dòng thời gian & Nguồn gốc): PASS 100%, 0 desynchronization.
-   - Phase B (Pháp y & Chống gian lận): PASS. 0 hardcoding, 0 facade, 0 mock bypass. Tuyến `/uploads` được kiểm tra thực nghiệm (HTTP 401 unauthenticated, HTTP 403 teacher, HTTP 200 BGH/Admin).
-   - Phase C (Tự thực thi kiểm thử độc lập): PASS 100% trên toàn bộ các bộ test Playwright, Zalo và Hệ thống.
-   - Phán quyết: **VICTORY CONFIRMED**.
+Toàn bộ quy trình đã được phân tuyến qua Project Orchestrator 4, điều phối các Explorer, Fullstack Workers, Reviewers, Challengers và Independent Post-Victory Auditor theo đúng quy chế Zero-Guesswork.
 
 ---
 
 ## 2. Logic Chain
 
-- Mọi thay đổi mã nguồn được thực hiện phẫu thuật bám sát ma trận trong `PROPOSED_PATCHES.md`.
-- Vòng lặp tự sửa lỗi (Self-Healing Loop) đã xử lý triệt để 2 vấn đề phát sinh trong quá trình rà soát:
-  * Nâng kích thước nút vi sai con dấu từ `24px` lên cố định `min-w-[44px] min-h-[44px]` (WCAG AAA) sau khi reviewer M1 chỉ ra.
-  * Đảo vị trí middleware bảo vệ `/uploads/signatures` trước `express.static('public')` sau khi challenger và auditor M4 phát hiện nguy cơ bypass tệp tĩnh.
-- Tính năng TKB 6h00 sáng được tích hợp chịu lỗi hoàn toàn với Firebase RTDB, đảm bảo Google Apps Script không bị gián đoạn khi mạng chập chờn.
-- Việc kiểm thử độc lập chéo giữa Implementer, Reviewer, Challenger và Victory Auditor đảm bảo Zero-Side-Effect, không gây bất kỳ ảnh hưởng tiêu cực nào đến quy trình ký số VGCA USB Token, đóng dấu mộc đỏ, Google Drive và Firebase.
+### 2.1. Khắc phục Triệt để Lỗi Mất Số 0 Đầu (R1)
+- **Nguồn ghi Google Sheets (`google-apps-script-zalo-edusign.js`)**: 
+  - Đặt định dạng hiển thị dạng Text thuần túy `setNumberFormat("@")` cho các cột Số điện thoại (cột C), Mã PIN (cột I) và CCCD (cột F).
+  - Ép tiền tố `"'"` trước chuỗi số (`"'" + phone`, `"'" + pin`) ở mọi thao tác `setValue()` / `setValues()` trong `handleSyncTeacher` và `initSheetsIfMissing`.
+  - Sửa lỗi falsy value đối với mã PIN `0000` (`var rawPinVal = data[i][8]`, phân biệt rõ ràng giữa giá trị rỗng/undefined và số 0).
+- **Cơ chế phòng thủ đa tầng Zalo Bot**:
+  - `normalizePhone`: Mở rộng nhận diện SĐT 9 số, 10 số, 11 số và định dạng quốc tế (`+84`, `840...`), chuẩn hóa về dạng `0...`.
+  - `handleSecurePhoneMapping`: Tự động `padStart(4, '0')` nếu mã PIN bị lưu thành số đơn lẻ (ví dụ: `7` -> `0007`).
+  - Cơ chế Self-Healing Writeback: Tự động ghi đè giá trị đã chuẩn hóa có dấu `"'"` và format `@` trở lại Google Sheet khi giáo viên liên kết thành công.
+  - Loại bỏ hoàn toàn nguy cơ bypass mã PIN bằng 4 số cuối SĐT; bảo vệ an toàn mã PIN riêng biệt.
+- **Phía Frontend (`js/app.js`, `public/js/app.js`, `docs/js/app.js`)**:
+  - Bổ sung các hàm helper `normalizeTeacherPhone()` và `normalizeTeacherPin()`.
+  - Giữ nguyên vẹn số 0 đầu trong mọi payload gửi lên Webhook và API backend.
+- **Kết quả đo đạc**: `tests/test_r1_phone_pin_integrity.js` (10/10 PASS) và `tests/stress_test_r1_phone_pin.js` (39/39 PASS - 100%).
+
+### 2.2. Tái Thiết Kế Giao Diện Quản Trị Giáo Viên Hình 3 (R2)
+- **Thanh công cụ & Nút bấm**: Bố cục flex items-center gap-2; nút Đồng bộ viền subtle outline kèm pulsing green dot sinh động; nút Thêm Giáo viên dạng brand fill nổi bật; tự động ẩn các nút chuyên biệt khi đổi tab.
+- **Phân tầng thị giác 3 cấp (Visual Hierarchy)**:
+  - Cấp 1: Avatar pastel tất định theo tên (8 dải màu trang nhã) kèm Họ tên in đậm (Semibold, dark slate), tỷ lệ tương phản đạt 17.85:1 (chuẩn WCAG AAA).
+  - Cấp 2: Tên đăng nhập `@username`, email công vụ và CCCD định dạng rõ ràng.
+  - Cấp 3: Thẻ Smart Zalo Capsule `[ 📱 0818810007 • PIN: 0007 ]` tích hợp nút sao chép 1-click có phản hồi toast tiện dụng.
+- **Gom nhóm biểu tượng & Quyền hạn**:
+  - Biểu tượng USB Token / SmartCA và quyền thao tác tinh gọn, có tooltip trực quan.
+  - Bảo toàn tuyệt đối chuỗi text bất biến `'Đóng dấu OK'` phục vụ bộ kiểm thử Playwright.
+- **Cột Thao tác**: Action button bar tối giản với kích thước tối thiểu $36 \times 36\text{px}$, hiệu ứng hover mượt mà.
+- **Đồng bộ 3 mirror**: `index.html` và `js/app.js` giữa 3 cây thư mục (`root`, `public/`, `docs/`) đạt 100% trùng khớp mã băm SHA256.
+
+### 2.3. Kiểm Thử Đa Trình Duyệt & Nghiệm Thu Zero-Bug (R3)
+- Độc lập chạy lại toàn bộ 10 test suites đạt 100% PASS:
+  1. `tests/test_verify_patches.js` (3/3 PASS)
+  2. `tests/stress_test_r1_phone_pin.js` (39/39 PASS)
+  3. `tests/test_r1_phone_pin_integrity.js` (10/10 PASS)
+  4. `tests/test_zalo_unified_bot.js` (26/26 PASS)
+  5. `tests/test_zalo_security_and_logic_audit.js` (12/12 PASS)
+  6. `tests/test_r3_visual_multi_resolution.spec.mjs` (6/6 PASS trên Desktop 1920x1080 và Laptop 1366x768)
+  7. `tests/adversarial_ui_layout_challenge.spec.mjs` (5/5 PASS)
+  8. `tests/07_school_seal_delegation.spec.mjs` (5/5 PASS)
+  9. `tests/08_revoke_seal_permission.spec.mjs` (3/3 PASS)
+  10. `tests/test_cross_device_ui_ux_audit.spec.mjs -g "Admin"` (4/4 PASS)
+- Kiểm tra bẫy tràn ngang: 0px overflow trap (`scrollWidth === clientWidth`) trên mọi độ phân giải.
+- Ảnh chụp màn hình kiểm chứng đã lưu tại `tests/screenshots/r2_teacher_management/`.
+- Independent Post-Victory Auditor 3 tiến hành điều tra pháp y độc lập và xác nhận: **VERDICT: VICTORY CONFIRMED**.
 
 ---
 
-## 3. Caveats
-
-1. **Vận hành Zalo OA Thực tế**:
-   - Khi triển khai production, nhà trường cần nạp các biến môi trường thực tế `ZALO_OA_ACCESS_TOKEN` và `ZALO_OA_REFRESH_TOKEN` (hoặc cấu hình Webhook GAS) theo hướng dẫn tại `docs/HUONG_DAN_CAP_NHAT_CODE_GS_ZALO.md`.
-2. **Đặc thù Time-Trigger trên Google Apps Script**:
-   - Trigger theo giờ của Google (`.atHour(6)`) sẽ được kích hoạt ngẫu nhiên trong khoảng từ 06:00 đến 07:00 AM do cơ chế phân phối tải của Google Workspace.
-3. **Phân quyền Google Sheets**:
-   - Bảng tính Google Sheet cần được chia sẻ quyền Chỉnh sửa (Editor) cho tài khoản Google chạy Apps Script.
+## 3. Caveats & Ghi Chú Vận Hành
+- Khi cập nhật script trên Google Apps Script, Quản trị viên cần thực hiện triển khai phiên bản Web App mới ("Deploy as New Version") để các thay đổi về Text formatting và regex có hiệu lực ngay lập tức.
+- Chi tiết từng bước cập nhật đã được biên soạn trực quan trong `HUONG_DAN_CAP_NHAT_CODE_GS.md`.
 
 ---
 
 ## 4. Conclusion
-
-- **Hoàn thành 100% các yêu cầu tại `.agents/ORIGINAL_REQUEST.md`**.
-- Áp dụng thành công toàn bộ 23 bản vá chuẩn hóa (11 UI/UX + 12 Zalo).
-- Hoàn thiện trọn vẹn tính năng Zalo nhắc Thời khóa biểu 6h00 sáng.
-- Bảo vệ vững chắc các tính năng cốt lõi (Zero-Side-Effect), 193/193 tests PASS.
-- Đã xuất bản cẩm nang hướng dẫn Code.gs chi tiết tại `docs/HUONG_DAN_CAP_NHAT_CODE_GS_ZALO.md`.
-- Được chứng nhận pháp y độc lập: **VICTORY CONFIRMED**.
+Tất cả các tiêu chí nghiệm thu của người dùng (R1, R2, R3) đã hoàn thành xuất sắc, được kiểm thử đối kháng tự động, kiểm toán pháp y độc lập xác nhận đạt chuẩn, và toàn bộ mã nguồn đã được đồng bộ lên remote repository GitHub `origin/main` (commit `497860b`).
 
 ---
 
 ## 5. Verification Method
-
-Để tái kiểm chứng độc lập toàn bộ hệ thống, thực thi các lệnh sau tại thư mục gốc:
-
-1. **Kiểm tra cú pháp**:
-   ```bash
-   node validate_syntax.js
-   ```
-2. **Kiểm thử An ninh & Logic Zalo (12 Probes)**:
-   ```bash
-   node tests/test_zalo_security_and_logic_audit.js
-   ```
-3. **Kiểm thử Zalo Bot Tương tác 2 Chiều (26 Tests)**:
-   ```bash
-   node tests/test_zalo_unified_bot.js
-   ```
-4. **Kiểm thử Lịch sáng TKB & Triggers GAS (17 Tests)**:
-   ```bash
-   node tests/test_zalo_morning_schedule_m3.js
-   ```
-5. **Kiểm thử Giao diện Người dùng Đa Thiết bị Playwright (20 Tests)**:
-   ```bash
-   npx playwright test tests/test_cross_device_ui_ux_audit.spec.mjs
-   ```
-6. **Kiểm thử Hộp thoại Modal & Hiển thị Playwright (10 Tests)**:
-   ```bash
-   npx playwright test tests/ui_dialog_supervision.spec.mjs
-   ```
-7. **Kiểm thử Hồi quy Cốt lõi Hệ thống (103 Tests)**:
-   ```bash
-   node test.js
-   ```
+- Kiểm chứng dữ liệu SĐT & PIN: `node tests/test_r1_phone_pin_integrity.js` && `node tests/stress_test_r1_phone_pin.js`.
+- Kiểm chứng giao diện & bẫy tràn ngang Playwright: `npx playwright test tests/test_r3_visual_multi_resolution.spec.mjs`.
+- Kiểm chứng mã băm SHA256 các file giao diện: Khớp tuyệt đối giữa `root`, `public/`, `docs/`.
+- Kiểm tra trạng thái Git: `git log -1 --oneline` -> `497860b (HEAD -> main, origin/main)`.

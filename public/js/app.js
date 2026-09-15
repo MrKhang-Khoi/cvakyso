@@ -679,6 +679,7 @@ function switchTab(tabName) {
   const btnSyncSheet = document.getElementById('btnSyncSheetAll');
   const btnCreateUser = document.querySelector('.btn-create-user');
   const btnCreateDept = document.querySelector('.btn-create-dept');
+  const excelActionBtns = document.querySelectorAll('.btn-excel-action');
 
   const activeBtnClass = "px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all bg-brand-600 text-white shadow-sm shadow-brand-500/20";
   const inactiveBtnClass = "px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-500 hover:text-slate-800 hover:bg-slate-100";
@@ -695,6 +696,7 @@ function switchTab(tabName) {
     if (btnSyncSheet) btnSyncSheet.classList.remove('hidden');
     if (btnCreateUser) btnCreateUser.classList.remove('hidden');
     if (btnCreateDept) btnCreateDept.classList.add('hidden');
+    excelActionBtns.forEach(b => b.classList.remove('hidden'));
   } else if (tabName === 'departments') {
     if (tabTeachers) tabTeachers.classList.add('hidden');
     if (tabDepts) tabDepts.classList.remove('hidden');
@@ -707,6 +709,7 @@ function switchTab(tabName) {
     if (btnSyncSheet) btnSyncSheet.classList.add('hidden');
     if (btnCreateUser) btnCreateUser.classList.add('hidden');
     if (btnCreateDept) btnCreateDept.classList.remove('hidden');
+    excelActionBtns.forEach(b => b.classList.add('hidden'));
     renderDepartmentsGrid();
   } else if (tabName === 'reports') {
     if (tabTeachers) tabTeachers.classList.add('hidden');
@@ -720,6 +723,7 @@ function switchTab(tabName) {
     if (btnSyncSheet) btnSyncSheet.classList.add('hidden');
     if (btnCreateUser) btnCreateUser.classList.add('hidden');
     if (btnCreateDept) btnCreateDept.classList.add('hidden');
+    excelActionBtns.forEach(b => b.classList.add('hidden'));
     if (typeof loadAdminReportManagement === 'function') {
       loadAdminReportManagement(true);
     }
@@ -1392,8 +1396,9 @@ function openModalCreateUser() {
   document.getElementById('userRole').value = 'TEACHER';
   if (document.getElementById('userCccd')) document.getElementById('userCccd').value = '';
   if (document.getElementById('userCertSerial')) document.getElementById('userCertSerial').value = '';
-  document.getElementById('userEmail').value = '';
-  document.getElementById('userPhone').value = '';
+  if (document.getElementById('userEmail')) document.getElementById('userEmail').value = '';
+  if (document.getElementById('userPhone')) document.getElementById('userPhone').value = '';
+  if (document.getElementById('userZaloPin')) document.getElementById('userZaloPin').value = '';
   if (document.getElementById('userCanUploadWord')) {
     document.getElementById('userCanUploadWord').checked = true;
   }
@@ -1433,7 +1438,12 @@ function openModalEditUser(userId) {
   if (document.getElementById('userZaloPin')) {
     const cleanPhone = normalizeTeacherPhone(u.phone);
     const cleanCccd = (u.cccd || '').replace(/\D/g, '');
-    document.getElementById('userZaloPin').value = normalizeTeacherPin(u.pinCode || u.zaloPin, cleanPhone || cleanCccd);
+    const currentPin = (u.pinCode !== undefined && u.pinCode !== null && String(u.pinCode).trim() !== '')
+      ? String(u.pinCode).trim()
+      : ((u.zaloPin !== undefined && u.zaloPin !== null && String(u.zaloPin).trim() !== '')
+        ? String(u.zaloPin).trim()
+        : normalizeTeacherPin('', cleanPhone || cleanCccd));
+    document.getElementById('userZaloPin').value = currentPin;
   }
   if (document.getElementById('userCanUploadWord')) {
     document.getElementById('userCanUploadWord').checked = (u.canUploadWord !== false);
@@ -1526,6 +1536,8 @@ async function handleSaveUser(e) {
       // Cập nhật giáo viên
       const idx = users.findIndex(u => u.id === id);
       if (idx !== -1) {
+        const cleanPhone = normalizeTeacherPhone(phone) || phone;
+        const finalPin = pinCode || users[idx].pinCode || users[idx].zaloPin || normalizeTeacherPin(pinCode, phone);
         users[idx] = {
           ...users[idx],
           fullName,
@@ -1539,8 +1551,9 @@ async function handleSaveUser(e) {
           cccd,
           certSerial,
           email,
-          phone: normalizeTeacherPhone(phone) || phone,
-          pinCode: normalizeTeacherPin(pinCode, phone),
+          phone: cleanPhone,
+          pinCode: finalPin,
+          zaloPin: finalPin,
           canUploadWord,
           canStampSeal,
           updatedAt: new Date().toISOString()
@@ -1559,7 +1572,9 @@ async function handleSaveUser(e) {
           appState.currentUser.cccd = cccd;
           appState.currentUser.signType = signType;
           appState.currentUser.fullName = fullName;
-          appState.currentUser.pinCode = users[idx].pinCode;
+          appState.currentUser.pinCode = finalPin;
+          appState.currentUser.zaloPin = finalPin;
+          appState.currentUser.phone = cleanPhone;
           appState.currentUser.name = fullName;
           appState.currentUser.role = role;
           appState.currentUser.departmentId = departmentId;
@@ -1604,6 +1619,22 @@ async function handleSaveUser(e) {
           }
         }
 
+        if (firebaseDb) {
+          firebaseDb.ref(`users/${id}`).update({
+            pinCode: finalPin,
+            zaloPin: finalPin,
+            phone: cleanPhone,
+            fullName: fullName,
+            departmentId: departmentId,
+            departmentName: departmentName,
+            role: role,
+            signType: signType,
+            cccd: cccd,
+            email: email,
+            updatedAt: new Date().toISOString()
+          }).catch(() => {});
+        }
+
         await syncUsersToFirebase(users);
         syncTeacherToGoogleSheet(users[idx]);
         showToast('Cập nhật thông tin giáo viên và đồng bộ Google Sheet thành công!', 'success');
@@ -1617,6 +1648,9 @@ async function handleSaveUser(e) {
     } else {
       // Thêm mới hoặc cập nhật nếu username đã tồn tại (Đảm bảo tính Idempotent cho kiểm thử tự động)
       const existingIdx = users.findIndex(u => (u.username || '').toLowerCase() === username);
+      const cleanPhone = normalizeTeacherPhone(phone) || phone;
+      const finalPin = pinCode || (existingIdx !== -1 ? (users[existingIdx].pinCode || users[existingIdx].zaloPin) : '') || normalizeTeacherPin(pinCode, phone);
+
       if (existingIdx !== -1) {
         users[existingIdx] = {
           ...users[existingIdx],
@@ -1631,8 +1665,9 @@ async function handleSaveUser(e) {
           cccd,
           certSerial,
           email,
-          phone: normalizeTeacherPhone(phone) || phone,
-          pinCode: normalizeTeacherPin(pinCode, phone),
+          phone: cleanPhone,
+          pinCode: finalPin,
+          zaloPin: finalPin,
           canUploadWord,
           canStampSeal,
           updatedAt: new Date().toISOString()
@@ -1654,6 +1689,21 @@ async function handleSaveUser(e) {
             });
           } catch (apiErr) {}
         }
+        if (firebaseDb) {
+          firebaseDb.ref(`users/${updatedUser.id}`).update({
+            pinCode: finalPin,
+            zaloPin: finalPin,
+            phone: cleanPhone,
+            fullName: fullName,
+            departmentId: departmentId,
+            departmentName: departmentName,
+            role: role,
+            signType: signType,
+            cccd: cccd,
+            email: email,
+            updatedAt: new Date().toISOString()
+          }).catch(() => {});
+        }
         await syncUsersToFirebase(users);
         syncTeacherToGoogleSheet(updatedUser);
       } else {
@@ -1673,8 +1723,9 @@ async function handleSaveUser(e) {
           cccd,
           certSerial,
           email,
-          phone: normalizeTeacherPhone(phone) || phone,
-          pinCode: normalizeTeacherPin(pinCode, phone),
+          phone: cleanPhone,
+          pinCode: finalPin,
+          zaloPin: finalPin,
           canUploadWord,
           canStampSeal,
           isLocked: false,
@@ -1711,6 +1762,12 @@ async function handleSaveUser(e) {
       }
       showToast('Lưu thông tin giáo viên và đồng bộ thành công!', 'success');
     }
+
+    // Luôn lưu vào appState.users và localStorage để dữ liệu lập tức có hiệu lực
+    appState.users = users;
+    try {
+      localStorage.setItem('edusign_users', JSON.stringify(users));
+    } catch (e) {}
 
     closeModal('modalUser');
     renderTeachersTable();
@@ -9052,34 +9109,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
-// ==================== QUẢN LÝ MÃ PIN ZALO & THÔNG TIN CÁ NHÂN ====================
+// ==================== QUẢN LÝ MÃ PIN ZALO & THÔNG TIN CÁ NHÂN (R2, R3) ====================
 function generateDefaultPinForModalUser() {
-  const phone = (document.getElementById('userPhone')?.value || '').replace(/\D/g, '');
-  const cccd = (document.getElementById('userCccd')?.value || '').replace(/\D/g, '');
-  let defPin = '1234';
-  if (phone && phone.length >= 4) {
-    defPin = phone.slice(-4);
-  } else if (cccd && cccd.length >= 4) {
-    defPin = cccd.slice(-4);
-  }
+  const randomPin = Math.floor(1000 + Math.random() * 9000).toString();
   const pinInput = document.getElementById('userZaloPin');
   if (pinInput) {
-    pinInput.value = defPin;
-    showToast(`Đã tạo mã PIN gợi ý: ${defPin} (4 số cuối)`, 'info');
+    pinInput.value = randomPin;
+    showToast(`Đã tạo mã PIN ngẫu nhiên: ${randomPin}`, 'info');
   }
 }
 
 function openModalUserProfile() {
-  const user = appState.currentUser;
+  let user = appState.currentUser;
   if (!user) {
     showToast('Vui lòng đăng nhập để xem thông tin cá nhân.', 'warning');
     return;
   }
+
+  // Luôn đọc dữ liệu mới nhất từ appState.users hoặc localStorage edusign_users
+  let freshList = (appState.users && appState.users.length) ? appState.users : [];
+  if (!freshList.length) {
+    try {
+      freshList = JSON.parse(localStorage.getItem('edusign_users') || '[]');
+    } catch (e) {
+      freshList = [];
+    }
+  }
+
+  const matchedUser = freshList.find(u => (u.id && u.id === user.id) || (u.username && u.username.toLowerCase() === (user.username || '').toLowerCase()));
+  if (matchedUser) {
+    user = { ...user, ...matchedUser };
+    appState.currentUser = user;
+    try {
+      localStorage.setItem('edusign_user', JSON.stringify(user));
+    } catch (e) {}
+  }
+
   const displayName = user.fullName || user.name || user.username;
   const rawPhone = user.phone || ((user.username === 'cva.ty' || user.id === 'user_cvaty' || (user.username && user.username.includes('ty'))) ? '0818810007' : '');
   const cleanPhone = normalizeTeacherPhone(rawPhone) || rawPhone.replace(/\D/g, '');
   const cleanCccd = (user.cccd || '').replace(/\D/g, '');
-  const pin = normalizeTeacherPin(user.pinCode || user.zaloPin, cleanPhone || cleanCccd);
+
+  // Đảm bảo hiển thị đúng mã PIN vừa cập nhật (ví dụ: Cva@ hoặc mã mới), không fallback về 4 số cuối SĐT 0007 nếu đã có pinCode
+  const pin = (user.pinCode !== undefined && user.pinCode !== null && String(user.pinCode).trim() !== '')
+    ? String(user.pinCode).trim()
+    : ((user.zaloPin !== undefined && user.zaloPin !== null && String(user.zaloPin).trim() !== '')
+      ? String(user.zaloPin).trim()
+      : '1234');
   const phoneDisplay = cleanPhone || 'Chưa cập nhật';
 
   if (document.getElementById('profFullName')) document.getElementById('profFullName').textContent = displayName;
@@ -9096,12 +9172,23 @@ function openModalUserProfile() {
 }
 
 function copyZaloLinkSyntax() {
-  const user = appState.currentUser;
+  let user = appState.currentUser;
   if (!user) return;
+  let freshList = (appState.users && appState.users.length) ? appState.users : [];
+  if (!freshList.length) {
+    try { freshList = JSON.parse(localStorage.getItem('edusign_users') || '[]'); } catch (e) {}
+  }
+  const matchedUser = freshList.find(u => (u.id && u.id === user.id) || (u.username && u.username.toLowerCase() === (user.username || '').toLowerCase()));
+  if (matchedUser) {
+    user = { ...user, ...matchedUser };
+  }
   const rawPhone = user.phone || ((user.username === 'cva.ty' || user.id === 'user_cvaty' || (user.username && user.username.includes('ty'))) ? '0818810007' : '');
   const cleanPhone = normalizeTeacherPhone(rawPhone) || rawPhone.replace(/\D/g, '');
-  const cleanCccd = (user.cccd || '').replace(/\D/g, '');
-  const pin = normalizeTeacherPin(user.pinCode || user.zaloPin, cleanPhone || cleanCccd);
+  const pin = (user.pinCode !== undefined && user.pinCode !== null && String(user.pinCode).trim() !== '')
+    ? String(user.pinCode).trim()
+    : ((user.zaloPin !== undefined && user.zaloPin !== null && String(user.zaloPin).trim() !== '')
+      ? String(user.zaloPin).trim()
+      : '1234');
   const syntax = cleanPhone ? `LK ${cleanPhone} ${pin}` : `LK 0818810007 ${pin}`;
 
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -9112,5 +9199,371 @@ function copyZaloLinkSyntax() {
     });
   } else {
     prompt('Sao chép cú pháp liên kết Zalo:', syntax);
+  }
+}
+
+// ==================== TÍNH NĂNG EXCEL & DỌN DẸP DỮ LIỆU RÁC (R4, R5) ====================
+
+/**
+ * R4: Dọn dẹp sạch toàn bộ tài liệu rác thử nghiệm
+ */
+async function cleanGarbageDocuments() {
+  try {
+    if (appState) {
+      appState.documents = [];
+    }
+    try {
+      localStorage.removeItem('edusign_documents');
+      localStorage.removeItem('edusign_documents_cache');
+    } catch (e) {}
+
+    if (firebaseDb) {
+      await firebaseDb.ref('documents').remove();
+    } else if (typeof RTDB_URL !== 'undefined' && RTDB_URL) {
+      await fetch(`${RTDB_URL}/documents.json`, { method: 'DELETE' }).catch(() => null);
+    }
+
+    if (typeof showToast === 'function') {
+      showToast('✅ Đã dọn dẹp sạch toàn bộ tài liệu rác thử nghiệm!', 'success');
+    }
+    if (typeof loadAdminReportManagement === 'function') {
+      await loadAdminReportManagement(true);
+    }
+    if (typeof loadSchoolReports === 'function') {
+      loadSchoolReports(true);
+    }
+    return { success: true };
+  } catch (err) {
+    console.warn('[cleanGarbageDocuments]', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * R5: Tải file Excel mẫu danh sách Giáo viên chuẩn của trường THCS Chu Văn An
+ */
+function downloadTeacherExcelTemplate() {
+  if (typeof XLSX === 'undefined') {
+    showToast('Thư viện Excel đang tải, vui lòng thử lại sau giây lát!', 'warning');
+    return;
+  }
+
+  const headers = [
+    'STT',
+    'Họ và Tên',
+    'Tên đăng nhập',
+    'Mật khẩu',
+    'Tổ Chuyên Môn',
+    'Chức vụ',
+    'Số CCCD',
+    'Email Công Vụ',
+    'Số Điện Thoại',
+    'Mã PIN',
+    'Loại chữ ký'
+  ];
+
+  const sampleRows = [
+    [1, 'Nguyễn Văn An', 'cva.an', '123456', 'Tổ Toán - Tin', 'Giáo viên', '042084001111', 'an.nv@quangngai.gov.vn', '0905111222', '2026', 'SmartCA'],
+    [2, 'Trần Thị Bình', 'cva.binh', '123456', 'Tổ Ngữ Văn', 'Tổ trưởng chuyên môn', '042085002222', 'binh.tt@quangngai.gov.vn', '0912333444', '2026', 'SmartCA'],
+    [3, 'Lê Hoàng Cường', 'cva.cuong', '123456', 'Tổ Khoa học Tự nhiên', 'Giáo viên', '042086003333', 'cuong.lh@quangngai.gov.vn', '0987555666', '2026', 'USB']
+  ];
+
+  const wsData = [headers, ...sampleRows];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+  ws['!cols'] = [
+    { wch: 6 },
+    { wch: 22 },
+    { wch: 15 },
+    { wch: 12 },
+    { wch: 22 },
+    { wch: 22 },
+    { wch: 16 },
+    { wch: 26 },
+    { wch: 15 },
+    { wch: 10 },
+    { wch: 14 }
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'DanhSachGiaoVien');
+  XLSX.writeFile(wb, 'Mau_Danh_Sach_Giao_Vien_EduSign_THCS_ChuVanAn.xlsx');
+  showToast('✅ Đã tải file Excel mẫu danh sách giáo viên thành công!', 'success');
+}
+
+/**
+ * R5: Mở modal nhập giáo viên từ Excel
+ */
+let stagedImportTeachers = [];
+
+function openModalImportTeacherExcel() {
+  stagedImportTeachers = [];
+  const fileInput = document.getElementById('inputTeacherExcelFile');
+  if (fileInput) fileInput.value = '';
+
+  const infoBox = document.getElementById('boxExcelFileInfo');
+  if (infoBox) infoBox.classList.add('hidden');
+
+  const previewBox = document.getElementById('boxExcelPreview');
+  if (previewBox) previewBox.classList.add('hidden');
+
+  const tbody = document.getElementById('tbodyExcelPreview');
+  if (tbody) tbody.innerHTML = '';
+
+  const btnConfirm = document.getElementById('btnConfirmImportExcel');
+  if (btnConfirm) btnConfirm.disabled = true;
+
+  openModal('modalImportTeacherExcel');
+}
+
+/**
+ * R5: Đọc và phân tích file Excel giáo viên
+ */
+function handleTeacherExcelFileSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  if (typeof XLSX === 'undefined') {
+    showToast('Thư viện Excel chưa sẵn sàng!', 'error');
+    return;
+  }
+
+  const fileNameEl = document.getElementById('excelFileName');
+  const fileSizeEl = document.getElementById('excelFileSize');
+  const infoBox = document.getElementById('boxExcelFileInfo');
+  const previewBox = document.getElementById('boxExcelPreview');
+  const badgeValid = document.getElementById('badgeExcelValid');
+  const badgeDup = document.getElementById('badgeExcelDuplicate');
+  const tbody = document.getElementById('tbodyExcelPreview');
+  const btnConfirm = document.getElementById('btnConfirmImportExcel');
+  const summaryText = document.getElementById('previewSummaryText');
+
+  if (fileNameEl) fileNameEl.textContent = file.name;
+  if (fileSizeEl) fileSizeEl.textContent = `(${(file.size / 1024).toFixed(1)} KB)`;
+  if (infoBox) infoBox.classList.remove('hidden');
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[firstSheetName];
+      const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+      if (!rows || rows.length < 2) {
+        showToast('File Excel không có dữ liệu hoặc thiếu dòng tiêu đề!', 'warning');
+        return;
+      }
+
+      // Nhận diện dòng header
+      const headerRow = rows[0].map(h => String(h || '').trim().toLowerCase());
+      const colMap = {
+        name: headerRow.findIndex(h => h.includes('họ') || h.includes('tên') || h.includes('name')),
+        username: headerRow.findIndex(h => h.includes('đăng nhập') || h.includes('username') || h.includes('tài khoản')),
+        password: headerRow.findIndex(h => h.includes('mật khẩu') || h.includes('password')),
+        dept: headerRow.findIndex(h => h.includes('tổ') || h.includes('chuyên môn') || h.includes('phòng ban')),
+        role: headerRow.findIndex(h => h.includes('chức vụ') || h.includes('vai trò') || h.includes('role')),
+        cccd: headerRow.findIndex(h => h.includes('cccd') || h.includes('căn cước') || h.includes('cmnd')),
+        email: headerRow.findIndex(h => h.includes('email')),
+        phone: headerRow.findIndex(h => h.includes('thoại') || h.includes('sđt') || h.includes('phone')),
+        pin: headerRow.findIndex(h => h.includes('pin')),
+        signType: headerRow.findIndex(h => h.includes('chữ ký') || h.includes('loại ký') || h.includes('signtype'))
+      };
+
+      if (colMap.name === -1) colMap.name = 1;
+      if (colMap.username === -1) colMap.username = 2;
+      if (colMap.password === -1) colMap.password = 3;
+      if (colMap.dept === -1) colMap.dept = 4;
+      if (colMap.role === -1) colMap.role = 5;
+      if (colMap.cccd === -1) colMap.cccd = 6;
+      if (colMap.email === -1) colMap.email = 7;
+      if (colMap.phone === -1) colMap.phone = 8;
+      if (colMap.pin === -1) colMap.pin = 9;
+      if (colMap.signType === -1) colMap.signType = 10;
+
+      const existingUsers = appState.users || [];
+      const existingUsernames = new Set(existingUsers.map(u => (u.username || '').toLowerCase()));
+      const existingCccds = new Set(existingUsers.filter(u => u.cccd).map(u => String(u.cccd).replace(/\D/g, '')));
+
+      stagedImportTeachers = [];
+      let validCount = 0;
+      let dupCount = 0;
+      let htmlRows = '';
+
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (!row || row.length === 0 || row.every(cell => cell === null || cell === undefined || String(cell).trim() === '')) {
+          continue;
+        }
+
+        const fullName = String(row[colMap.name] || '').trim();
+        const username = String(row[colMap.username] || '').trim().toLowerCase();
+        const password = String(row[colMap.password] || '123456').trim();
+        const deptName = String(row[colMap.dept] || 'Tổ Toán - Tin').trim();
+        const roleTitle = String(row[colMap.role] || 'Giáo viên').trim();
+        const cccd = String(row[colMap.cccd] || '').replace(/\D/g, '');
+        const email = String(row[colMap.email] || '').trim();
+        const rawPhone = String(row[colMap.phone] || '').trim();
+        const phone = normalizeTeacherPhone(rawPhone) || rawPhone.replace(/\D/g, '');
+        const rawPin = String(row[colMap.pin] || '').trim();
+        const pinCode = rawPin || (phone.length >= 4 ? phone.slice(-4) : '2026');
+        const signTypeRaw = String(row[colMap.signType] || '').trim().toUpperCase();
+        const signType = (signTypeRaw.includes('USB') || signTypeRaw.includes('TOKEN')) ? 'USB_TOKEN' : 'VGCA';
+
+        if (!fullName || !username) {
+          dupCount++;
+          htmlRows += `
+            <tr class="bg-rose-50/40 text-rose-700">
+              <td class="p-2 border-b font-mono">${i}</td>
+              <td class="p-2 border-b font-semibold">${fullName || '<i class="text-slate-400">Trống</i>'}</td>
+              <td class="p-2 border-b font-mono">${username || '<i class="text-slate-400">Trống</i>'}</td>
+              <td class="p-2 border-b">${deptName}</td>
+              <td class="p-2 border-b font-mono">${phone || '-'}</td>
+              <td class="p-2 border-b font-mono font-bold">${pinCode}</td>
+              <td class="p-2 border-b"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800">Thiếu tên/username</span></td>
+            </tr>`;
+          continue;
+        }
+
+        let isDuplicate = false;
+        let dupReason = '';
+        if (existingUsernames.has(username)) {
+          isDuplicate = true;
+          dupReason = 'Trùng Username';
+        } else if (cccd && existingCccds.has(cccd)) {
+          isDuplicate = true;
+          dupReason = 'Trùng Số CCCD';
+        }
+
+        if (isDuplicate) {
+          dupCount++;
+          htmlRows += `
+            <tr class="bg-amber-50/50 text-amber-900">
+              <td class="p-2 border-b font-mono">${i}</td>
+              <td class="p-2 border-b font-semibold">${fullName}</td>
+              <td class="p-2 border-b font-mono">${username}</td>
+              <td class="p-2 border-b">${deptName}</td>
+              <td class="p-2 border-b font-mono">${phone || '-'}</td>
+              <td class="p-2 border-b font-mono font-bold">${pinCode}</td>
+              <td class="p-2 border-b"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">${dupReason}</span></td>
+            </tr>`;
+        } else {
+          validCount++;
+          existingUsernames.add(username);
+          if (cccd) existingCccds.add(cccd);
+
+          let matchedDept = (appState.departments || []).find(d => 
+            d.name.toLowerCase().includes(deptName.toLowerCase()) || 
+            deptName.toLowerCase().includes(d.name.toLowerCase())
+          );
+          const departmentId = matchedDept ? matchedDept.id : 'dept_toan_tin';
+          const departmentName = matchedDept ? matchedDept.name : deptName;
+
+          let role = 'TEACHER';
+          const lowerRole = roleTitle.toLowerCase();
+          if (lowerRole.includes('trưởng') || lowerRole.includes('leader')) role = 'LEADER';
+          else if (lowerRole.includes('hiệu') || lowerRole.includes('bgh') || lowerRole.includes('giám hiệu')) role = 'BGH';
+          else if (lowerRole.includes('admin') || lowerRole.includes('quản trị')) role = 'ADMIN';
+
+          stagedImportTeachers.push({
+            id: `user_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+            fullName,
+            name: fullName,
+            username,
+            password,
+            departmentId,
+            departmentName,
+            department: departmentName,
+            role,
+            roleTitle: role === 'ADMIN' ? 'Quản trị viên' : (role === 'BGH' ? 'Ban Giám hiệu' : (role === 'LEADER' ? 'Tổ trưởng chuyên môn' : 'Giáo viên')),
+            cccd,
+            email,
+            phone,
+            pinCode,
+            zaloPin: pinCode,
+            signType,
+            canUploadWord: true,
+            canStampSeal: false,
+            isLocked: false,
+            createdAt: new Date().toISOString()
+          });
+
+          htmlRows += `
+            <tr class="hover:bg-slate-50">
+              <td class="p-2 border-b font-mono text-slate-500">${i}</td>
+              <td class="p-2 border-b font-bold text-slate-800">${fullName}</td>
+              <td class="p-2 border-b font-mono font-semibold text-brand-600">${username}</td>
+              <td class="p-2 border-b text-slate-600">${departmentName}</td>
+              <td class="p-2 border-b font-mono text-slate-700">${phone || '-'}</td>
+              <td class="p-2 border-b font-mono font-bold text-indigo-700">${pinCode}</td>
+              <td class="p-2 border-b"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">✅ Hợp lệ</span></td>
+            </tr>`;
+        }
+      }
+
+      if (badgeValid) badgeValid.textContent = `Hợp lệ: ${validCount}`;
+      if (badgeDup) badgeDup.textContent = `Bỏ qua: ${dupCount}`;
+      if (tbody) tbody.innerHTML = htmlRows;
+      if (summaryText) summaryText.textContent = `Tìm thấy ${validCount} tài khoản hợp lệ sẵn sàng tạo mới (${dupCount} dòng bỏ qua/trùng lặp).`;
+      if (previewBox) previewBox.classList.remove('hidden');
+      if (btnConfirm) btnConfirm.disabled = (validCount === 0);
+
+      if (validCount > 0) {
+        showToast(`Đã đọc ${validCount} giáo viên hợp lệ từ file Excel!`, 'success');
+      } else {
+        showToast('Không có tài khoản giáo viên mới nào hợp lệ trong file.', 'warning');
+      }
+    } catch (parseErr) {
+      console.error('[Import Teacher Excel]:', parseErr);
+      showToast(`Lỗi đọc file Excel: ${parseErr.message}`, 'error');
+    }
+  };
+
+  reader.readAsArrayBuffer(file);
+}
+
+/**
+ * R5: Xác nhận nhập toàn bộ giáo viên hợp lệ vào hệ thống
+ */
+async function handleConfirmImportTeachers() {
+  if (!stagedImportTeachers || !stagedImportTeachers.length) {
+    showToast('Không có giáo viên hợp lệ để nhập!', 'warning');
+    return;
+  }
+
+  const count = stagedImportTeachers.length;
+  const btn = document.getElementById('btnConfirmImportExcel');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg> Đang nhập ${count} giáo viên...`;
+  }
+
+  try {
+    const updatedUsers = [...(appState.users || []), ...stagedImportTeachers];
+    appState.users = updatedUsers;
+
+    try {
+      localStorage.setItem('edusign_users', JSON.stringify(updatedUsers));
+    } catch (e) {}
+
+    await syncUsersToFirebase(updatedUsers);
+
+    for (const t of stagedImportTeachers) {
+      syncTeacherToGoogleSheet(t);
+    }
+
+    closeModal('modalImportTeacherExcel');
+    renderTeachersTable();
+    showToast(`🎉 Đã nhập thành công ${count} giáo viên mới từ Excel và đồng bộ Google Sheet!`, 'success');
+    stagedImportTeachers = [];
+  } catch (err) {
+    console.error('[handleConfirmImportTeachers]:', err);
+    showToast(`Nhập dữ liệu thất bại: ${err.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> <span>Xác nhận nhập giáo viên</span>`;
+    }
   }
 }

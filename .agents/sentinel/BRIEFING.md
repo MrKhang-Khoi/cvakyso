@@ -1,14 +1,14 @@
-# BRIEFING — 2026-09-15T11:37:00+07:00
+# BRIEFING — 2026-09-15T13:42:00+07:00
 
 ## Mission
-Sửa triệt để lỗi mất số 0 đầu SĐT & Mã PIN khi đồng bộ Google Sheets, cơ chế phòng thủ Zalo Bot, và tái thiết kế toàn diện UI Danh sách Giáo viên (Hình 3) đạt chuẩn thẩm mỹ và công thái học cao, kiểm thử Playwright và push origin main.
+Triển khai trọn gói 5 yêu cầu: Tái thiết kế Modal User (H1) 2 cột ngang <=85vh không cuộn, sửa lỗi đồng bộ Mã PIN từ Admin sang Giáo viên (H2), bảo mật Zalo Bot bỏ gợi ý 4 số cuối SĐT (H3), xóa sạch 17 hồ sơ rác thử nghiệm (H4), và thêm tính năng tải Excel mẫu & nhập danh sách GV từ Excel (H5).
 
 ## 🔒 My Identity
 - Archetype: sentinel
 - Working directory: c:\Users\HPZBook\Desktop\KÝ SỐ\.agents\sentinel
 - Orchestrator: 65d755a6-92c4-481d-b1c4-1cc3d4836253
-- Victory Auditor: to be spawned on victory claim
-- Active Orchestrator: 65d755a6-92c4-481d-b1c4-1cc3d4836253
+- Victory Auditor: 6d6cb4d6-f068-4daf-a67a-161db4245ae7
+- Active Orchestrator: 6400bcdf-3e9b-4e18-8fba-8fef24a5d7d8
 
 ## 🔒 Key Constraints
 - No technical decisions — relay only
@@ -20,14 +20,15 @@ Sửa triệt để lỗi mất số 0 đầu SĐT & Mã PIN khi đồng bộ Go
 - Zero-Bug verification and WCAG AA/AAA compliance required
 
 ## User Context
-- **Last user request**: Khắc phục triệt để lỗi mất số 0 ở đầu của Số điện thoại và Mã PIN khi đồng bộ lên Google Sheets, tái thiết kế toàn diện giao diện Quản trị Giáo viên (Hình 3), kiểm thử độc lập Playwright đa độ phân giải và push lên GitHub origin main.
+- **Last user request**: Triển khai trọn gói 5 yêu cầu nghiệp vụ và công thái học theo phản hồi thực tế của người dùng: Thiết kế lại Modal User (H1) dạng ngang 2 cột không cuộn, sửa lỗi đồng bộ Mã PIN từ Admin sang tài khoản Giáo viên (H2), xóa bỏ gợi ý 4 số cuối SĐT trong hướng dẫn Zalo Bot (H3) để bảo mật tuyệt đối, xóa sạch 17 hồ sơ rác thử nghiệm (H4), và bổ sung tính năng tải file Excel mẫu & nhập danh sách giáo viên từ Excel tại giao diện Admin. Requested team: Multi-Agent Team (Agent 1: Developer/Coder, Agent 2: Independent Tester, Agent 3: Cross-Checker & Forensic Auditor).
 - **Pending clarifications**: none
-- **Delivered results**: Dispatched Project Orchestrator 4 (65d755a6-92c4-481d-b1c4-1cc3d4836253).
+- **Delivered results**:
+  - Previous milestones R1-R4 completed and verified.
 
 ## Project Status
-- **Phase**: in progress
-- **Active Subagents in Orchestrator**: 65d755a6-92c4-481d-b1c4-1cc3d4836253
-- **Monitoring Tasks**: Cron 1 (task-28), Cron 2 (task-30)
+- **Phase**: in progress (teamwork_preview_orchestrator_5 active)
+- **Active Subagents in Orchestrator**: 6400bcdf-3e9b-4e18-8fba-8fef24a5d7d8
+- **Monitoring Tasks**: task-48 (Progress reporting */8 min), task-50 (Liveness check */10 min)
 
 ## Victory Audit Status
 - **Triggered**: no

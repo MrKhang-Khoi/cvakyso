@@ -1,7 +1,7 @@
 # 📘 HƯỚNG DẪN CẬP NHẬT VÀ TRIỂN KHAI MÃ NGUỒN GOOGLE APPS SCRIPT (CODE.GS)
 ## HỆ THỐNG TRỢ LÝ ZALO BOT TRƯỜNG HỌC 4.0 & KÝ SỐ EDUSIGN VGCA
 ### TRƯỜNG THCS CHU VĂN AN — XÃ ĐĂK HÀ — TỈNH QUẢNG NGÃI
-**Phiên bản**: Bản Nâng Cấp Toàn Diện 2026 (Bảo Toàn Số 0 SĐT/PIN, Bảo Mật Mã PIN Riêng & Nhận Diện Quốc Tế)
+**Phiên bản**: Bản Nâng Cấp Toàn Diện 2026 (Bảo Mật Tuyệt Đối R3: Bỏ 4 Số Cuối SĐT, Bảo Toàn Số 0 SĐT/PIN & Đồng Bộ Realtime)
 
 ---
 
@@ -19,6 +19,7 @@
 4. [Cấu hình Chi tiết Biến Hệ thống (`CONFIG`)](#4-cấu-hình-chi-tiết-biến-hệ-thống-config)
 5. [Hướng dẫn Thực thi các Hàm Khởi tạo 1 Lần (Run Once)](#5-hướng-dẫn-thực-thi-các-hàm-khởi-tạo-1-lần-run-once)
 6. [Cấp Quyền Truy cập (OAuth Scope) & Triển khai Web App (Deploy)](#6-cấp-quyền-truy-cập-oauth-scope--triển-khai-web-app-deploy)
+   * [6.4. Quy trình Triển khai Phiên bản Mới (Deploy New Version)](#64-hướng-dẫn-nâng-cấp-bản-triển-khai-mới-deploy-new-version-cho-quản-trị-viên-khi-cập-nhật-mã-nguồn)
 7. [Kiểm thử Thực nghiệm & Nghiệm thu Hệ thống](#7-kiểm-thử-thực-nghiệm--nghiệm-thu-hệ-thống)
 8. [Xử lý Sự cố Thường gặp (Troubleshooting FAQ)](#8-xử-lý-sự-cố-thường-gặp-troubleshooting-faq)
 
@@ -47,11 +48,31 @@ Phiên bản cập nhật 2026 giải quyết triệt để 5 bài toán kỹ th
   * Regex cú pháp liên kết được nâng cấp thành: `/^(LK|LIENKET)\s+([\+0-9\s\-\.\(\)]{9,25})\s+([0-9A-Za-z]{1,8})$/i`.
   * Regex lọc số điện thoại trần cho phép độ dài chuỗi lên đến 12 chữ số (bao phủ đầu số `840...`).
 
-### 1.4. Cô lập Bảo mật Mã PIN Riêng & Chống Rò rỉ Thông tin
-- **Nguyên nhân**: Trước đây hệ thống cho phép dùng 4 số cuối SĐT (`phone4`) làm mã PIN dự phòng ngay cả khi giáo viên đã đổi sang mã PIN bí mật riêng, tạo kẽ hở chiếm đoạt tài khoản Zalo Bot.
-- **Giải pháp chuẩn hóa**:
-  * Nếu tài khoản đã có `storedPin` trên Google Sheets, hệ thống **bắt buộc** phải nhập đúng mã PIN bí mật đó. Tuyệt đối không cho phép dùng 4 số cuối SĐT để vượt rào.
-  * Khi nhập sai PIN của tài khoản đã cài PIN riêng, bot chỉ nhắc nhở kiểm tra lại trên website EduSign hoặc liên hệ Quản trị viên, **không làm lộ gợi ý 4 số cuối SĐT**.
+### 1.4. Nâng Cấp Bảo Mật R3: Loại Bỏ Hoàn Toàn Gợi Ý & Cơ Chế Dùng 4 Số Cuối SĐT (Account Takeover Protection)
+- **Nguy cơ an toàn trước đây**: Trong phiên bản cũ, hệ thống còn lưu giữ cơ chế dự phòng (fallback) cho phép giáo viên sử dụng 4 chữ số cuối của số điện thoại (`phone4`) làm mã PIN đăng nhập Zalo Bot nếu chưa đổi PIN, hoặc Bot hiển thị gợi ý *"hoặc dùng ngay 4 số cuối SĐT (0007)"* trong phản hồi. Điều này tạo lỗ hổng bảo mật nghiêm trọng: kẻ xấu có thể tra cứu số điện thoại của giáo viên và chiếm quyền điều khiển tài khoản Zalo Bot, xem trộm tiến độ ký số và nội dung hồ sơ giáo án nội bộ của trường.
+- **Giải pháp Nâng cấp Bảo mật R3 (Zero-Trust Security)**:
+  * **Xóa bỏ 100% cơ chế Fallback 4 số cuối SĐT**:
+    - Trong hàm `handleSecurePhoneMapping`, loại bỏ hoàn toàn biến `phone4` và mọi nhánh logic cho phép dùng 4 số cuối để bypass.
+    - Bất kể tài khoản mới hay cũ, hệ thống **bắt buộc** phải xác thực mã PIN bí mật do Quản trị viên cấp (`storedPin` tại Cột 9 bảng "Danh bạ GV").
+  * **Chuẩn hóa Cú pháp Duy nhất**:
+    - Cú pháp chuẩn bảo mật: `LK [SốĐiệnThoại] [MãPIN]` (hoặc `LIENKET [SốĐiệnThoại] [MãPIN]`).
+    - Hỗ trợ số điện thoại đa định dạng (quốc tế +84, khoảng trắng, dấu gạch nối) và mã PIN linh hoạt từ 1 đến 8 ký tự.
+  * **Cơ chế Đối soát Nghiêm ngặt `secretPin === storedPin`**:
+    - Mã PIN người dùng gửi (`pinClean`) được chuẩn hóa và đối soát trực tiếp với `storedPin`.
+    - Tự động áp dụng thuật toán `padStart(4, '0')` nếu mã PIN dạng số đơn lẻ bị Google Sheets ép kiểu (ví dụ PIN `0007` lưu thành `7`, hoặc `0000` lưu thành `0`).
+    - Quy tắc nghiêm ngặt: Nếu `!storedPin || pinClean !== storedPin`, hệ thống lập tức từ chối liên kết và gửi cảnh báo:
+      `❌ Mã PIN bảo mật không chính xác! Vui lòng kiểm tra Mã PIN tại mục 'Thông tin cá nhân & Zalo' trên trang web EduSign của trường hoặc liên hệ Quản trị viên.`
+  * **Triệt tiêu Hoàn toàn Gợi ý trong Tin nhắn Phản hồi của Bot**:
+    - Khi giáo viên chỉ nhắn số điện thoại trần (chưa kèm PIN), Bot trả về thông điệp bảo vệ định danh:
+      ```text
+      🔐 BẢO VỆ ĐỊNH DANH GIÁO VIÊN:
+
+      Để bảo vệ quyền riêng tư hồ sơ giáo án, Thầy/Cô vui lòng nhắn cú pháp kèm Mã PIN EduSign cá nhân:
+      👉 Cú pháp: LK [SốĐiệnThoại] [MãPIN]
+
+      📌 Thầy/Cô xem Mã PIN tại mục 'Thông tin cá nhân & Zalo' trên trang web EduSign của trường.
+      ```
+    - Tuyệt đối KHÔNG còn bất kỳ gợi ý nào về 4 số cuối SĐT, loại bỏ hoàn toàn khả năng dò quét đoán mã.
 
 ### 1.5. Cơ chế Tự Phục Hồi Dữ Liệu (Self-Healing Algorithm)
 - Khi giáo viên gửi lệnh liên kết thành công trên Zalo, hệ thống tự động kiểm tra lại ô dữ liệu trên Google Sheets. Nếu phát hiện ô bị thiếu tiền tố text `"'"` hoặc chưa định dạng `@`, script tự động ghi đè định dạng chuẩn `setNumberFormat("@")` và `setValue("'" + normPhone)`.
@@ -237,25 +258,58 @@ Khi bấm chạy hàm lần đầu:
    ```
 2. Hoặc cấu hình qua giao diện Quản trị viên EduSign -> Cấu hình Hệ thống & Lưu trữ Drive -> Dán URL -> Lưu cấu hình.
 
-> ⚠️ **Lưu ý Cốt lõi**: Mỗi lần chỉnh sửa code trong `Code.gs`, bạn phải bấm **Triển khai** -> **Quản lý bản triển khai** -> Chọn bản đang dùng -> Sửa (hình bút chì) -> **Phiên bản mới** -> **Triển khai** để áp dụng mã mới!
+### 6.4. Hướng Dẫn Nâng Cấp Bản Triển Khai Mới (Deploy New Version) Cho Quản Trị Viên Khi Cập Nhật Mã Nguồn
+> 🚨 **CẢNH BÁO ĐẶC BIỆT DÀNH CHO QUẢN TRỊ VIÊN NHÀ TRƯỜNG**:
+> Trong cơ chế của Google Apps Script, khi bạn dán mã nguồn mới vào tệp `Code.gs` và nhấn phím **Lưu (Ctrl + S)**, hệ thống **CHƯA** tự động cập nhật mã mới này vào Webhook đang phục vụ người dùng bên ngoài!
+> Zalo Bot sẽ vẫn tiếp tục chạy phiên bản Web App cũ cho đến khi Quản trị viên thực hiện thao tác **Tạo Bản Triển Khai Mới (New version)** theo đúng quy trình 5 bước chuẩn hóa dưới đây:
+
+#### 📌 Quy trình 5 Bước Triển Khai Bản Mới (Chỉ mất 1 phút):
+1. **Bước 1 — Mở Trình Soạn Thảo Google Apps Script**:
+   - Truy cập **`https://script.google.com/`**.
+   - Mở dự án **`EduSign_ZaloBot_TrangThaiKy_TKB_THCS_ChuVanAn`**.
+2. **Bước 2 — Cập Nhật Toàn Bộ Mã Nguồn Mới**:
+   - Nhấp chọn tệp **`Code.gs`** ở menu bên trái.
+   - Nhấn `Ctrl + A` -> phím `Delete` để xóa sạch mã cũ.
+   - Mở file `google-apps-script-zalo-edusign.js` trong thư mục dự án, sao chép toàn bộ (`Ctrl + A` -> `Ctrl + C`).
+   - Dán vào `Code.gs` (`Ctrl + V`) và bấm tổ hợp phím **`Ctrl + S`** (hoặc biểu tượng đĩa mềm 💾) để lưu lại.
+3. **Bước 3 — Mở Cửa Sổ Quản Lý Bản Triển Khai**:
+   - Ở góc trên cùng bên phải màn hình, nhấp vào nút **Triển khai (Deploy)** màu xanh.
+   - Trong menu thả xuống, chọn **Quản lý bản triển khai (Manage deployments)**.
+4. **Bước 4 — Nâng Lên Phiên Bản Mới (New Version)**:
+   - Trong hộp thoại vừa mở, nhìn vào danh sách bên trái, chọn bản triển khai **Web app** đang hoạt động.
+   - Nhấp vào biểu tượng **Chỉnh sửa (hình cây bút chì ✏️)** ở góc trên bên phải của hộp thoại.
+   - Tại dòng **Phiên bản (Version)**: Nhấp vào hộp chọn và bấm chọn **`Phiên bản mới` (New version)**.
+   - Tại ô **Mô tả (Description)**: Nhập nội dung:
+     `Bản nâng cấp R3 - Bảo mật tuyệt đối Zalo Bot, loại bỏ 4 số cuối SĐT, đồng bộ PIN realtime`
+   - Giữ nguyên các thông số quan trọng:
+     * *Thực thi dưới dạng*: **Tôi (Me)**
+     * *Ai có quyền truy cập*: **Bất kỳ ai (Anyone)** *(Bắt buộc để Zalo webhook gọi tới)*.
+5. **Bước 5 — Lưu Triển Khai & Hoàn Tất**:
+   - Nhấn nút **Triển khai (Deploy)** ở góc dưới hộp thoại.
+   - Chờ hệ thống xoay vòng và hiển thị thông báo "Đã cập nhật bản triển khai".
+   - Nhấn **Xong (Done)**.
+
+*(💡 Ghi chú quan trọng: Thao tác nâng cấp phiên bản này vẫn giữ nguyên URL Web App cũ, Quản trị viên KHÔNG cần phải cấu hình lại URL trong EduSign).*
 
 ---
 
 ## 7. KIỂM THỬ THỰC NGHIỆM & NGHIỆM THU HỆ THỐNG
 
-### 7.1. Cú pháp Kiểm thử trên Zalo Bot
+### 7.1. Cú pháp Kiểm thử trên Zalo Bot (Đối Soát Bảo Mật R3)
 
-| Thao tác / Cú pháp | Kết quả Nghiệm thu Thực tế |
-|---|---|
-| `help` hoặc `menu` | Danh mục hướng dẫn đầy đủ, không bị rớt chữ trên màn hình hẹp di động. |
-| `LK 0818810007 0007` | Nhận diện đúng SĐT có số 0 đầu và PIN 4 chữ số, báo liên kết thành công. |
-| `LK +84 818 810 007 0007` | Chuẩn hóa số quốc tế có dấu cách thành công 100%. |
-| `LK +84-905-123-456 3456` | Chuẩn hóa số quốc tế có dấu gạch ngang thành công 100%. |
-| `LK 0933445566 0000` | Xác thực chính xác PIN `0000` ngay cả khi Sheet lưu thành số `0`. |
-| Thử vượt rào bằng 4 số cuối SĐT | Bị từ chối bảo mật an toàn nếu tài khoản đã có mã PIN riêng. |
-| `tkb` | Trả về thời khóa biểu ngày hôm nay của chính giáo viên đã liên kết. |
-| `tkb 6a1` | Trả về thời khóa biểu lớp 6A1 kèm tên GVCN và khung giờ từng tiết. |
-| `choduyet` (Tổ trưởng / BGH) | Liệt kê danh sách hồ sơ giáo án đang chờ ký duyệt. |
+| Thao tác / Cú pháp | Kết quả Nghiệm thu Thực tế | Đánh giá An toàn |
+|---|---|---|
+| `help` hoặc `menu` | Danh mục hướng dẫn đầy đủ, hiển thị rõ ràng trên cả máy tính và điện thoại di động. | ✅ PASS UI |
+| `LK 0818810007 0007` | Nhận diện đúng SĐT có số 0 đầu và đúng Mã PIN EduSign, báo liên kết thành công 100%. | ✅ PASS Xác thực |
+| `LK 0818810007 9999` (nhập sai PIN) | BỊ TỪ CHỐI 100%: "❌ Mã PIN bảo mật không chính xác!". | 🛡️ PASS Chống brute-force |
+| Thử dùng 4 số cuối SĐT khi PIN khác | BỊ TỪ CHỐI 100%: Hệ thống đã xóa sạch fallback, không thể bypass bằng 4 số cuối. | 🛡️ PASS R3 Zero-Trust |
+| Chỉ nhắn số điện thoại (`0818810007`) | Bot từ chối liên kết trực tiếp, phản hồi thông báo bảo vệ định danh `LK 0818810007 [MãPIN]`, không có gợi ý 4 số cuối. | 🛡️ PASS Chống rò rỉ |
+| `LK +84 818 810 007 0007` | Chuẩn hóa số quốc tế có dấu cách thành công 100%. | ✅ PASS Regex |
+| `LK +84-905-123-456 3456` | Chuẩn hóa số quốc tế có dấu gạch ngang thành công 100%. | ✅ PASS Regex |
+| `LK 0933445566 0000` | Xác thực chính xác PIN `0000` ngay cả khi Sheet lưu thành số `0`. | ✅ PASS Falsy Zero |
+| `tkb` | Trả về thời khóa biểu ngày hôm nay của chính giáo viên đã liên kết. | ✅ PASS TKB |
+| `tkb 6a1` | Trả về thời khóa biểu lớp 6A1 kèm tên GVCN và khung giờ từng tiết. | ✅ PASS Tra cứu |
+| `choduyet` (Tổ trưởng / BGH) | Liệt kê danh sách hồ sơ giáo án đang chờ ký duyệt. | ✅ PASS Phân quyền |
 
 ### 7.2. Kiểm thử Tự động qua Bộ Test Suite (Node.js & Playwright)
 
@@ -284,6 +338,15 @@ npx playwright test tests/adversarial_ui_layout_challenge.spec.mjs
 
 # Kiểm thử phân quyền đóng dấu mộc đỏ trường học (5/5 PASS)
 npx playwright test tests/07_school_seal_delegation.spec.mjs
+
+# Kiểm tra toàn bộ yêu cầu R1 -> R5 (Unit & Logic Test: 18/18 PASS)
+node tests/test_requirements_r1_to_r5.js
+
+# Kiểm thử E2E Playwright Công thái học Modal User & Nhập Excel (R1, R3, R5: 4/4 PASS)
+npx playwright test tests/test_reviewer_2_ergonomics_r1_r3_r5.spec.mjs
+
+# Kiểm thử E2E Đồng bộ PIN Realtime & Bảo vệ Định danh Zalo (R2, R3: 3/3 PASS)
+npx playwright test tests/test_user_profile_pin.spec.mjs
 ```
 
 ---

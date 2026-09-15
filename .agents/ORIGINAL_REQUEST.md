@@ -239,4 +239,77 @@ Integrity mode: development
 - [ ] Cung cấp code google-apps-script-zalo-edusign.js mới kèm hướng dẫn cập nhật.
 - [ ] Toàn bộ mã nguồn được commit và push thành công lên GitHub origin/main.
 
+## 2026-09-15T06:38:01Z
 
+Triển khai trọn gói 5 yêu cầu nghiệp vụ và công thái học theo phản hồi thực tế của người dùng: Thiết kế lại Modal User (H1) dạng ngang 2 cột không cuộn, sửa lỗi đồng bộ Mã PIN từ Admin sang tài khoản Giáo viên (H2), xóa bỏ gợi ý 4 số cuối SĐT trong hướng dẫn Zalo Bot (H3) để bảo mật tuyệt đối, xóa sạch 17 hồ sơ rác thử nghiệm (H4), và bổ sung tính năng tải file Excel mẫu & nhập danh sách giáo viên từ Excel tại giao diện Admin.
+
+Requested team: Multi-Agent Team (Agent 1: Developer/Coder, Agent 2: Independent Tester, Agent 3: Cross-Checker & Forensic Auditor)
+
+Working directory: c:\Users\HPZBook\Desktop\KÝ SỐ
+Integrity mode: development
+
+## Requirements
+
+### R1. Tái Thiết Kế Modal Sửa/Thêm Giáo Viên (modalUser - Hình 1) Dạng Ngang 2 Cột Gọn Gàng
+- **Vấn đề**: Hiện tại form xếp dọc 1 cột dài ngoằng, người dùng phải cuộn chuột xuống mới thấy nút bấm.
+- **Giải pháp**:
+  * Tái cấu trúc khung Modal thành bố cục 2 cột ngang (grid grid-cols-1 md:grid-cols-2 gap-4), độ rộng tối ưu max-w-3xl hoặc max-w-4xl.
+  * Cột trái (Thông tin tài khoản & Định danh): Họ tên, Tên đăng nhập, Mật khẩu, Tổ chuyên môn & Chức vụ, Số CCCD, Email.
+  * Cột phải (Bảo mật Zalo & Phân quyền): Số điện thoại, Mã PIN Zalo Bot cá nhân (kèm nút tạo PIN ngẫu nhiên/gợi ý), Loại chữ ký số (SmartCA / USB Token), Khối phân quyền gửi Word & Ủy quyền đóng dấu mộc đỏ.
+  * Toàn bộ form và nút Lưu/Hủy nằm vừa vặn trọn vẹn trong khung nhìn màn hình chuẩn (Desktop & Laptop), loại bỏ hoàn toàn việc phải cuộn chuột dài.
+
+### R2. Sửa Triệt Để Lỗi Đồng Bộ Mã PIN từ Admin sang Giao Diện Giáo Viên (Hình 2)
+- **Vấn đề**: Admin đã nhập và lưu Mã PIN cho thầy Tý (ví dụ Cva@), nhưng khi giáo viên mở modal "Thông tin Cá Nhân & Zalo" vẫn hiển thị mã cũ 0007.
+- **Nguyên nhân & Khắc phục**:
+  * Kiểm tra hàm openModalUserProfile() và handleSaveUser() trong js/app.js: Đảm bảo khi Admin sửa PIN, dữ liệu được cập nhật đồng thời vào appState.users, Firebase RTDB (users/{id}/pinCode), và đồng bộ ngay vào appState.currentUser nếu đang là phiên của user đó.
+  * Khi giáo viên mở modal thông tin cá nhân: Đọc dữ liệu cập nhật mới nhất từ appState.users.find(u => u.id === currentUser.id) hoặc Firebase RTDB thay vì chỉ đọc bản snapshot cũ trong localStorage.
+  * Đảm bảo tính nhất quán trên cả 3 file: js/app.js, public/js/app.js, docs/js/app.js.
+
+### R3. Bảo Mật Cú Pháp Zalo Bot (Hình 3): Bỏ Hoàn Toàn Gợi Ý 4 Số Cuối SĐT
+- **Vấn đề**: Tin nhắn Bot hướng dẫn: "hoặc dùng ngay 4 số cuối SĐT (0007)" khiến người khác có thể đoán được và liên kết trộm tài khoản.
+- **Khắc phục**:
+  * Trong google-apps-script-zalo-edusign.js:
+    - Xóa bỏ toàn bộ nội dung hướng dẫn lấy 4 số cuối SĐT. Tin nhắn phản hồi bảo mật chỉ hướng dẫn:
+      🔐 BẢO VỆ ĐỊNH DANH GIÁO VIÊN:
+      Để bảo vệ quyền riêng tư hồ sơ giáo án, Thầy/Cô vui lòng nhắn cú pháp kèm Mã PIN EduSign cá nhân:
+      👉 Cú pháp: LK [SốĐiệnThoại] [MãPIN]
+      📌 Thầy/Cô xem Mã PIN tại mục 'Thông tin cá nhân & Zalo' trên trang web EduSign của trường.
+    - Trong hàm handleSecurePhoneMapping: Bắt buộc đối soát khớp chính xác secretPin === storedPin, loại bỏ hoàn toàn fallback cho phép bypass bằng 4 số cuối SĐT.
+  * Cập nhật modal modalUserProfile trên giao diện web: Xóa bỏ gợi ý 4 số cuối SĐT.
+
+### R4. Dọn Dẹp Xóa Sạch Dữ Liệu Rác Thử Nghiệm (Hình 4)
+- **Vấn đề**: Trang "Tiến độ hồ sơ của tôi" đang tồn đọng 17 văn bản rác tạo trong quá trình test thử nghiệm.
+- **Khắc phục**:
+  * Xóa sạch toàn bộ các tài liệu thử nghiệm trong data/documents.json, reset về danh sách sạch hoặc danh sách mẫu chính thức của trường.
+  * Dọn dẹp các bản ghi rác trên Firebase RTDB (documents/) và localStorage.
+  * Kiểm tra và dọn dẹp các bản ghi rác tương ứng trong Sheet Sổ Lưu Báo Cáo trên Google Sheets.
+
+### R5. Thêm Tính Năng Tải File Excel Mẫu & Nhập Danh Sách Giáo Viên Từ Excel
+- **Chức năng Admin mới**:
+  * Nút 1 — "Tải file mẫu Excel": Tự động tạo và tải xuống file .xlsx mẫu chuẩn với các cột:
+    STT, Họ và Tên, Tên đăng nhập, Mật khẩu, Tổ Chuyên Môn, Chức vụ, Số CCCD, Email Công Vụ, Số Điện Thoại, Mã PIN, Loại chữ ký (SmartCA/USB).
+  * Nút 2 — "Nhập từ Excel": Modal tải file .xlsx / .csv, tự động đọc dữ liệu bằng thư viện SheetJS (XLSX), hiển thị danh sách xem trước (Preview) số lượng tài khoản hợp lệ, kiểm tra trùng lặp và bấm "Xác nhận nhập".
+  * Sau khi nhập: Tự động lưu vào appState.users, đồng bộ lên Firebase RTDB và đồng bộ ngay lên Google Sheet Danh bạ GV.
+
+## Acceptance Criteria
+
+### Giao diện Modal User (Hình 1)
+- [ ] Modal sửa/thêm giáo viên có bố cục 2 cột ngang khoa học, hiển thị trọn vẹn trong màn hình Desktop & Laptop với chiều cao <= 85vh, không cần kéo cuộn chuột để tìm nút Lưu.
+
+### Đồng bộ Mã PIN (Hình 2)
+- [ ] Khi Admin thay đổi Mã PIN của giáo viên, giáo viên mở modal "Thông tin cá nhân & Zalo" thấy ngay Mã PIN mới 100%, không còn lưu giữ giá trị cũ.
+
+### Bảo mật Zalo Bot (Hình 3)
+- [ ] Zalo Bot không còn bất kỳ dòng chữ nào gợi ý 4 số cuối SĐT.
+- [ ] Người dùng nhập sai PIN hoặc cố tình dùng 4 số cuối SĐT đều bị từ chối truy cập.
+
+### Dọn dẹp dữ liệu rác (Hình 4)
+- [ ] 17 hồ sơ rác thử nghiệm được xóa sạch hoàn toàn, tab "Tiến độ hồ sơ" hiển thị sạch sẽ 0 rác.
+
+### Tính năng Excel
+- [ ] Tải file Excel mẫu chuẩn .xlsx thành công chỉ với 1 click.
+- [ ] Tải file Excel danh sách giáo viên lên tạo tài khoản thành công, tự động đồng bộ Firebase và Google Sheets.
+
+### Đóng gói & Hướng dẫn Code.gs
+- [ ] Toàn bộ test suite Playwright và unit tests đạt 100% PASS.
+- [ ] Cung cấp hướng dẫn chi tiết cập nhật Code.gs và thực hiện git push origin main.
