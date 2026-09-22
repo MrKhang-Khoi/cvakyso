@@ -8,13 +8,42 @@
  * ============================================================================
  */
 
-// ==================== GLOBAL CONFIG & STATE ====================
+// ==================== GLOBAL CONFIG & MULTI-NODE CLUSTER ====================
 const isStaticOrGitHub = window.location.hostname.includes('github.io') || 
                          window.location.protocol === 'file:' || 
                          window.location.port !== '3000';
 
-const BACKEND_RENDER_URL = 'https://edusign-vgca.onrender.com';
-const API_BASE = isStaticOrGitHub ? BACKEND_RENDER_URL : '';
+// Cụm máy chủ Render song song (Multi-Node Active-Failover Cluster)
+const DEFAULT_PRIMARY_NODE = 'https://edusign-vgca.onrender.com';
+const DEFAULT_SECONDARY_NODE = 'https://edusign-node2.onrender.com';
+
+let BACKEND_RENDER_URL = (typeof localStorage !== 'undefined' && localStorage.getItem('edusign_active_backend')) || DEFAULT_PRIMARY_NODE;
+let API_BASE = isStaticOrGitHub ? BACKEND_RENDER_URL : '';
+
+// Hàm tự động chuyển đổi sang Node dự phòng nếu Node chính gặp sự cố (Auto-Failover)
+function switchClusterNode(failedUrl) {
+  if (failedUrl && failedUrl.includes('edusign-vgca')) {
+    BACKEND_RENDER_URL = DEFAULT_SECONDARY_NODE;
+    console.warn('[Cluster Failover] Đã tự động chuyển hướng sang Render Node 2:', BACKEND_RENDER_URL);
+  } else {
+    BACKEND_RENDER_URL = DEFAULT_PRIMARY_NODE;
+    console.warn('[Cluster Failover] Đã tự động chuyển hướng sang Render Node 1:', BACKEND_RENDER_URL);
+  }
+  try { if (typeof localStorage !== 'undefined') localStorage.setItem('edusign_active_backend', BACKEND_RENDER_URL); } catch (e) { void e; }
+  API_BASE = isStaticOrGitHub ? BACKEND_RENDER_URL : '';
+  return API_BASE;
+}
+
+// Giữ ấm cả 2 máy chủ định kỳ (Anti-Sleep Heartbeat 4 phút) trong khi người dùng mở tab
+if (typeof window !== 'undefined') {
+  setInterval(() => {
+    [DEFAULT_PRIMARY_NODE, DEFAULT_SECONDARY_NODE].forEach((url) => {
+      try {
+        fetch(`${url}/api/ping-local-signer`, { method: 'GET', mode: 'cors' }).catch((err) => { void err; });
+      } catch (e) { void e; }
+    });
+  }, 4 * 60 * 1000);
+}
 
 let appState = {
   token: localStorage.getItem('edusign_token') || null,

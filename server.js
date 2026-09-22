@@ -4410,6 +4410,21 @@ app.get(['/downloads/Cai_Dat_EduSign.ps1', '/docs/downloads/Cai_Dat_EduSign.ps1'
   res.status(404).send('Not found');
 });
 
+// Endpoint kiểm tra sức khỏe và định danh Node trong cụm Multi-Node (Render Cluster Health Check)
+app.get('/api/health', (req, res) => {
+  const docs = dataStore.getDocuments();
+  res.json({
+    status: 'OK',
+    service: 'CVA-KySo-Server',
+    nodeId: process.env.RENDER_SERVICE_ID || process.env.NODE_INSTANCE_ID || 'node-primary',
+    nodeName: process.env.RENDER_SERVICE_NAME || 'edusign-vgca',
+    uptime: Math.round(process.uptime()),
+    documentsCount: docs ? docs.length : 0,
+    platform: process.platform,
+    timestamp: Date.now()
+  });
+});
+
 // Cầu nối Ký số Cục bộ (Local Signer Bridge) phục vụ khi truy cập từ Cloud Render
 app.get('/api/ping-local-signer', (req, res) => {
   res.json({
