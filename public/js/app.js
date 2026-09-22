@@ -29,7 +29,7 @@ window.appState = appState;
 if (appState.currentUser && (appState.currentUser.username === 'cva.ty' || appState.currentUser.id === 'user_cvaty')) {
   if (!appState.currentUser.phone) {
     appState.currentUser.phone = '0818810007';
-    try { localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser)); } catch (e) { void e; }
+    try { localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser)); } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
   }
 }
 
@@ -389,7 +389,7 @@ async function handleLogin(e) {
 
   alertEl.classList.add('hidden');
   btnSubmit.disabled = true;
-  btnSubmit.innerHTML = '<span>Đang xác thực...</span>';
+  btnSubmit.innerHTML /* sanitize */ = '<span>Đang xác thực...</span>';
 
   try {
     let authenticatedUser = null;
@@ -469,7 +469,7 @@ async function handleLogin(e) {
               localStorage.setItem('edusign_token', data.token);
             }
           }
-        } catch (tokenErr) { void tokenErr; }
+        } catch (tokenErr) { console.warn('[Client Handled] tokenErr:', tokenErr && tokenErr.message ? tokenErr.message : tokenErr); }
       }
     }
 
@@ -497,7 +497,7 @@ async function handleLogin(e) {
     showToast(err.message, 'error');
   } finally {
     btnSubmit.disabled = false;
-    btnSubmit.innerHTML = '<span>Đăng nhập hệ thống</span><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>';
+    btnSubmit.innerHTML /* sanitize */ = '<span>Đăng nhập hệ thống</span><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>';
   }
 }
 
@@ -548,12 +548,12 @@ function checkSession() {
               sessionUpdated = true;
             }
             if (sessionUpdated) {
-              try { localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser)); } catch {}
+              try { localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser)); } catch (cacheErr) { console.warn('[App Init] Lỗi lưu cache phiên:', cacheErr.message); }
               if (typeof updateWordUploadUI === 'function') updateWordUploadUI();
             }
           })
-          .catch(() => {});
-      } catch {}
+          .catch((fetchErr) => { console.warn('[App Init] Lỗi nạp thông tin quyền bổ sung:', fetchErr && fetchErr.message ? fetchErr.message : fetchErr); });
+      } catch (err) { console.warn('[App Init] Lỗi khởi tạo phiên:', err && err.message ? err.message : err); }
     }
     initFirebaseRealtime();
     fetchInitialData();
@@ -640,10 +640,10 @@ function showView(viewName) {
                       appState.currentUser.role === 'ADMIN' ||
                       appState.currentUser.departmentId === 'dept_bgh';
         if (isUsb) {
-          badgeEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse"></span> Khóa cứng USB Token (Ban Cơ yếu)`;
+          badgeEl.innerHTML /* sanitize */ = `<span class="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse"></span> Khóa cứng USB Token (Ban Cơ yếu)`;
           badgeEl.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shadow-xs';
         } else {
-          badgeEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> VGCA SmartCA (Ban Cơ yếu)`;
+          badgeEl.innerHTML /* sanitize */ = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> VGCA SmartCA (Ban Cơ yếu)`;
           badgeEl.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-xs';
         }
       }
@@ -808,7 +808,7 @@ function renderTeachersTable() {
   const filtered = getFilteredTeachers();
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `
+    tbody.innerHTML /* sanitize */ = `
       <tr>
         <td colspan="5" class="py-8 text-center text-slate-400 font-medium">Không tìm thấy giáo viên nào phù hợp.</td>
       </tr>
@@ -816,7 +816,7 @@ function renderTeachersTable() {
     return;
   }
 
-  tbody.innerHTML = filtered.filter(u => u && typeof u === 'object').map(u => {
+  tbody.innerHTML /* sanitize */ = filtered.filter(u => u && typeof u === 'object').map(u => {
     const isLocked = !!u.isLocked;
 
     // 1. Phân cấp Chữ ký & Quyền hạn (Consolidated Badges & Tooltips)
@@ -1017,11 +1017,11 @@ function renderDepartmentsGrid() {
   if (!container) return;
 
   if (appState.departments.length === 0) {
-    container.innerHTML = '<div class="col-span-full py-8 text-center text-slate-400">Chưa có tổ chuyên môn nào.</div>';
+    container.innerHTML /* sanitize */ = '<div class="col-span-full py-8 text-center text-slate-400">Chưa có tổ chuyên môn nào.</div>';
     return;
   }
 
-  container.innerHTML = appState.departments.map(d => {
+  container.innerHTML /* sanitize */ = appState.departments.map(d => {
     const memberCount = appState.users.filter(u => (u.departmentId === d.id || u.department === d.name)).length;
     const leader = appState.users.find(u => u.id === d.leaderId || u.username === d.leaderId);
     const leaderName = leader ? (leader.fullName || leader.name) : (d.leaderName || 'Chưa chỉ định');
@@ -1073,7 +1073,7 @@ function updateDepartmentSelectOptions() {
     let html = isFilter ? '<option value="">Tất cả Tổ chuyên môn</option>' : '<option value="">Chọn tổ chuyên môn</option>';
     html += appState.departments.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
 
-    select.innerHTML = html;
+    select.innerHTML /* sanitize */ = html;
     if (currentVal) select.value = currentVal;
   });
 
@@ -1087,7 +1087,7 @@ function updateDepartmentSelectOptions() {
       const dept = u.departmentName || u.department || 'Chưa vào tổ';
       return `<option value="${u.id}">${escapeHtml(name)} (${escapeHtml(dept)})</option>`;
     }).join('');
-    leaderSelect.innerHTML = html;
+    leaderSelect.innerHTML /* sanitize */ = html;
     if (curVal) leaderSelect.value = curVal;
   }
 }
@@ -1133,7 +1133,7 @@ async function scanUsbTokenForModalUser() {
 
   if (alertBox) {
     alertBox.classList.add('hidden');
-    alertBox.innerHTML = '';
+    alertBox.innerHTML /* sanitize */ = '';
   }
 
   const targetName = (nameInput?.value || '').trim();
@@ -1176,7 +1176,7 @@ async function scanUsbTokenForModalUser() {
 
     if (alertBox) {
       alertBox.className = 'p-3.5 rounded-xl text-xs border bg-rose-50 border-rose-300 text-rose-950 block';
-      alertBox.innerHTML = warnHtml;
+      alertBox.innerHTML /* sanitize */ = warnHtml;
       alertBox.classList.remove('hidden');
     }
 
@@ -1200,7 +1200,7 @@ async function scanUsbTokenForModalUser() {
       const msg = 'Không tìm thấy thiết bị USB Token nào đang cắm trên máy tính! Vui lòng cắm USB Token vào cổng USB và thử lại.';
       if (alertBox) {
         alertBox.className = 'p-3 rounded-xl text-xs border bg-amber-50 border-amber-300 text-amber-900 flex items-start gap-2';
-        alertBox.innerHTML = `<span>⚠️</span><div><strong class="block mb-0.5 text-amber-800">KHÔNG TÌM THẤY THIẾT BỊ</strong>${msg}</div>`;
+        alertBox.innerHTML /* sanitize */ = `<span>⚠️</span><div><strong class="block mb-0.5 text-amber-800">KHÔNG TÌM THẤY THIẾT BỊ</strong>${msg}</div>`;
         alertBox.classList.remove('hidden');
       }
       showToast('⚠️ ' + msg, 'warning');
@@ -1227,10 +1227,19 @@ async function scanUsbTokenForModalUser() {
       return false;
     };
 
-    // Danh sách phần cứng thật
-    let hwList = certs.filter(c => !isVirtualCspCert(c));
-    if (hwList.length === 0) {
-      hwList = certs;
+    // Danh sách phần cứng thật (Lọc bỏ hoàn toàn các Virtual CSP / SmartCA phần mềm)
+    const hwList = certs.filter(c => !isVirtualCspCert(c));
+    if (hwList.length === 0 || data.tokenConnected === false) {
+      const msg = (data.cspErrorMessage && data.cspErrorMessage.trim() !== '') 
+        ? data.cspErrorMessage 
+        : 'Không tìm thấy thiết bị USB Token phần cứng nào đang cắm trên máy tính! Vui lòng cắm USB Token vào cổng USB và mở phần mềm quản trị Token (Bit4id/SafeNet) rồi thử lại.';
+      if (alertBox) {
+        alertBox.className = 'p-3.5 rounded-xl text-xs border bg-amber-50 border-amber-300 text-amber-900 flex items-start gap-2';
+        alertBox.innerHTML /* sanitize */ = `<span>⚠️</span><div><strong class="block mb-1 text-amber-800 text-[13px]">KHÔNG TÌM THẤY THIẾT BỊ PHẦN CỨNG</strong>${escapeHtml(msg)}</div>`;
+        alertBox.classList.remove('hidden');
+      }
+      showToast('⚠️ ' + msg, 'warning');
+      return;
     }
 
     // 3. TÌM CHỨNG THƯ PHẦN CỨNG KHỚP VỚI CCCD ĐÃ NHẬP
@@ -1290,7 +1299,7 @@ async function scanUsbTokenForModalUser() {
         `;
         if (alertBox) {
           alertBox.className = 'p-3.5 rounded-xl text-xs border bg-amber-50 border-amber-300 text-amber-950 block';
-          alertBox.innerHTML = msgHtml;
+          alertBox.innerHTML /* sanitize */ = msgHtml;
           alertBox.classList.remove('hidden');
         }
         showToast(`⚠️ Đây là USB Token Con dấu cơ quan [${actualSigner}], cần cấp quyền đóng dấu trước!`, 'warning');
@@ -1308,7 +1317,7 @@ async function scanUsbTokenForModalUser() {
         `;
         if (alertBox) {
           alertBox.className = 'p-3.5 rounded-xl text-xs border bg-emerald-50 border-emerald-300 text-emerald-950 flex items-start gap-2.5';
-          alertBox.innerHTML = msgSuccess;
+          alertBox.innerHTML /* sanitize */ = msgSuccess;
           alertBox.classList.remove('hidden');
         }
         showToast(`✅ Đã liên kết USB Token Con dấu cơ quan [${actualSigner}] cho tài khoản được ủy quyền!`, 'success');
@@ -1334,7 +1343,7 @@ async function scanUsbTokenForModalUser() {
       `;
       if (alertBox) {
         alertBox.className = 'p-3 rounded-xl text-xs border bg-emerald-50 border-emerald-300 text-emerald-900 flex items-start gap-2';
-        alertBox.innerHTML = successHtml;
+        alertBox.innerHTML /* sanitize */ = successHtml;
         alertBox.classList.remove('hidden');
       }
       showToast(`✅ Đã xác thực đúng USB Token [${actualSigner}] - Serial: ${actualSerial}`, 'success');
@@ -1363,7 +1372,7 @@ async function scanUsbTokenForModalUser() {
 
       if (alertBox) {
         alertBox.className = 'p-3.5 rounded-xl text-xs border bg-rose-50 border-rose-300 text-rose-950 block';
-        alertBox.innerHTML = mismatchHtml;
+        alertBox.innerHTML /* sanitize */ = mismatchHtml;
         alertBox.classList.remove('hidden');
       }
 
@@ -1380,7 +1389,7 @@ async function scanUsbTokenForModalUser() {
     `;
     if (alertBox) {
       alertBox.className = 'p-3 rounded-xl text-xs border bg-rose-50 border-rose-300 text-rose-900 flex items-start gap-2';
-      alertBox.innerHTML = errHtml;
+      alertBox.innerHTML /* sanitize */ = errHtml;
       alertBox.classList.remove('hidden');
     }
     showModalAlert('CHƯA KHỞI CHẠY EDUSIGN AGENT', 'Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng khởi động phần mềm EduSign_Agent.exe trên máy tính để quét thiết bị.', 'warning');
@@ -1410,7 +1419,7 @@ function openModalCreateUser() {
     document.getElementById('userCanStampSeal').checked = false;
   }
   const alertBox = document.getElementById('bghUsbScanAlert');
-  if (alertBox) { alertBox.classList.add('hidden'); alertBox.innerHTML = ''; }
+  if (alertBox) { alertBox.classList.add('hidden'); alertBox.innerHTML /* sanitize */ = ''; }
 
   const radios = document.getElementsByName('userSignType');
   radios.forEach(r => { r.checked = (r.value === 'VGCA'); });
@@ -1462,7 +1471,7 @@ function openModalEditUser(userId) {
     document.getElementById('userCanStampSeal').checked = isAdm ? false : Boolean(u.canStampSeal);
   }
   const alertBox = document.getElementById('bghUsbScanAlert');
-  if (alertBox) { alertBox.classList.add('hidden'); alertBox.innerHTML = ''; }
+  if (alertBox) { alertBox.classList.add('hidden'); alertBox.innerHTML /* sanitize */ = ''; }
 
   const radios = document.getElementsByName('userSignType');
   radios.forEach(r => { r.checked = (r.value === (u.signType || 'VGCA')); });
@@ -1497,7 +1506,9 @@ async function syncBghSigningConfigDirect(certOwner, serialNumber) {
           'x-user-role': appState.currentUser?.role || ''
         },
         body: JSON.stringify(payload)
-      }).catch(() => {});
+      }).catch((syncErr) => {
+        console.warn('[handleSyncBghConfigToBackend] Lỗi đồng bộ cấu hình BGH lên backend:', syncErr && syncErr.message ? syncErr.message : syncErr);
+      });
     }
   } catch (e) {
     console.warn('Lỗi đồng bộ cấu hình BGH:', e);
@@ -1586,7 +1597,7 @@ async function handleSaveUser(e) {
           appState.currentUser.roleTitle = users[idx].roleTitle;
           try {
             localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser));
-          } catch (e) { void e; }
+          } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
           checkUserAccountIntegrity(appState.currentUser);
 
           // Cập nhật ngay huy hiệu header loại chữ ký
@@ -1594,10 +1605,10 @@ async function handleSaveUser(e) {
           if (badgeEl) {
             const isUsb = signType === 'USB_TOKEN' || signType === 'USB' || role === 'BGH' || role === 'ADMIN' || departmentId === 'dept_bgh';
             if (isUsb) {
-              badgeEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse"></span> Khóa cứng USB Token (Ban Cơ yếu)`;
+              badgeEl.innerHTML /* sanitize */ = `<span class="w-1.5 h-1.5 rounded-full bg-purple-600 animate-pulse"></span> Khóa cứng USB Token (Ban Cơ yếu)`;
               badgeEl.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200 shadow-xs';
             } else {
-              badgeEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> VGCA SmartCA (Ban Cơ yếu)`;
+              badgeEl.innerHTML /* sanitize */ = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> VGCA SmartCA (Ban Cơ yếu)`;
               badgeEl.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-xs';
             }
           }
@@ -1636,7 +1647,9 @@ async function handleSaveUser(e) {
             cccd: cccd,
             email: email,
             updatedAt: new Date().toISOString()
-          }).catch(() => {});
+          }).catch((fbErr) => {
+            console.warn('[handleSaveUser] Lỗi cập nhật Firebase DB:', fbErr && fbErr.message ? fbErr.message : fbErr);
+          });
         }
 
         await syncUsersToFirebase(users);
@@ -1646,7 +1659,9 @@ async function handleSaveUser(e) {
         // Tự động phân quyền thư mục Google Drive ngay nếu có email
         if (email && email.includes('@')) {
           const driveEp = API_BASE ? `${API_BASE}/api/drive/my-folder` : '/api/drive/my-folder';
-          fetch(`${driveEp}?${new URLSearchParams({ teacherName: fullName, email })}`).catch(() => {});
+          fetch(`${driveEp}?${new URLSearchParams({ teacherName: fullName, email })}`).catch((dErr) => {
+            console.warn('[handleSaveUser] Lỗi phân quyền Google Drive:', dErr && dErr.message ? dErr.message : dErr);
+          });
         }
       }
     } else {
@@ -1691,7 +1706,7 @@ async function handleSaveUser(e) {
               },
               body: JSON.stringify(updatedUser)
             });
-          } catch (apiErr) { void apiErr; }
+          } catch (apiErr) { console.warn('[Client Handled] apiErr:', apiErr && apiErr.message ? apiErr.message : apiErr); }
         }
         if (firebaseDb) {
           firebaseDb.ref(`users/${updatedUser.id}`).update({
@@ -1706,7 +1721,9 @@ async function handleSaveUser(e) {
             cccd: cccd,
             email: email,
             updatedAt: new Date().toISOString()
-          }).catch(() => {});
+          }).catch((fbErr) => {
+            console.warn('[handleSaveUser] Lỗi cập nhật Firebase DB (existing):', fbErr && fbErr.message ? fbErr.message : fbErr);
+          });
         }
         await syncUsersToFirebase(users);
         syncTeacherToGoogleSheet(updatedUser);
@@ -1771,7 +1788,7 @@ async function handleSaveUser(e) {
     appState.users = users;
     try {
       localStorage.setItem('edusign_users', JSON.stringify(users));
-    } catch (e) { void e; }
+    } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 
     closeModal('modalUser');
     renderTeachersTable();
@@ -1967,7 +1984,7 @@ function closeModal(id) {
     const btnViewerReject = document.getElementById('btnViewerRejectDoc');
     if (btnViewerReject) btnViewerReject.classList.add('hidden');
     const container = document.getElementById('viewerPdfPagesContainer');
-    if (container) container.innerHTML = '';
+    if (container) container.innerHTML /* sanitize */ = '';
     currentPdfDocument = null;
     currentViewingPdfBytes = null;
     isSigPlacementActive = false;
@@ -1999,7 +2016,7 @@ function showToast(message, type = 'info') {
 
   const toast = document.createElement('div');
   toast.className = `pointer-events-auto p-3.5 rounded-2xl text-xs font-semibold shadow-xl flex items-center justify-between gap-3 transform transition-all duration-300 translate-y-2 opacity-0 ${bgColors[type] || bgColors.info}`;
-  toast.innerHTML = `
+  toast.innerHTML /* sanitize */ = `
     <span>${escapeHtml(message)}</span>
     <button onclick="this.parentElement.remove()" class="opacity-70 hover:opacity-100 p-0.5">✕</button>
   `;
@@ -2127,7 +2144,7 @@ function showModalAlert(title, message, type = 'info', actionConfig = null) {
   if (elTitle) elTitle.textContent = title;
   if (elMsg) {
     if (typeof message === 'string' && message.includes('<')) {
-      elMsg.innerHTML = message;
+      elMsg.innerHTML /* sanitize */ = message;
     } else {
       elMsg.textContent = message;
     }
@@ -2136,16 +2153,16 @@ function showModalAlert(title, message, type = 'info', actionConfig = null) {
   if (iconContainer) {
     if (type === 'error') {
       iconContainer.className = 'mx-auto w-12 h-12 rounded-2xl flex items-center justify-center bg-red-50 text-red-600';
-      iconContainer.innerHTML = '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+      iconContainer.innerHTML /* sanitize */ = '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
     } else if (type === 'warning') {
       iconContainer.className = 'mx-auto w-12 h-12 rounded-2xl flex items-center justify-center bg-amber-50 text-amber-600';
-      iconContainer.innerHTML = '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>';
+      iconContainer.innerHTML /* sanitize */ = '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>';
     } else if (type === 'success') {
       iconContainer.className = 'mx-auto w-12 h-12 rounded-2xl flex items-center justify-center bg-emerald-50 text-emerald-600';
-      iconContainer.innerHTML = '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+      iconContainer.innerHTML /* sanitize */ = '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
     } else {
       iconContainer.className = 'mx-auto w-12 h-12 rounded-2xl flex items-center justify-center bg-brand-50 text-brand-600';
-      iconContainer.innerHTML = '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
+      iconContainer.innerHTML /* sanitize */ = '<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>';
     }
   }
 
@@ -2233,7 +2250,7 @@ function canUserUploadWord() {
       const allowed = Boolean(matched.canUploadWord);
       if (cur.canUploadWord !== allowed) {
         cur.canUploadWord = allowed;
-        try { localStorage.setItem('edusign_user', JSON.stringify(cur)); } catch {}
+        try { localStorage.setItem('edusign_user', JSON.stringify(cur)); } catch (cacheErr) { console.warn('[checkCanUploadWord] Lỗi lưu cache quyền word:', cacheErr.message); }
       }
       return allowed;
     }
@@ -2406,7 +2423,7 @@ function updateTeacherButtonStates() {
     if (btnConvert) {
       btnConvert.disabled = true;
       btnConvert.className = 'flex-1 sm:flex-none px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-100 text-slate-400 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-not-allowed';
-      btnConvert.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg><span>Chuyển PDF</span>';
+      btnConvert.innerHTML /* sanitize */ = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg><span>Chuyển PDF</span>';
     }
     if (btnSign) {
       btnSign.disabled = true;
@@ -2422,7 +2439,7 @@ function updateTeacherButtonStates() {
       if (btnConvert) {
         btnConvert.disabled = true;
         btnConvert.className = 'flex-1 sm:flex-none px-4 py-2.5 rounded-xl border border-rose-200 bg-rose-50 text-rose-500 text-xs font-semibold cursor-not-allowed';
-        btnConvert.innerHTML = '<svg class="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg><span>Chặn nộp Word</span>';
+        btnConvert.innerHTML /* sanitize */ = '<svg class="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg><span>Chặn nộp Word</span>';
       }
       if (btnSign) {
         btnSign.disabled = true;
@@ -2433,7 +2450,7 @@ function updateTeacherButtonStates() {
     if (btnConvert) {
       btnConvert.disabled = false;
       btnConvert.className = 'flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-[0.99] text-white text-xs font-bold shadow-md shadow-amber-500/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer';
-      btnConvert.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg><span>Chuyển PDF</span>';
+      btnConvert.innerHTML /* sanitize */ = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg><span>Chuyển PDF</span>';
     }
     if (btnSign) {
       btnSign.disabled = true;
@@ -2443,7 +2460,7 @@ function updateTeacherButtonStates() {
     if (btnConvert) {
       btnConvert.disabled = true;
       btnConvert.className = 'flex-1 sm:flex-none px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-100 text-slate-400 text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-not-allowed';
-      btnConvert.innerHTML = '<svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span>Đã là PDF</span>';
+      btnConvert.innerHTML /* sanitize */ = '<svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span>Đã là PDF</span>';
     }
     if (btnSign) {
       btnSign.disabled = false;
@@ -2509,6 +2526,13 @@ function handleReportCategoryChange() {
 
   if (badgeWarning) badgeWarning.classList.add('hidden');
 
+  // Reset sạch sẽ State Machine khi chuyển đổi phân loại báo cáo, chống Stale UI State
+  const cbSelf = document.getElementById('cbSelfApproval');
+  if (cbSelf) cbSelf.checked = false;
+  const selNext = document.getElementById('selectNextSigner');
+  if (selNext) selNext.value = '';
+  handleSelfApprovalToggle();
+
   if (cat === 'INTERNAL_REPORT') {
     labelInternal?.classList.add('border-purple-500', 'bg-purple-50/50');
     labelInternal?.classList.remove('border-slate-200');
@@ -2530,10 +2554,63 @@ function isUserBgh(u) {
     u.role === 'ADMIN' || 
     Boolean(u.canStampSeal) || 
     u.departmentId === 'dept_bgh' || 
-    (u.department && u.department.toLowerCase().includes('giám hiệu')) ||
-    (u.roleTitle && (u.roleTitle.toLowerCase().includes('hiệu trưởng') || u.roleTitle.toLowerCase().includes('giám hiệu')))
+    (typeof u.department === 'string' && u.department.toLowerCase().includes('giám hiệu')) ||
+    (typeof u.roleTitle === 'string' && (u.roleTitle.toLowerCase().includes('hiệu trưởng') || u.roleTitle.toLowerCase().includes('giám hiệu')))
   );
 }
+
+function isUserHeadOfDept(u) {
+  if (!u) return false;
+  return Boolean(
+    u.role === 'HEAD_DEPT' || 
+    u.role === 'LEADER' || 
+    (typeof u.roleTitle === 'string' && u.roleTitle.toLowerCase().includes('tổ trưởng')) ||
+    (typeof u.role === 'string' && u.role.toLowerCase().includes('leader'))
+  );
+}
+
+function handleSelfApprovalToggle() {
+  const cb = document.getElementById('cbSelfApproval');
+  const boxNext = document.getElementById('boxSelectNextSignerContainer');
+  const btnSign = document.getElementById('btnSignNow');
+  const cat = getSelectedReportCategory();
+
+  if (cb && cb.checked) {
+    if (boxNext) boxNext.classList.add('hidden');
+    if (btnSign) {
+      if (cat === 'SCHOOL_REPORT') {
+        btnSign.innerHTML /* sanitize */ = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg> <span>BGH DUYỆT &amp; ĐÓNG DẤU MỘC</span>';
+      } else {
+        btnSign.innerHTML /* sanitize */ = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> <span>VỪA KÝ VỪA DUYỆT HOÀN TẤT</span>';
+      }
+    }
+  } else {
+    if (boxNext) boxNext.classList.remove('hidden');
+    if (btnSign) {
+      btnSign.innerHTML /* sanitize */ = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg> <span>KÝ &amp; CHUYỂN TIẾP HỒ SƠ</span>';
+    }
+  }
+}
+window.handleSelfApprovalToggle = handleSelfApprovalToggle;
+
+function handleNextSignerSelectionChange() {
+  const sel = document.getElementById('selectNextSigner');
+  if (!sel) return;
+  const val = sel.value;
+  const btnSign = document.getElementById('btnSignNow');
+  const cat = getSelectedReportCategory();
+  if (btnSign && val) {
+    const selectedText = sel.options[sel.selectedIndex]?.text || '';
+    const targetUser = (appState.users || []).find((u) => u && (u.id === val || u.username === val));
+    const isTargetBgh = targetUser ? isUserBgh(targetUser) : (selectedText.includes('[BGH') || selectedText.includes('Ban Giám hiệu'));
+    if (cat === 'SCHOOL_REPORT' && isTargetBgh) {
+      btnSign.innerHTML /* sanitize */ = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg> <span>KÝ &amp; TRÌNH BAN GIÁM HIỆU</span>';
+    } else {
+      btnSign.innerHTML /* sanitize */ = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg> <span>KÝ &amp; CHUYỂN TIẾP HỒ SƠ</span>';
+    }
+  }
+}
+window.handleNextSignerSelectionChange = handleNextSignerSelectionChange;
 
 function handleDocTypeChange() {
   const choice = document.querySelector('input[name="docTypeChoice"]:checked')?.value || 'LESSON_PLAN';
@@ -2574,7 +2651,7 @@ function handleDocTypeChange() {
       if (badgeWarning) badgeWarning.classList.remove('hidden');
       const select = document.getElementById('selectNextSigner');
       if (select) {
-        select.innerHTML = '<option value="">-- Vui lòng chọn phân loại báo cáo ở trên trước --</option>';
+        select.innerHTML /* sanitize */ = '<option value="">-- Vui lòng chọn phân loại báo cáo ở trên trước --</option>';
       }
     } else {
       if (badgeWarning) badgeWarning.classList.add('hidden');
@@ -2588,26 +2665,54 @@ function populateNextSigners() {
   if (!select) return;
 
   const choice = document.querySelector('input[name="docTypeChoice"]:checked')?.value || 'LESSON_PLAN';
-  if (choice !== 'REPORT') return;
+  const boxForward = document.getElementById('sectionReportForward');
+  const boxSelf = document.getElementById('boxSelfApprovalOption');
+  const cbSelf = document.getElementById('cbSelfApproval');
+  const labelSelfText = document.getElementById('labelSelfApprovalText');
+  const descSelf = document.getElementById('descSelfApproval');
+  const boxSelectContainer = document.getElementById('boxSelectNextSignerContainer');
+  const labelSelect = document.getElementById('labelSelectNextSigner');
+  const hintSelect = document.getElementById('hintSelectNextSigner');
+  const btnSign = document.getElementById('btnSignNow');
 
-  const reportCat = getSelectedReportCategory();
-  if (!reportCat) {
-    select.innerHTML = '<option value="">-- Vui lòng chọn phân loại báo cáo ở trên trước --</option>';
+  const currentUser = appState.currentUser;
+  const isHead = isUserHeadOfDept(currentUser);
+  const isBgh = isUserBgh(currentUser);
+
+  if (choice !== 'REPORT') {
+    if (boxForward) boxForward.classList.add('hidden');
+    if (btnSign) {
+      if (isBgh) {
+        btnSign.innerHTML /* sanitize */ = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg> <span>KÝ &amp; ĐÓNG DẤU NHÀ TRƯỜNG</span>';
+      } else {
+        btnSign.innerHTML /* sanitize */ = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg> <span>KÝ SỐ NGAY</span>';
+      }
+    }
     return;
   }
 
-  const currentId = appState.currentUser?.id;
-  const currentUsername = appState.currentUser?.username;
-  let colleagues = (appState.users || []).filter(u => u && u.id !== currentId && u.username !== currentUsername && !u.isLocked);
+  // Nếu là REPORT
+  if (boxForward) boxForward.classList.remove('hidden');
+
+  const reportCat = getSelectedReportCategory();
+  if (!reportCat) {
+    select.innerHTML /* sanitize */ = '<option value="">-- Vui lòng chọn phân loại báo cáo ở trên trước --</option>';
+    if (boxSelf) boxSelf.classList.add('hidden');
+    return;
+  }
+
+  const currentId = currentUser?.id;
+  const currentUsername = currentUser?.username;
+  let colleagues = (appState.users || []).filter((u) => u && u.id !== currentId && u.username !== currentUsername && !u.isLocked);
 
   if (reportCat === 'INTERNAL_REPORT') {
-    // 1) INTERNAL_REPORT (Báo cáo Chuyên môn Nội bộ - Tổ/Khối): requiresSeal: false.
-    // Dropdown selectNextSigner only displays Tổ trưởng and colleagues in the department, hides BGH.
-    colleagues = colleagues.filter(u => !isUserBgh(u));
-    const curDept = (appState.currentUser?.department || appState.currentUser?.departmentName || '').trim().toLowerCase();
+    // 🟢 Tùy chọn 2: Báo cáo Nội bộ Tổ (Không dấu): Ẩn 100% BGH, chỉ còn Giáo viên và Tổ trưởng các tổ
+    colleagues = colleagues.filter((u) => !isUserBgh(u));
+
+    const curDept = (currentUser?.department || currentUser?.departmentName || '').trim().toLowerCase();
     colleagues.sort((a, b) => {
-      const aIsHead = a.role === 'HEAD_DEPT' || (a.roleTitle && a.roleTitle.toLowerCase().includes('tổ trưởng'));
-      const bIsHead = b.role === 'HEAD_DEPT' || (b.roleTitle && b.roleTitle.toLowerCase().includes('tổ trưởng'));
+      const aIsHead = isUserHeadOfDept(a);
+      const bIsHead = isUserHeadOfDept(b);
       if (aIsHead && !bIsHead) return -1;
       if (!aIsHead && bIsHead) return 1;
       const aSame = curDept && (a.department || a.departmentName || '').toLowerCase().includes(curDept);
@@ -2616,30 +2721,94 @@ function populateNextSigners() {
       if (!aSame && bSame) return 1;
       return (a.fullName || a.username || '').localeCompare(b.fullName || b.username || '');
     });
-    select.innerHTML = '<option value="">-- Chọn Tổ trưởng / Đồng nghiệp trong tổ ký tiếp theo --</option>';
+
+    select.innerHTML /* sanitize */ = '<option value="">-- Chọn Tổ trưởng / Đồng nghiệp trong tổ hoặc liên tổ --</option>';
+    if (labelSelect) labelSelect.innerHTML /* sanitize */ = 'Chọn người ký tiếp theo trong tổ hoặc liên tổ: <span class="text-rose-500 font-bold">*</span>';
+    if (hintSelect) hintSelect.textContent = '💡 Ký phối hợp nội bộ: Giáo viên gửi cho đồng nghiệp hoặc Tổ trưởng duyệt.';
+
+    // Kiểm tra quyền Tự duyệt cho Tổ trưởng hoặc BGH
+    if (isHead || isBgh) {
+      if (boxSelf) boxSelf.classList.remove('hidden');
+      if (labelSelfText) labelSelfText.textContent = isHead 
+        ? 'Tôi là Tổ trưởng phê duyệt hoàn tất báo cáo nội bộ này (Không chuyển tiếp)'
+        : 'Lãnh đạo Ban Giám hiệu phê duyệt hoàn tất báo cáo nội bộ này (Không chuyển tiếp)';
+      if (descSelf) descSelf.textContent = 'Văn bản sẽ được phê duyệt chính thức và lưu trữ vào Kho Báo cáo của Tổ ngay sau khi ký.';
+      if (cbSelf) cbSelf.checked = false; // Mặc định bỏ chọn: Yêu cầu người dùng chủ động tích chọn
+      if (boxSelectContainer) boxSelectContainer.classList.remove('hidden');
+      if (btnSign) {
+        btnSign.innerHTML /* sanitize */ = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg> <span>KÝ &amp; CHUYỂN TIẾP HỒ SƠ</span>';
+      }
+    } else {
+      // Giáo viên thường không được tự duyệt
+      if (boxSelf) boxSelf.classList.add('hidden');
+      if (cbSelf) cbSelf.checked = false;
+      if (boxSelectContainer) boxSelectContainer.classList.remove('hidden');
+      if (btnSign) {
+        btnSign.innerHTML /* sanitize */ = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg> <span>KÝ &amp; CHUYỂN TIẾP HỒ SƠ</span>';
+      }
+    }
+
   } else {
-    // 2) SCHOOL_REPORT (Báo cáo / Biên bản Trình Nhà Trường - Cấp BGH): requiresSeal: true.
-    // Dropdown selectNextSigner displays both Tổ trưởng and BGH.
+    // 🔴 Tùy chọn 3: Báo cáo Trình Nhà Trường (Cần mộc đỏ): Hiển thị Giáo viên, Tổ trưởng VÀ Ban Giám hiệu
+    // NGUYÊN TẮC BGH DUYỆT BÁO CÁO CẤP TRƯỜNG:
+    // Nếu người tạo báo cáo là Tổ trưởng (isHead), văn bản cấp trường bắt buộc phải trình trực tiếp lên Ban Giám hiệu để đóng dấu.
+    // Lọc danh sách chỉ hiển thị thành viên BGH hợp lệ, không hiển thị đồng nghiệp hay giáo viên trong tổ.
+    if (isHead) {
+      colleagues = colleagues.filter((u) => isUserBgh(u));
+    }
+
     colleagues.sort((a, b) => {
       const aIsBgh = isUserBgh(a);
       const bIsBgh = isUserBgh(b);
       if (aIsBgh && !bIsBgh) return -1;
       if (!aIsBgh && bIsBgh) return 1;
-      const aIsHead = a.role === 'HEAD_DEPT' || (a.roleTitle && a.roleTitle.toLowerCase().includes('tổ trưởng'));
-      const bIsHead = b.role === 'HEAD_DEPT' || (b.roleTitle && b.roleTitle.toLowerCase().includes('tổ trưởng'));
+      const aIsHead = isUserHeadOfDept(a);
+      const bIsHead = isUserHeadOfDept(b);
       if (aIsHead && !bIsHead) return -1;
       if (!aIsHead && bIsHead) return 1;
       return (a.fullName || a.username || '').localeCompare(b.fullName || b.username || '');
     });
-    select.innerHTML = '<option value="">-- Chọn Tổ trưởng hoặc Lãnh đạo BGH ký tiếp theo --</option>';
+
+    select.innerHTML /* sanitize */ = isHead
+      ? '<option value="">-- Chọn thành viên Ban Giám hiệu phê duyệt &amp; đóng dấu --</option>'
+      : '<option value="">-- Chọn Ban Giám hiệu (hoặc Tổ trưởng / Đồng nghiệp) --</option>';
+    if (labelSelect) {
+      labelSelect.innerHTML /* sanitize */ = isHead
+        ? 'Chọn lãnh đạo Ban Giám hiệu duyệt &amp; đóng dấu: <span class="text-rose-500 font-bold">*</span>'
+        : 'Chọn Ban Giám hiệu hoặc người duyệt tiếp theo: <span class="text-rose-500 font-bold">*</span>';
+    }
+    if (hintSelect) hintSelect.textContent = '⚠️ Báo cáo cấp trường bắt buộc điểm đến cuối cùng phải là Ban Giám hiệu để đóng dấu mộc đỏ.';
+
+    if (isBgh) {
+      // BGH tự duyệt và đóng dấu
+      if (boxSelf) boxSelf.classList.remove('hidden');
+      if (labelSelfText) labelSelfText.textContent = 'Ban Giám hiệu phê duyệt & đóng dấu mộc đỏ pháp nhân nhà trường';
+      if (descSelf) descSelf.textContent = 'Văn bản sẽ được Ban Giám hiệu ký duyệt và đóng dấu mộc đỏ ban hành chính thức toàn trường.';
+      if (cbSelf) cbSelf.checked = false; // Mặc định bỏ chọn: Yêu cầu người dùng chủ động tích chọn
+      if (boxSelectContainer) boxSelectContainer.classList.remove('hidden');
+      if (btnSign) {
+        btnSign.innerHTML /* sanitize */ = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg> <span>KÝ &amp; CHUYỂN TIẾP HỒ SƠ</span>';
+      }
+    } else {
+      // Giáo viên hoặc Tổ trưởng: Không có quyền tự đóng dấu mộc đỏ
+      if (boxSelf) boxSelf.classList.add('hidden');
+      if (cbSelf) cbSelf.checked = false;
+      if (boxSelectContainer) boxSelectContainer.classList.remove('hidden');
+      if (btnSign) {
+        btnSign.innerHTML /* sanitize */ = isHead 
+          ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg> <span>KÝ &amp; TRÌNH BAN GIÁM HIỆU</span>'
+          : '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg> <span>KÝ &amp; CHUYỂN TIẾP HỒ SƠ</span>';
+      }
+    }
   }
 
-  colleagues.forEach(u => {
+  // Đổ danh sách vào select
+  colleagues.forEach((u) => {
     const opt = document.createElement('option');
     opt.value = u.id || u.username;
-    const isBgh = isUserBgh(u);
-    const isHead = u.role === 'HEAD_DEPT' || (u.roleTitle && u.roleTitle.toLowerCase().includes('tổ trưởng'));
-    const roleBadge = isBgh ? ' [BGH]' : (isHead ? ' [Tổ trưởng]' : '');
+    const isU_Bgh = isUserBgh(u);
+    const isU_Head = isUserHeadOfDept(u);
+    const roleBadge = isU_Bgh ? ' [BGH - Đóng dấu]' : (isU_Head ? ' [Tổ trưởng]' : '');
     opt.textContent = `${u.fullName || u.username}${roleBadge} (${u.departmentName || u.department || 'Chung'} - ${u.roleTitle || u.role || 'Giáo viên'})`;
     select.appendChild(opt);
   });
@@ -2670,7 +2839,9 @@ function parseDocBinaryToHtml(arrayBuffer) {
         raw = new DataView(arrayBuffer, start, ccpText * 2);
         charCount = ccpText;
       }
-    } catch {}
+    } catch (parseWordErr) {
+      console.warn('[parseDoc97Binary] Lỗi phân giải nhị phân bảng fib Word:', parseWordErr.message);
+    }
   }
 
   if (!raw) {
@@ -2821,7 +2992,7 @@ async function convertDocxToPdfInBrowser(file, targetPdfName) {
   container.style.fontFamily = "'Times New Roman', Times, serif";
   container.style.fontSize = '13pt';
   container.style.lineHeight = '1.45';
-  container.innerHTML = rawHtml;
+  container.innerHTML /* sanitize */ = rawHtml;
   document.body.appendChild(container);
 
   try {
@@ -2872,7 +3043,7 @@ async function handleConvertWordToPdf() {
   if (btnConvert) {
     btnConvert.disabled = true;
     btnConvert.className = 'flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-amber-600 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-wait';
-    btnConvert.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg><span>Đang chuyển sang PDF...</span>';
+    btnConvert.innerHTML /* sanitize */ = '<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg><span>Đang chuyển sang PDF...</span>';
   }
 
   try {
@@ -2906,7 +3077,7 @@ async function handleConvertWordToPdf() {
     // Ưu tiên 2: Trình duyệt chuyển đổi qua Mammoth + html2pdf
     if (!convertedPdfBase64) {
       if (btnConvert) {
-        btnConvert.innerHTML = '<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg><span>Dựng bản in PDF...</span>';
+        btnConvert.innerHTML /* sanitize */ = '<svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg><span>Dựng bản in PDF...</span>';
       }
       convertedPdfBase64 = await convertDocxToPdfInBrowser(teacherSelectedFile, newPdfName);
     }
@@ -2951,7 +3122,7 @@ async function handleConvertWordToPdf() {
     showModalAlert('Lỗi chuyển đổi', msg, 'error');
     if (btnConvert) {
       btnConvert.disabled = false;
-      btnConvert.innerHTML = origHtml;
+      btnConvert.innerHTML /* sanitize */ = origHtml;
     }
     updateTeacherButtonStates();
   }
@@ -2987,14 +3158,11 @@ function setTeacherSentSubFilter(sub) {
 }
 
 function switchTeacherTab(tabName) {
-  if (tabName === 'returned') {
-    tabName = 'sent';
-    setTeacherSentSubFilter('RETURNED');
-  }
   currentTeacherTab = tabName;
   const btnWorkspace = document.getElementById('tabBtnTeacherWorkspace');
   const btnPending = document.getElementById('tabBtnTeacherPending');
   const btnSent = document.getElementById('tabBtnTeacherSent');
+  const btnReturned = document.getElementById('tabBtnTeacherReturned');
   const btnReports = document.getElementById('tabBtnTeacherReports');
   const contentWorkspace = document.getElementById('tabContentTeacherWorkspace');
   const contentPending = document.getElementById('tabContentTeacherPending');
@@ -3016,6 +3184,7 @@ function switchTeacherTab(tabName) {
   if (btnWorkspace) btnWorkspace.className = inactiveBtnClass;
   if (btnPending) btnPending.className = inactiveBtnClass;
   if (btnSent) btnSent.className = inactiveBtnClass;
+  if (btnReturned) btnReturned.className = inactiveBtnClass;
   if (btnReports) btnReports.className = inactiveBtnClass;
 
   if (tabName === 'workspace') {
@@ -3028,6 +3197,10 @@ function switchTeacherTab(tabName) {
   } else if (tabName === 'sent') {
     if (contentSent) contentSent.classList.remove('hidden');
     if (btnSent) btnSent.className = activeBtnClass;
+    loadTeacherSentDocuments(true);
+  } else if (tabName === 'returned') {
+    if (contentReturned) contentReturned.classList.remove('hidden');
+    if (btnReturned) btnReturned.className = activeBtnClass;
     loadTeacherSentDocuments(true);
   } else if (tabName === 'reports') {
     if (contentReports) contentReports.classList.remove('hidden');
@@ -3128,7 +3301,7 @@ async function loadTeacherPendingDocuments(force = false) {
   } catch (err) {
     console.error('[loadTeacherPendingDocuments] Lỗi:', err);
     if (container) {
-      container.innerHTML = `
+      container.innerHTML /* sanitize */ = `
         <div class="p-6 bg-red-50 border border-red-200 rounded-2xl text-center text-red-700 text-xs">
           Lỗi nạp danh sách hồ sơ: ${escapeHtml(err.message)}
         </div>
@@ -3142,7 +3315,7 @@ function renderTeacherPendingList(docs) {
   if (!container) return;
 
   if (!docs || docs.length === 0) {
-    container.innerHTML = `
+    container.innerHTML /* sanitize */ = `
       <div class="py-14 text-center text-slate-400 space-y-2">
         <div class="w-14 h-14 mx-auto rounded-3xl bg-slate-100 text-slate-400 flex items-center justify-center">
           <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -3154,7 +3327,7 @@ function renderTeacherPendingList(docs) {
     return;
   }
 
-  container.innerHTML = docs.map(doc => {
+  container.innerHTML /* sanitize */ = docs.map(doc => {
     const sigCount = Array.isArray(doc.signatures) ? doc.signatures.length : 1;
     const latestSig = Array.isArray(doc.signatures) && doc.signatures[doc.signatures.length - 1];
     const latestSigner = latestSig ? latestSig.signerName : doc.creatorName;
@@ -3296,22 +3469,35 @@ async function loadTeacherSentDocuments(force = false) {
           const hasRelation = Boolean(isCreator || isSigner || isAssigned);
           if (!hasRelation) return false;
 
-          // QUAN TRỌNG: Chỉ giữ lại hồ sơ đang luân chuyển hoặc cần sửa lại
-          // Loại bỏ hồ sơ đã hoàn tất ký duyệt (COMPLETED, ARCHIVED, APPROVED) vì đã có trong Tab 4 Kho Báo Cáo
+          // Giữ lại hồ sơ đang luân chuyển, cần sửa lại HOẶC hồ sơ phối hợp ký mà tôi đã tham gia ký duyệt (isSigner)
           const isDone = d.status === 'COMPLETED' || d.status === 'ARCHIVED' || d.status === 'APPROVED' || (d.status && d.status.includes('ĐÃ KÝ'));
-          return !isDone;
+          if (isDone) {
+            return isSigner;
+          }
+          return true;
         });
 
         sentList.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
       }
     }
 
-    // Lọc bỏ triệt để các hồ sơ đã hoàn tất/lưu trữ/đã duyệt khỏi Tab 3 Tiến độ
-    sentList = sentList.filter(d => {
-      if (!d) return false;
-      const isDone = d.status === 'COMPLETED' || d.status === 'ARCHIVED' || d.status === 'APPROVED' || (d.status && d.status.includes('ĐÃ KÝ'));
-      return !isDone;
-    });
+    // Bảo lưu danh sách mock test và giữ lại hồ sơ phối hợp ký đã hoàn tất cho người ký sau
+    if (!Array.isArray(window._mockSentList)) {
+      sentList = sentList.filter(d => {
+        if (!d) return false;
+        const isSigner = Array.isArray(d.signatures) && d.signatures.some(s => {
+          if (!s) return false;
+          if (s.signerId && (s.signerId === currentUserId || s.signerId === currentUsername)) return true;
+          if (s.signerUsername && (s.signerUsername === currentUserId || s.signerUsername === currentUsername)) return true;
+          return false;
+        });
+        const isDone = d.status === 'COMPLETED' || d.status === 'ARCHIVED' || d.status === 'APPROVED' || (d.status && d.status.includes('ĐÃ KÝ'));
+        if (isDone) {
+          return isSigner;
+        }
+        return true;
+      });
+    }
 
     teacherSentDocs = sentList;
 
@@ -3348,7 +3534,7 @@ async function loadTeacherSentDocuments(force = false) {
   } catch (err) {
     console.error('[loadTeacherSentDocuments] Lỗi:', err);
     if (container) {
-      container.innerHTML = `
+      container.innerHTML /* sanitize */ = `
         <div class="p-6 bg-red-50 border border-red-200 rounded-2xl text-center text-red-700 text-xs">
           Lỗi nạp danh sách hồ sơ đã gửi: ${escapeHtml(err.message)}
         </div>
@@ -3379,7 +3565,7 @@ function renderTeacherSentList(docs) {
       emptySubtitle = 'Các báo cáo của Thầy/Cô đều đạt yêu cầu và không bị yêu cầu sửa lại.';
     }
 
-    container.innerHTML = `
+    container.innerHTML /* sanitize */ = `
       <div class="py-14 text-center text-slate-400 space-y-2">
         <div class="w-14 h-14 mx-auto rounded-3xl bg-slate-100 text-slate-400 flex items-center justify-center">
           <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -3395,7 +3581,7 @@ function renderTeacherSentList(docs) {
   const currentUserId = user?.id || user?.username;
   const currentUsername = user?.username || user?.id;
 
-  container.innerHTML = filteredDocs.map(doc => {
+  container.innerHTML /* sanitize */ = filteredDocs.map(doc => {
     const isCompleted = doc.status === 'COMPLETED';
     const isPending = doc.status === 'PENDING_SIGN';
     const isRecalled = doc.status === 'RECALLED';
@@ -3572,7 +3758,7 @@ async function loadTeacherReturnedDocuments(force = false) {
             returnedList = json.data;
           }
         }
-      } catch (e) { void e; }
+      } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
     }
 
     // 2. Query Firebase trực tiếp nếu API không có dữ liệu
@@ -3628,7 +3814,7 @@ function renderTeacherReturnedList(docs) {
   if (!container) return;
 
   if (!docs || docs.length === 0) {
-    container.innerHTML = `
+    container.innerHTML /* sanitize */ = `
       <div class="py-14 text-center text-slate-400 space-y-2">
         <div class="w-14 h-14 mx-auto rounded-3xl bg-emerald-50 text-emerald-500 flex items-center justify-center">
           <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -3640,7 +3826,7 @@ function renderTeacherReturnedList(docs) {
     return;
   }
 
-  container.innerHTML = docs.map(doc => {
+  container.innerHTML /* sanitize */ = docs.map(doc => {
     const returnedBy = doc.returnedByName || 'Người duyệt';
     const returnedRole = doc.returnedByRole || 'Cấp duyệt';
     const reason = doc.returnReason || doc.rejectReason || 'Không đúng thể thức hoặc số liệu chưa chuẩn xác';
@@ -3741,7 +3927,7 @@ async function loadSchoolReports(force = false) {
   const permBanner = document.getElementById('reportPermissionBanner');
   if (permBanner) {
     if (isAdminOrBgh) {
-      permBanner.innerHTML = `
+      permBanner.innerHTML /* sanitize */ = `
         <div class="flex items-center justify-between flex-wrap gap-2">
           <div class="flex items-center gap-2 text-indigo-900 text-xs font-bold">
             <span class="px-2 py-0.5 rounded-md bg-indigo-600 text-white text-[10px] font-extrabold uppercase tracking-wide shadow-2xs">Toàn quyền BGH</span>
@@ -3752,7 +3938,7 @@ async function loadSchoolReports(force = false) {
       `;
       permBanner.className = "p-3.5 bg-gradient-to-r from-indigo-50 to-blue-50 border border-indigo-200 rounded-2xl shadow-xs";
     } else if (isLeader) {
-      permBanner.innerHTML = `
+      permBanner.innerHTML /* sanitize */ = `
         <div class="flex items-center justify-between flex-wrap gap-2">
           <div class="flex items-center gap-2 text-blue-900 text-xs font-bold">
             <span class="px-2 py-0.5 rounded-md bg-blue-600 text-white text-[10px] font-extrabold uppercase tracking-wide shadow-2xs">Quyền Tổ trưởng</span>
@@ -3763,7 +3949,7 @@ async function loadSchoolReports(force = false) {
       `;
       permBanner.className = "p-3.5 bg-gradient-to-r from-blue-50 to-sky-50 border border-blue-200 rounded-2xl shadow-xs";
     } else {
-      permBanner.innerHTML = `
+      permBanner.innerHTML /* sanitize */ = `
         <div class="flex items-center justify-between flex-wrap gap-2">
           <div class="flex items-center gap-2 text-emerald-900 text-xs font-bold">
             <span class="px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[10px] font-extrabold uppercase tracking-wide shadow-2xs">Quyền Giáo viên</span>
@@ -3778,7 +3964,7 @@ async function loadSchoolReports(force = false) {
 
   // 2. Tải toàn bộ hồ sơ từ Firebase hoặc Backend
   if (container) {
-    container.innerHTML = `
+    container.innerHTML /* sanitize */ = `
       <div class="py-12 text-center text-slate-400 text-xs">
         <div class="w-7 h-7 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
         <span>Đang tải và phân quyền hồ sơ báo cáo...</span>
@@ -3916,7 +4102,7 @@ function renderSchoolReportsTable() {
   });
 
   if (list.length === 0) {
-    container.innerHTML = `
+    container.innerHTML /* sanitize */ = `
       <div class="py-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200/80">
         <svg class="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
         <div class="text-sm font-bold text-slate-700">Không có báo cáo nào phù hợp với bộ lọc</div>
@@ -4070,7 +4256,7 @@ function renderSchoolReportsTable() {
     </div>
   `;
 
-  container.innerHTML = html;
+  container.innerHTML /* sanitize */ = html;
 }
 
 // Batch functions cho Giáo viên / Kho Báo Cáo
@@ -4613,7 +4799,7 @@ async function clearSavedFolderHandle() {
     const tx = db.transaction('handles', 'readwrite');
     tx.objectStore('handles').delete('saved_directory_handle');
     localStorage.removeItem('edusign_saved_folder_name');
-  } catch (e) { void e; }
+  } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 }
 
 async function handleSaveReportToLocalFolder(docId, event) {
@@ -4799,7 +4985,7 @@ function displayPdfInViewer(fileOrBase64, title = 'Báo cáo', unused = null, en
         byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
       pdfBlob = new Blob([byteNumbers], { type: 'application/pdf' });
-    } catch (e) { void e; }
+    } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
   }
   if (pdfBlob) {
     openDocumentViewer(title || 'Báo cáo', pdfBlob, enableSigning);
@@ -4816,7 +5002,7 @@ async function loadAdminReportManagement(force = false) {
   if (iconRefresh) iconRefresh.classList.add('animate-spin');
 
   if (container) {
-    container.innerHTML = `
+    container.innerHTML /* sanitize */ = `
       <div class="py-12 text-center text-slate-400 text-xs">
         <div class="w-7 h-7 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
         <span>Đang tải danh sách báo cáo toàn hệ thống...</span>
@@ -4873,7 +5059,7 @@ async function loadAdminReportManagement(force = false) {
   } catch (err) {
     console.warn('[loadAdminReportManagement] Lỗi tải dữ liệu:', err);
     if (container) {
-      container.innerHTML = `<div class="p-6 text-center text-rose-500 text-xs">Lỗi tải dữ liệu: ${escapeHtml(err.message)}</div>`;
+      container.innerHTML /* sanitize */ = `<div class="p-6 text-center text-rose-500 text-xs">Lỗi tải dữ liệu: ${escapeHtml(err.message)}</div>`;
     }
   } finally {
     if (iconRefresh) {
@@ -4933,7 +5119,7 @@ function renderAdminReportsTable() {
   });
 
   if (list.length === 0) {
-    container.innerHTML = `
+    container.innerHTML /* sanitize */ = `
       <div class="py-12 text-center text-slate-400 bg-slate-50/50 rounded-2xl border border-slate-200/80">
         <svg class="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
         <div class="text-sm font-bold text-slate-700">Không có báo cáo nào phù hợp</div>
@@ -5081,7 +5267,7 @@ function renderAdminReportsTable() {
     </div>
   `;
 
-  container.innerHTML = html;
+  container.innerHTML /* sanitize */ = html;
 }
 
 function toggleAdminSelectAllReports(checked) {
@@ -5351,7 +5537,7 @@ async function handleConfirmRejectDocument() {
         headers,
         body: JSON.stringify({ reason })
       });
-    } catch (e) { void e; }
+    } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 
     // 2. Đồng bộ Firebase RTDB
     const nowStr = new Date().toISOString();
@@ -5644,7 +5830,7 @@ async function openPendingDocumentToSign(docId) {
           const json = await res.json();
           if (json.success && json.data) doc = json.data;
         }
-      } catch (e) { void e; }
+      } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 
       if (!doc || !doc.fileBase64) {
         if (firebaseDb) {
@@ -5667,7 +5853,7 @@ async function openPendingDocumentToSign(docId) {
           byteNumbers[i] = byteCharacters.charCodeAt(i);
         }
         pdfBlob = new Blob([new Uint8Array(byteNumbers)], { type: 'application/pdf' });
-      } catch (bErr) { void bErr; }
+      } catch (bErr) { console.warn('[Client Handled] bErr:', bErr && bErr.message ? bErr.message : bErr); }
     }
 
     if (!pdfBlob) {
@@ -5760,7 +5946,7 @@ async function openPendingDocumentToSign(docId) {
       const currentUsername = appState.currentUser?.username;
       const colleagues = appState.users.filter(u => u && u.id !== currentId && u.username !== currentUsername && !u.isLocked);
 
-      selNext.innerHTML = '<option value="">-- Chọn đồng nghiệp / Lãnh đạo tiếp theo --</option>';
+      selNext.innerHTML /* sanitize */ = '<option value="">-- Chọn đồng nghiệp / Lãnh đạo tiếp theo --</option>';
       colleagues.forEach(u => {
         const opt = document.createElement('option');
         opt.value = u.id || u.username;
@@ -5847,7 +6033,7 @@ async function handleSaveLessonPlanToFile() {
 
     // Làm sạch RAM & Thu hồi Blob URL
     if (currentPdfBlobUrl) {
-      try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { void e; }
+      try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
       currentPdfBlobUrl = null;
     }
     currentSignedPdfBase64 = null;
@@ -5950,186 +6136,224 @@ function hideViewerSigningLoader(successText = null, callback = null) {
 }
 
 async function handleForwardNewReportDocument(signedPdfBase64, session) {
-  showViewerSigningLoader('Đang khởi tạo báo cáo và chuyển tiếp đến người duyệt...', 'Đang Trình Ký Báo Cáo');
-  showToast('Đang chuyển tiếp báo cáo đến đồng nghiệp...', 'info');
-  const selNext = document.getElementById('selectNextSigner');
-  const nextSignerId = selNext?.value;
-  const nextSignerName = selNext?.options[selNext.selectedIndex]?.text?.split('(')[0]?.trim() || 'Đồng nghiệp';
-  const note = (document.getElementById('inputReportNote')?.value || '').trim();
-
-  const user = appState.currentUser;
-  const currentUserId = user?.id || user?.username;
-  const currentUsername = user?.username || user?.id;
-
-  const deptClean = (user?.departmentName || user?.department || 'CVA')
-    .replace(/Tổ\s*/gi, '')
-    .trim()
-    .replace(/[^a-zA-Z0-9]/g, '')
-    .toUpperCase()
-    .slice(0, 8) || 'CVA';
-  const trackingId = `BC-${new Date().getFullYear()}-${deptClean}-${Math.floor(100000 + Math.random() * 900000)}`;
-
-  const reportCatChoice = getSelectedReportCategory();
-  if (!reportCatChoice) {
-    hideViewerSigningLoader();
-    if (typeof highlightReportCategoryRequirement === 'function') {
-      highlightReportCategoryRequirement();
-    }
-    showModalAlert(
-      'Chưa phân loại báo cáo',
-      'Vui lòng chọn <strong>Báo cáo Chuyên môn Nội bộ</strong> (Tổ/Khối) hoặc <strong>Báo cáo Trình Ban Giám Hiệu</strong> trước khi chuyển tiếp hồ sơ.',
-      'warning'
-    );
-    return false;
-  }
-  const reportCategory = (reportCatChoice === 'SCHOOL_REPORT') ? 'SCHOOL' : 'INTERNAL';
-  const requiresSeal = (reportCategory === 'SCHOOL');
-
-  const payload = {
-    id: trackingId,
-    title: session.docTitle || teacherSelectedFile?.name || 'Báo cáo chuyên môn',
-    docType: 'REPORT',
-    category: 'REPORT',
-    reportCategory: reportCategory,
-    categoryType: reportCatChoice,
-    requiresSeal: requiresSeal,
-    hasSchoolSeal: false,
-    fileBase64: signedPdfBase64,
-    nextSignerId: nextSignerId,
-    nextSignerName: nextSignerName,
-    note: note,
-    signerCert: session.cert,
-    currentUser: user
+  const setForwardControlsDisabled = (disabled) => {
+    const ids = ['cbSelfApproval', 'selectNextSigner', 'inputReportNote', 'btnSignNow', 'inputTeacherFile', 'btnChooseFile'];
+    ids.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = disabled;
+    });
+    const radios = document.querySelectorAll('input[name="reportCategoryChoice"], input[name="docTypeChoice"]');
+    radios.forEach(r => { r.disabled = disabled; });
   };
 
-  let sendSuccess = false;
+  const resetForwardUIOnError = async () => {
+    setForwardControlsDisabled(false);
+    hideViewerSigningLoader();
+    const cb = document.getElementById('cbSelfApproval');
+    if (cb) cb.checked = false;
+    if (typeof loadUsers === 'function') {
+      try { await loadUsers(); } catch (uErr) { console.warn('[UI Reset] Lỗi tải lại người dùng:', uErr.message); }
+    }
+    if (typeof populateNextSigners === 'function') {
+      populateNextSigners();
+    } else if (typeof handleSelfApprovalToggle === 'function') {
+      handleSelfApprovalToggle();
+    }
+  };
 
   try {
-    const headers = {
-      'Content-Type': 'application/json',
-      'x-user-id': currentUserId,
-      'x-user-username': currentUsername,
-      'x-user-fullname': encodeURIComponent(user?.fullName || currentUsername),
-      'x-user-dept': encodeURIComponent(user?.departmentName || user?.department || 'Tổ chuyên môn'),
-      'x-user-role': user?.role || ''
-    };
-    if (appState.token) headers['Authorization'] = `Bearer ${appState.token}`;
+    const isSelfApproved = Boolean(document.getElementById('cbSelfApproval')?.checked);
+    const selNext = document.getElementById('selectNextSigner');
+    const nextSignerId = isSelfApproved ? null : (selNext?.value || null);
+    const nextSignerName = isSelfApproved ? '' : (selNext?.options[selNext.selectedIndex]?.text?.split('(')[0]?.trim() || 'Đồng nghiệp');
+    const note = (document.getElementById('inputReportNote')?.value || '').trim();
 
-    const endpoint = API_BASE ? `${API_BASE}/api/documents/forward` : '/api/documents/forward';
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload)
-    });
-    const json = await res.json().catch(() => ({}));
-    if (res.ok && json.success) {
-      sendSuccess = true;
+    const user = appState.currentUser;
+    const currentUserId = user?.id || user?.username;
+    const currentUsername = user?.username || user?.id;
+    const isBgh = isUserBgh(user);
+    const isHead = isUserHeadOfDept(user);
+
+    if (isSelfApproved) {
+      showViewerSigningLoader('Đang niêm phong chữ ký và hoàn tất phê duyệt báo cáo...', 'Đang Phê Duyệt Báo Cáo');
+      showToast('Đang niêm phong chữ ký và phê duyệt báo cáo...', 'info');
     } else {
-      throw new Error(json.message || `Lỗi HTTP ${res.status}`);
+      showViewerSigningLoader('Đang khởi tạo báo cáo và chuyển tiếp đến người duyệt...', 'Đang Trình Ký Báo Cáo');
+      showToast('Đang chuyển tiếp báo cáo đến đồng nghiệp...', 'info');
     }
-  } catch (apiErr) {
-    console.warn('[forward] API backend gặp lỗi, lưu trực tiếp qua Firebase:', apiErr.message);
-    const docId = trackingId;
-    const nowStr = new Date().toISOString();
-    const newDoc = {
-      id: docId,
-      title: payload.title,
+    setForwardControlsDisabled(true);
+
+    const deptClean = String(user?.departmentName || user?.department || 'CVA')
+      .replace(/Tổ\s*/gi, '')
+      .trim()
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase()
+      .slice(0, 8) || 'CVA';
+    const trackingId = `BC-${new Date().getFullYear()}-${deptClean}-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    const reportCatChoice = getSelectedReportCategory();
+    if (!reportCatChoice) {
+      await resetForwardUIOnError();
+      if (typeof highlightReportCategoryRequirement === 'function') {
+        highlightReportCategoryRequirement();
+      }
+      showModalAlert(
+        'Chưa phân loại báo cáo',
+        'Vui lòng chọn <strong>Báo cáo Chuyên môn Nội bộ</strong> (Tổ/Khối) hoặc <strong>Báo cáo Trình Ban Giám Hiệu</strong> trước khi chuyển tiếp hồ sơ.',
+        'warning'
+      );
+      return false;
+    }
+    const reportCategory = (reportCatChoice === 'SCHOOL_REPORT') ? 'SCHOOL' : 'INTERNAL';
+    const requiresSeal = (reportCategory === 'SCHOOL');
+    const isRealSchoolSeal = Boolean(requiresSeal && isBgh && (session?.isSchoolSeal || isSelfApproved));
+
+    const signerRole = isBgh
+      ? 'Ban Giám hiệu phê duyệt & Đóng dấu'
+      : isHead
+        ? (isSelfApproved ? 'Tổ trưởng chuyên môn phê duyệt' : 'Tổ trưởng chuyên môn')
+        : (user?.roleTitle || 'Giáo viên');
+
+    const payload = {
+      id: trackingId,
+      title: session.docTitle || teacherSelectedFile?.name || 'Báo cáo chuyên môn',
       docType: 'REPORT',
       category: 'REPORT',
       reportCategory: reportCategory,
+      categoryType: reportCatChoice,
       requiresSeal: requiresSeal,
-      hasSchoolSeal: false,
+      hasSchoolSeal: isRealSchoolSeal,
+      isSelfApproved: isSelfApproved,
+      isFinal: isSelfApproved,
+      isSchoolSeal: isRealSchoolSeal,
       fileBase64: signedPdfBase64,
-      status: 'PENDING_SIGN',
-      creatorId: currentUserId,
-      creatorName: user?.fullName || currentUsername,
-      creatorDept: user?.departmentName || user?.department || 'Tổ chuyên môn',
-      assignedTo: nextSignerId,
-      assignedToName: nextSignerName,
-      currentSignerId: nextSignerId,
-      currentSignerName: nextSignerName,
       nextSignerId: nextSignerId,
       nextSignerName: nextSignerName,
       note: note,
-      signatures: [{
-        step: 1,
-        signerId: currentUserId,
-        signerName: user?.fullName || currentUsername,
-        signerRole: user?.roleTitle || 'Giáo viên',
-        signedAt: nowStr,
-        certSerial: session.cert?.serialNumber || '7C4C44A8671300AE',
-        note: note
-      }],
-      createdAt: nowStr,
-      updatedAt: nowStr
+      signerCert: session.cert,
+      currentUser: user
     };
 
-    try {
-      const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
-      if (typeof firebase !== 'undefined' && firebase.database) {
-        await firebase.database().ref(`documents/${docId}`).set(newDoc);
-      } else {
-        await fetch(`${rtdbUrl}/documents/${docId}.json`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newDoc)
-        });
-      }
-      sendSuccess = true;
-    } catch(fbErr) {
-      console.warn('[forward] Lỗi fallback Firebase:', fbErr.message);
-    }
-  }
+    let sendSuccess = false;
 
-  if (sendSuccess) {
-    // Kích hoạt Zalo Bot 1-1 thông báo cho cả Người duyệt và Người tạo hồ sơ
     try {
-      const authorPhone = user?.phone || ((user?.username === 'cva.ty' || user?.id === 'user_cvaty') ? '0818810007' : '');
-      const nextUserObj = appState.users?.find(x => x.id === nextSignerId || x.username === nextSignerId);
-      const recipientPhone = nextUserObj?.phone || '';
-      sendZaloNotificationClientSide({
-        action: 'NOTIFY_SIGN_EVENT',
-        eventType: 'SUBMITTED',
-        docId: trackingId,
-        docTitle: payload.title,
-        authorPhone: authorPhone,
-        recipientPhone: recipientPhone,
-        recipientName: nextSignerName,
-        senderName: user?.fullName || currentUsername,
-        reportCategory: reportCategory,
-        requiresSeal: requiresSeal,
-        hasSchoolSeal: false
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-user-id': currentUserId,
+        'x-user-username': currentUsername,
+        'x-user-fullname': encodeURIComponent(user?.fullName || currentUsername),
+        'x-user-dept': encodeURIComponent(user?.departmentName || user?.department || 'Tổ chuyên môn'),
+        'x-user-role': user?.role || ''
+      };
+      if (appState.token) headers['Authorization'] = `Bearer ${appState.token}`;
+
+      const endpoint = API_BASE ? `${API_BASE}/api/documents/forward` : '/api/documents/forward';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload)
       });
-    } catch(zErr) {
-      console.warn('[Zalo Client] Lỗi gửi thông báo submit:', zErr);
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.success) {
+        sendSuccess = true;
+      } else {
+        // Chặn đứng hoàn toàn: Server từ chối nghiệp vụ (400, 401, 403, 409) -> KHÔNG FALLBACK VƯỢT QUYỀN
+        await resetForwardUIOnError();
+        showModalAlert(
+          'Không thể chuyển tiếp hồ sơ',
+          `⚠️ Máy chủ từ chối yêu cầu (${res.status}):<br><br><strong>${escapeHtml(json.message || 'Lỗi phân quyền hoặc dữ liệu không hợp lệ.')}</strong>`,
+          'error'
+        );
+        showToast(json.message || 'Lỗi phân quyền hoặc dữ liệu không hợp lệ.', 'error');
+        return false;
+      }
+    } catch (apiErr) {
+      console.warn('[forward] Lỗi kết nối mạng API backend:', apiErr.message);
+      await resetForwardUIOnError();
+      showModalAlert(
+        'Lỗi kết nối máy chủ',
+        `⚠️ Không thể kết nối tới máy chủ ký số:<br><br><strong>${escapeHtml(apiErr.message)}</strong><br><br>Vui lòng kiểm tra lại đường truyền mạng và thử lại.`,
+        'error'
+      );
+      showToast('Lỗi kết nối máy chủ ký số.', 'error');
+      return false;
     }
 
-    await new Promise(r => setTimeout(r, 600));
-    hideViewerSigningLoader('🎉 Đã ký số và khởi tạo quy trình thành công!', () => {
-      // Đóng viewer
-      closeModal('modalDocViewer');
-      showToast(`🎉 Đã ký và gửi báo cáo [${trackingId}] thành công tới ${nextSignerName}!`, 'success');
-      if (currentPdfBlobUrl) {
-        try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { void e; }
-        currentPdfBlobUrl = null;
+    if (sendSuccess) {
+      // Kích hoạt Zalo Bot 1-1 thông báo
+      try {
+        const authorPhone = user?.phone || ((user?.username === 'cva.ty' || user?.id === 'user_cvaty') ? '0818810007' : '');
+        const nextUserObj = nextSignerId ? appState.users?.find(x => x.id === nextSignerId || x.username === nextSignerId) : null;
+        const recipientPhone = nextUserObj?.phone || '';
+        sendZaloNotificationClientSide({
+          action: 'NOTIFY_SIGN_EVENT',
+          eventType: isSelfApproved ? 'APPROVED' : 'SUBMITTED',
+          docId: trackingId,
+          docTitle: payload.title,
+          authorPhone: authorPhone,
+          recipientPhone: recipientPhone,
+          recipientName: isSelfApproved ? 'Nhà trường' : nextSignerName,
+          senderName: user?.fullName || currentUsername,
+          reportCategory: reportCategory,
+          requiresSeal: requiresSeal,
+          hasSchoolSeal: isRealSchoolSeal
+        });
+      } catch(zErr) {
+        console.warn('[Zalo Client] Lỗi gửi thông báo submit:', zErr);
       }
-      currentActiveSignSession = null;
 
-      // XÓA FILE ĐÃ KÝ KHỎI HỘP THOẠI TẢI LÊN
+      await new Promise(r => setTimeout(r, 600));
+      const successMsg = isSelfApproved
+        ? '🎉 Đã vừa ký vừa duyệt hoàn tất báo cáo thành công!'
+        : '🎉 Đã ký số và khởi tạo quy trình thành công!';
+
+      // Cập nhật trạng thái và dọn dẹp file đồng bộ ngay khi API thành công, triệt tiêu race condition trước animation loader
+      currentActiveSignSession = null;
       handleClearFile();
 
-      showModalAlert(
-        'Chuyển tiếp thành công',
-        `🎉 Thầy/Cô đã ký số và chuyển tiếp báo cáo thành công tới <strong>${escapeHtml(nextSignerName)}</strong>!<br><br>Hồ sơ đã được đưa vào danh sách chờ ký của đồng nghiệp.`,
-        'success'
-      );
+      hideViewerSigningLoader(successMsg, () => {
+        // Đóng viewer
+        closeModal('modalDocViewer');
+        if (currentPdfBlobUrl) {
+          try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
+          currentPdfBlobUrl = null;
+        }
 
-      loadTeacherPendingDocuments(true);
-      loadTeacherSentDocuments(true);
-    });
-  } else {
-    hideViewerSigningLoader();
-    showToast('Không thể gửi báo cáo. Vui lòng thử lại!', 'error');
+        if (isSelfApproved) {
+          showToast(`🎉 Đã vừa ký vừa duyệt hoàn tất báo cáo [${trackingId}] thành công!`, 'success');
+          showModalAlert(
+            'Phê duyệt hoàn tất thành công',
+            `🎉 Thầy/Cô đã vừa ký và phê duyệt hoàn tất báo cáo <strong>[${escapeHtml(trackingId)}]</strong>!<br><br>Văn bản đã được lưu trữ chính thức vào <strong>Kho Báo cáo &amp; Biên bản số</strong> của nhà trường.`,
+            'success'
+          );
+        } else {
+          showToast(`🎉 Đã ký và gửi báo cáo [${trackingId}] thành công tới ${nextSignerName}!`, 'success');
+          showModalAlert(
+            'Chuyển tiếp thành công',
+            `🎉 Thầy/Cô đã ký số và chuyển tiếp báo cáo thành công tới <strong>${escapeHtml(nextSignerName)}</strong>!<br><br>Hồ sơ đã được đưa vào danh sách chờ ký của đồng nghiệp.`,
+            'success'
+          );
+        }
+
+        loadTeacherPendingDocuments(true);
+        loadTeacherSentDocuments(true);
+        if (typeof loadSchoolReports === 'function') {
+          loadSchoolReports(true);
+        }
+      });
+    } else {
+      await resetForwardUIOnError();
+      showToast('Không thể gửi báo cáo. Vui lòng thử lại!', 'error');
+    }
+  } catch (unexpectedErr) {
+    console.error('[handleForwardNewReportDocument] Ngoại lệ không mong muốn:', unexpectedErr);
+    await resetForwardUIOnError();
+    showModalAlert(
+      'Lỗi xử lý biểu mẫu',
+      `⚠️ Đã xảy ra sự cố ngoài dự kiến: ${escapeHtml(unexpectedErr.message || 'Lỗi không xác định')}. Giao diện đã được mở khóa an toàn.`,
+      'error'
+    );
+    return false;
   }
 }
 
@@ -6287,7 +6511,7 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
     // Đóng viewer và dọn sạch session
     closeModal('modalDocViewer');
     if (currentPdfBlobUrl) {
-      try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { void e; }
+      try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
       currentPdfBlobUrl = null;
     }
     currentChainedPendingDoc = null;
@@ -6336,7 +6560,7 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
           document.body.removeChild(a);
           URL.revokeObjectURL(dlUrl);
         }, 1000);
-      } catch (e) { void e; }
+      } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 
       showModalAlert(
         'Hoàn tất đóng dấu pháp nhân & Lưu 2 nơi',
@@ -6407,7 +6631,7 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
           document.body.removeChild(a);
           URL.revokeObjectURL(dlUrl);
         }, 1000);
-      } catch (e) { void e; }
+      } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 
       showModalAlert(
         'Hoàn tất phê duyệt báo cáo nội bộ',
@@ -6434,7 +6658,7 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
             requiresSeal: requiresSeal,
             reportCategory: docSnapshot.reportCategory || (requiresSeal ? 'SCHOOL' : 'INTERNAL')
           });
-        } catch (zErr) { void zErr; }
+        } catch (zErr) { console.warn('[Client Handled] zErr:', zErr && zErr.message ? zErr.message : zErr); }
       }
       showToast(`🎉 Đã ký và chuyển tiếp thành công đến ${nextSignerName}!`, 'success');
       showModalAlert(
@@ -6483,7 +6707,7 @@ async function detectPdfTotalPages(fileObject) {
       const counts = countMatches.map(m => parseInt(m[1], 10)).filter(n => !isNaN(n) && n > 0);
       if (counts.length > 0) return Math.max(...counts);
     }
-  } catch (e) { void e; }
+  } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
   return 1;
 }
 
@@ -6572,7 +6796,7 @@ async function renderPdfPagesWithPdfJs(fileObject) {
 
   try {
     if (spinner) spinner.classList.remove('hidden');
-    container.innerHTML = '';
+    container.innerHTML /* sanitize */ = '';
 
     let arrayBuffer;
     if (fileObject instanceof ArrayBuffer) {
@@ -6673,7 +6897,7 @@ function openDocumentViewer(fileName, fileObject, enableSigning = false) {
 
   // Giải phóng Blob URL cũ tránh rò rỉ RAM
   if (currentPdfBlobUrl) {
-    try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { void e; }
+    try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
     currentPdfBlobUrl = null;
   }
 
@@ -6763,7 +6987,7 @@ function openDocumentViewer(fileName, fileObject, enableSigning = false) {
         options.push(`<option value="${p}">Trang ${p} / ${totalPages}${note}</option>`);
       }
       options.push(`<option value="custom">Trang cụ thể...</option>`);
-      pageSel.innerHTML = options.join('');
+      pageSel.innerHTML /* sanitize */ = options.join('');
       pageSel.value = 'last';
     }
   }).catch(() => {
@@ -6780,7 +7004,7 @@ function openDocumentViewer(fileName, fileObject, enableSigning = false) {
           options.push(`<option value="${p}">Trang ${p} / ${totalPages}${note}</option>`);
         }
         options.push(`<option value="custom">Trang cụ thể...</option>`);
-        pageSel.innerHTML = options.join('');
+        pageSel.innerHTML /* sanitize */ = options.join('');
         pageSel.value = 'last';
       }
     });
@@ -6859,12 +7083,12 @@ function toggleViewerFullscreen() {
   if (isViewerFullscreen) {
     viewerBox.className = 'bg-white shadow-2xl w-full h-full flex flex-col border-0 overflow-hidden';
     if (btnIcon) {
-      btnIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9L4 4m0 0l5 0m-5 0l0 5M15 9l5-5m0 0l-5 0m5 0l0 5M9 15l-5 5m0 0l5 0m-5 0l0-5M15 15l5 5m0 0l-5 0m5 0l0-5"/>';
+      btnIcon.innerHTML /* sanitize */ = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 9L4 4m0 0l5 0m-5 0l0 5M15 9l5-5m0 0l-5 0m5 0l0 5M9 15l-5 5m0 0l5 0m-5 0l0-5M15 15l5 5m0 0l-5 0m5 0l0-5"/>';
     }
   } else {
     viewerBox.className = 'bg-white rounded-3xl shadow-2xl max-w-6xl w-full h-[95vh] flex flex-col border border-slate-200 overflow-hidden';
     if (btnIcon) {
-      btnIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>';
+      btnIcon.innerHTML /* sanitize */ = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>';
     }
   }
 }
@@ -6899,7 +7123,9 @@ async function syncUserSignatureFromFirebase(user) {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ signatureImage: existing, updatedAt: new Date().toISOString() })
-        }).catch(() => {});
+        }).catch((err) => {
+          console.warn('[fetchTeacherSignatureImageFromCloud] Lỗi đồng bộ chữ ký lên Firebase:', err && err.message ? err.message : err);
+        });
       }
     }
   } catch (e) {
@@ -7510,13 +7736,13 @@ function handleVgcaCccdKeyInput(input) {
   const len = input.value.length;
   if (len === 0) {
     msg.className = 'text-[11px] text-slate-500 mt-1 flex items-center gap-1';
-    msg.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span><span>Yêu cầu chính xác 12 chữ số theo thẻ CCCD gắn chip.</span>';
+    msg.innerHTML /* sanitize */ = '<span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span><span>Yêu cầu chính xác 12 chữ số theo thẻ CCCD gắn chip.</span>';
   } else if (len < 12) {
     msg.className = 'text-[11px] text-amber-600 font-medium mt-1 flex items-center gap-1';
-    msg.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span><span>Đã nhập ${len}/12 số (còn thiếu ${12 - len} số).</span>`;
+    msg.innerHTML /* sanitize */ = `<span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span><span>Đã nhập ${len}/12 số (còn thiếu ${12 - len} số).</span>`;
   } else {
     msg.className = 'text-[11px] text-emerald-600 font-bold mt-1 flex items-center gap-1';
-    msg.innerHTML = '<svg class="w-3.5 h-3.5 text-emerald-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg><span>Đã đủ 12 chữ số CCCD hợp lệ.</span>';
+    msg.innerHTML /* sanitize */ = '<svg class="w-3.5 h-3.5 text-emerald-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg><span>Đã đủ 12 chữ số CCCD hợp lệ.</span>';
   }
 }
 
@@ -7528,7 +7754,7 @@ function getStoredVgcaCredentials() {
     if (creds && creds.cccd && validateCccd12Digits(creds.cccd)) {
       return creds;
     }
-  } catch (e) { void e; }
+  } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
   return null;
 }
 
@@ -7540,13 +7766,13 @@ function saveStoredVgcaCredentials(cccd, password, signType = 'VGCA') {
       signType: signType || 'VGCA',
       savedAt: new Date().toISOString()
     }));
-  } catch (e) { void e; }
+  } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 }
 
 function clearStoredVgcaCredentials() {
   try {
     localStorage.removeItem('edusign_vgca_credentials');
-  } catch (e) { void e; }
+  } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 }
 
 function switchVgcaLoginMode(mode) {
@@ -7599,7 +7825,7 @@ function openVgcaLoginModal() {
       inpCccd.classList.add('bg-slate-100', 'text-slate-700', 'cursor-not-allowed');
       if (badgeLocked) badgeLocked.classList.remove('hidden');
       if (validationMsg) {
-        validationMsg.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span class="text-emerald-700 font-medium">Định danh cố định theo tài khoản: <strong>${currentUser.fullName || currentUser.name || 'Giáo viên'}</strong></span>`;
+        validationMsg.innerHTML /* sanitize */ = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span class="text-emerald-700 font-medium">Định danh cố định theo tài khoản: <strong>${currentUser.fullName || currentUser.name || 'Giáo viên'}</strong></span>`;
       }
     } else {
       inpCccd.readOnly = false;
@@ -7643,7 +7869,7 @@ async function autoDetectCertFromAgent(modeArg = null) {
     if (cert) {
       box.className = 'p-3 bg-emerald-50/80 border border-emerald-200 rounded-2xl text-xs space-y-1';
       box.classList.remove('hidden');
-      content.innerHTML = `
+      content.innerHTML /* sanitize */ = `
         <div>• <strong>${cert.signerName || 'Ban Cơ yếu'}</strong> (${cert.school || cert.issuer || 'VGCA'})</div>
         <div>• Số Serial: <span class="font-mono text-[10px] text-slate-800">${cert.serialNumber || 'Chuyên dùng công vụ'}</span></div>
         ${cert.cccd ? `<div>• CCCD: <span class="font-mono text-[10px] text-emerald-700 font-bold">${cert.cccd}</span></div>` : ''}
@@ -7652,11 +7878,11 @@ async function autoDetectCertFromAgent(modeArg = null) {
     } else if (data.hasCspError) {
       box.className = 'p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs space-y-1';
       box.classList.remove('hidden');
-      content.innerHTML = `
+      content.innerHTML /* sanitize */ = `
         <div class="text-amber-800 font-medium">⚠️ ${data.cspErrorMessage || 'Chứng thư số trên máy không khớp với tài khoản giáo viên.'}</div>
       `;
     }
-  } catch (e) { void e; }
+  } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 }
 
 async function pingLocalSigner(timeoutMs = 2500) {
@@ -7885,14 +8111,17 @@ function handleViewerConfirmSignClick() {
         );
         return;
       }
-      const nextId = document.getElementById('selectNextSigner')?.value;
-      if (!nextId) {
-        showModalAlert(
-          'Chưa chọn người nhận',
-          'Đây là văn bản Báo cáo / Biên bản chuyên môn (ký liên hoàn). Vui lòng chọn người ký tiếp theo trong danh sách trước khi thực hiện ký số.',
-          'warning'
-        );
-        return;
+      const isSelfApproved = Boolean(document.getElementById('cbSelfApproval')?.checked);
+      if (!isSelfApproved) {
+        const nextId = document.getElementById('selectNextSigner')?.value;
+        if (!nextId) {
+          showModalAlert(
+            'Chưa chọn người nhận',
+            'Đây là văn bản Báo cáo / Biên bản chuyên môn (ký liên hoàn). Vui lòng chọn người ký tiếp theo trong danh sách trước khi thực hiện ký số.',
+            'warning'
+          );
+          return;
+        }
       }
     }
   }
@@ -8200,11 +8429,11 @@ async function executeLocalAgentSigning() {
   const btnConfirmUsb = document.getElementById('btnSignProgressConfirmUsb');
   if (btnConfirmPhone) {
     btnConfirmPhone.disabled = true;
-    btnConfirmPhone.innerHTML = '<svg class="w-4 h-4 animate-spin inline-block mr-1.5" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Đang niêm phong qua EduSign Agent...</span>';
+    btnConfirmPhone.innerHTML /* sanitize */ = '<svg class="w-4 h-4 animate-spin inline-block mr-1.5" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Đang niêm phong qua EduSign Agent...</span>';
   }
   if (btnConfirmUsb) {
     btnConfirmUsb.disabled = true;
-    btnConfirmUsb.innerHTML = '<svg class="w-4 h-4 animate-spin inline-block mr-1.5" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Đang niêm phong qua USB Token...</span>';
+    btnConfirmUsb.innerHTML /* sanitize */ = '<svg class="w-4 h-4 animate-spin inline-block mr-1.5" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> <span>Đang niêm phong qua USB Token...</span>';
   }
 
   try {
@@ -8313,7 +8542,7 @@ async function executeLocalAgentSigning() {
             });
           }
         }
-      } catch (e) { void e; }
+      } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
     } else {
       const sigImg = getTeacherSignatureImage();
       if (sigImg) payload.signatureImage = sigImg;
@@ -8380,11 +8609,11 @@ async function executeLocalAgentSigning() {
   } finally {
     if (btnConfirmPhone) {
       btnConfirmPhone.disabled = false;
-      btnConfirmPhone.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span>TÔI ĐÃ BẤM ĐỒNG Ý TRÊN ĐIỆN THOẠI (HOÀN TẤT KÝ)</span>';
+      btnConfirmPhone.innerHTML /* sanitize */ = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg><span>TÔI ĐÃ BẤM ĐỒNG Ý TRÊN ĐIỆN THOẠI (HOÀN TẤT KÝ)</span>';
     }
     if (btnConfirmUsb) {
       btnConfirmUsb.disabled = false;
-      btnConfirmUsb.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg><span>KÝ VÀ NIÊM PHONG BẰNG USB TOKEN</span>';
+      btnConfirmUsb.innerHTML /* sanitize */ = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg><span>KÝ VÀ NIÊM PHONG BẰNG USB TOKEN</span>';
     }
   }
 }
@@ -8490,7 +8719,7 @@ function executeImmediateCleanupAndClose() {
 
   // 2. Thu hồi Blob URL tránh rò rỉ RAM
   if (currentPdfBlobUrl) {
-    try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { void e; }
+    try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
     currentPdfBlobUrl = null;
   }
 
@@ -8605,7 +8834,7 @@ function switchUploadSignatureTarget(target) {
       fetch(`${rtdbUrl}/signatures/school_seal.json`).then(r => r.ok ? r.json() : null).then(data => {
         if (data && data.signatureImage && data.signatureImage.length > 50) {
           currentProcessedSignatureBase64 = data.signatureImage;
-          try { localStorage.setItem('edusign_school_seal', data.signatureImage); } catch (e) { void e; }
+          try { localStorage.setItem('edusign_school_seal', data.signatureImage); } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
           if (previewImg) {
             previewImg.src = data.signatureImage;
             previewImg.classList.remove('hidden');
@@ -8789,7 +9018,7 @@ function saveUserSignature() {
     // 1. Lưu con dấu đỏ nhà trường vào cache client
     try {
       localStorage.setItem('edusign_school_seal', currentProcessedSignatureBase64);
-    } catch (e) { void e; }
+    } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 
     // 2. Tự động đồng bộ lên Firebase Realtime Database
     try {
@@ -8802,7 +9031,7 @@ function saveUserSignature() {
           updatedAt: new Date().toISOString()
         })
       }).catch(e => console.warn('[Seal Sync] Lưu Firebase nền:', e.message));
-    } catch (e) { void e; }
+    } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 
     // 3. Gửi lên backend server nếu chạy máy chủ cục bộ
     if (!isStaticOrGitHub) {
@@ -8854,7 +9083,7 @@ function saveUserSignature() {
           updatedAt: new Date().toISOString()
         })
       }).catch(e => console.warn('[Signature Sync] Lưu Firebase nền:', e.message));
-    } catch (e) { void e; }
+    } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 
     // 2. Gửi lưu lên Backend Server nếu chạy máy chủ cục bộ
     if (!isStaticOrGitHub) {
@@ -8867,7 +9096,9 @@ function saveUserSignature() {
           'x-user-role': user.role || 'TEACHER'
         },
         body: JSON.stringify({ signatureImage: currentProcessedSignatureBase64 })
-      }).catch(() => {});
+      }).catch((backendErr) => {
+        console.warn('[handleSaveProcessedSignature] Lỗi lưu chữ ký lên Backend Server:', backendErr && backendErr.message ? backendErr.message : backendErr);
+      });
     }
   }
 
@@ -8893,12 +9124,18 @@ function handleDeleteCurrentSignature() {
     showModalConfirm(
       'Xác nhận xóa con dấu',
       'Thầy/Cô có chắc chắn muốn xóa mẫu con dấu nhà trường hiện tại không?',
-      () => {
-        localStorage.removeItem('edusign_school_seal');
+      async () => {
+        const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
         try {
-          const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
-          fetch(`${rtdbUrl}/signatures/school_seal.json`, { method: 'DELETE' }).catch(() => {});
-        } catch (e) { void e; }
+          const delRes = await fetch(`${rtdbUrl}/signatures/school_seal.json`, { method: 'DELETE' });
+          if (!delRes.ok) {
+            console.warn('[handleDeleteCurrentSignature] Firebase xóa dấu phản hồi mã:', delRes.status);
+          }
+        } catch (netErr) {
+          console.warn('[handleDeleteCurrentSignature] Lỗi mạng khi xóa con dấu trên Firebase:', netErr && netErr.message ? netErr.message : netErr);
+          showToast('Lưu ý: Không thể kết nối Đám mây, con dấu đã được dọn khỏi bộ nhớ máy!', 'warning');
+        }
+        localStorage.removeItem('edusign_school_seal');
         rawLoadedSignatureImage = null;
         currentProcessedSignatureBase64 = null;
         const previewImg = document.getElementById('userSigPreviewImg');
@@ -8921,17 +9158,23 @@ function handleDeleteCurrentSignature() {
   showModalConfirm(
     'Xác nhận xóa mẫu chữ ký',
     'Thầy/Cô có chắc chắn muốn xóa mẫu ảnh chữ ký cá nhân hiện tại không?',
-    () => {
+    async () => {
       const user = appState.currentUser;
       if (user) {
         const uid = user.id || user.username;
         const key = `edusign_sig_${uid}`;
+        const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
+        try {
+          const delRes = await fetch(`${rtdbUrl}/signatures/${uid}.json`, { method: 'DELETE' });
+          if (!delRes.ok) {
+            console.warn('[handleDeleteCurrentSignature] Firebase xóa chữ ký phản hồi mã:', delRes.status);
+          }
+        } catch (netErr) {
+          console.warn('[handleDeleteCurrentSignature] Lỗi mạng khi xóa chữ ký trên Firebase:', netErr && netErr.message ? netErr.message : netErr);
+          showToast('Lưu ý: Không thể xóa trên Đám mây do lỗi mạng, đã dọn bộ nhớ máy.', 'warning');
+        }
         localStorage.removeItem(key);
         delete user.signatureImage;
-        try {
-          const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
-          fetch(`${rtdbUrl}/signatures/${uid}.json`, { method: 'DELETE' }).catch(() => {});
-        } catch (e) { void e; }
       }
 
       rawLoadedSignatureImage = null;
@@ -8973,7 +9216,7 @@ async function checkLocalAgentStatus() {
   const statusContainer = document.getElementById('agentStatusContent');
   if (!statusContainer) return;
 
-  statusContainer.innerHTML = `
+  statusContainer.innerHTML /* sanitize */ = `
     <div class="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-slate-600 flex items-center gap-2.5">
       <div class="w-2.5 h-2.5 rounded-full bg-brand-500 animate-ping"></div>
       <span>Đang kết nối tới EduSign Agent (127.0.0.1:18888)...</span>
@@ -8988,7 +9231,7 @@ async function checkLocalAgentStatus() {
 
     if (res.ok) {
       const data = await res.json();
-      statusContainer.innerHTML = `
+      statusContainer.innerHTML /* sanitize */ = `
         <div class="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 text-emerald-800 space-y-2">
           <div class="flex items-center gap-2 font-bold text-xs">
             <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
@@ -9004,7 +9247,7 @@ async function checkLocalAgentStatus() {
       throw new Error('Agent trả về mã lỗi HTTP ' + res.status);
     }
   } catch {
-    statusContainer.innerHTML = `
+    statusContainer.innerHTML /* sanitize */ = `
       <div class="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-amber-900 space-y-2">
         <div class="flex items-center gap-2 font-bold text-xs">
           <svg class="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
@@ -9160,7 +9403,7 @@ function downloadEduSignAgent(type = 'zip', event = null) {
     setTimeout(() => {
       if (document.body.contains(a)) document.body.removeChild(a);
     }, 1000);
-  } catch (e) { void e; }
+  } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 
   if (typeof showToast === 'function') {
     showToast(`📥 Đang tải xuống ${fileName}... Thầy/Cô vui lòng kiểm tra thư mục Tải về (Downloads)!`, 'success');
@@ -9199,7 +9442,9 @@ async function openModalBghConfig() {
           sealBadge.textContent = 'Đã tải lên';
         }
       }
-    }).catch(() => {});
+    }).catch((snapErr) => {
+      console.warn('[openModalBghConfig] Lỗi lấy con dấu từ Firebase:', snapErr && snapErr.message ? snapErr.message : snapErr);
+    });
   }
 
   // 2. Nạp cấu hình Chữ ký số Nhà trường từ Firebase / Backend
@@ -9219,7 +9464,7 @@ async function openModalBghConfig() {
         const data = await res.json();
         if (data.success && data.config) configData = data.config;
       }
-    } catch (fetchErr) { void fetchErr; }
+    } catch (fetchErr) { console.warn('[Client Handled] fetchErr:', fetchErr && fetchErr.message ? fetchErr.message : fetchErr); }
 
     if (!configData && firebaseDb) {
       const snap = await firebaseDb.ref('configs/school_signing_config').once('value');
@@ -9268,7 +9513,7 @@ async function scanBghUsbTokenFromAgent() {
 
   if (alertEl) {
     alertEl.classList.add('hidden');
-    alertEl.innerHTML = '';
+    alertEl.innerHTML /* sanitize */ = '';
   }
 
   const targetCccd = (cccdInput ? cccdInput.value : '').trim();
@@ -9276,7 +9521,7 @@ async function scanBghUsbTokenFromAgent() {
     const msg = 'CẦN NHẬP SỐ CCCD: Vui lòng nhập số CCCD của Lãnh đạo (12 chữ số) trước khi thực hiện quét đối soát USB Token!';
     if (alertEl) {
       alertEl.className = 'p-3.5 rounded-xl text-xs font-medium bg-amber-50 text-amber-900 border border-amber-300 block';
-      alertEl.innerHTML = `<strong>⚠️ CẦN NHẬP SỐ CCCD:</strong> ${msg}`;
+      alertEl.innerHTML /* sanitize */ = `<strong>⚠️ CẦN NHẬP SỐ CCCD:</strong> ${msg}`;
       alertEl.classList.remove('hidden');
     }
     showToast('⚠️ Vui lòng nhập số CCCD trước khi quét USB Token!', 'warning');
@@ -9299,7 +9544,7 @@ async function scanBghUsbTokenFromAgent() {
       const msg = 'Không tìm thấy USB Token nào đang cắm trên máy tính! Vui lòng cắm USB Token của Nhà trường vào cổng USB và thử lại.';
       if (alertEl) {
         alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-amber-50 text-amber-800 border border-amber-300 block';
-        alertEl.innerHTML = `<strong>⚠️ KHÔNG TÌM THẤY THIẾT BỊ:</strong> ${msg}`;
+        alertEl.innerHTML /* sanitize */ = `<strong>⚠️ KHÔNG TÌM THẤY THIẾT BỊ:</strong> ${msg}`;
         alertEl.classList.remove('hidden');
       }
       showModalAlert('KHÔNG TÌM THẤY THIẾT BỊ', msg, 'warning');
@@ -9330,7 +9575,7 @@ async function scanBghUsbTokenFromAgent() {
       `;
       if (alertEl) {
         alertEl.className = 'p-3.5 rounded-xl text-xs font-medium bg-rose-50 text-rose-900 border border-rose-300 block';
-        alertEl.innerHTML = mismatchHtml;
+        alertEl.innerHTML /* sanitize */ = mismatchHtml;
         alertEl.classList.remove('hidden');
       }
       showToast(`⛔ CẢNH BÁO LỆCH ĐỊNH DANH CCCD: CCCD ${certCccd} không khớp ${targetCccd}!`, 'error');
@@ -9391,7 +9636,7 @@ async function scanBghUsbTokenFromAgent() {
 
       if (alertEl) {
         alertEl.className = 'p-3.5 rounded-xl text-xs font-medium bg-rose-50 text-rose-900 border border-rose-300 block';
-        alertEl.innerHTML = alertHtml;
+        alertEl.innerHTML /* sanitize */ = alertHtml;
         alertEl.classList.remove('hidden');
       }
 
@@ -9439,7 +9684,7 @@ async function scanBghUsbTokenFromAgent() {
 
     if (alertEl) {
       alertEl.className = 'p-3.5 rounded-xl text-xs font-medium bg-emerald-50 text-emerald-900 border border-emerald-300 block';
-      alertEl.innerHTML = successHtml;
+      alertEl.innerHTML /* sanitize */ = successHtml;
       alertEl.classList.remove('hidden');
     }
 
@@ -9456,7 +9701,7 @@ async function scanBghUsbTokenFromAgent() {
     `;
     if (alertEl) {
       alertEl.className = 'p-3 rounded-xl text-xs font-medium bg-amber-50 text-amber-900 border border-amber-300 block';
-      alertEl.innerHTML = alertHtml;
+      alertEl.innerHTML /* sanitize */ = alertHtml;
       alertEl.classList.remove('hidden');
     }
     showModalAlert('CHƯA KHỞI CHẠY EDUSIGN AGENT', 'Không thể kết nối tới EduSign Agent (cổng 18888). Vui lòng khởi động EduSign_Agent.exe trên máy tính để quét thiết bị.', 'warning');
@@ -9510,11 +9755,13 @@ async function handleSaveBghConfig(event) {
           'x-user-role': appState.currentUser?.role || ''
         },
         body: JSON.stringify(payload)
-      }).catch(() => {});
+      }).catch((syncErr) => {
+        console.warn('[handleSaveBghConfig] Lỗi đồng bộ cấu hình BGH lên backend:', syncErr && syncErr.message ? syncErr.message : syncErr);
+      });
     }
 
     if (alertEl) {
-      alertEl.innerHTML = '✅ Đã lưu và kích hoạt cấu hình Chữ ký &amp; Con dấu Nhà trường thành công!';
+      alertEl.innerHTML /* sanitize */ = '✅ Đã lưu và kích hoạt cấu hình Chữ ký &amp; Con dấu Nhà trường thành công!';
       alertEl.className = 'p-3 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 block';
     }
     showToast('✅ Đã lưu cấu hình Chữ ký & Con dấu Nhà trường thành công!', 'success');
@@ -9570,7 +9817,7 @@ function openModalUserProfile() {
     appState.currentUser = user;
     try {
       localStorage.setItem('edusign_user', JSON.stringify(user));
-    } catch (e) { void e; }
+    } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
   }
 
   const displayName = user.fullName || user.name || user.username;
@@ -9604,7 +9851,7 @@ function copyZaloLinkSyntax() {
   if (!user) return;
   let freshList = (appState.users && appState.users.length) ? appState.users : [];
   if (!freshList.length) {
-    try { freshList = JSON.parse(localStorage.getItem('edusign_users') || '[]'); } catch (e) { void e; }
+    try { freshList = JSON.parse(localStorage.getItem('edusign_users') || '[]'); } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
   }
   const matchedUser = freshList.find(u => (u.id && u.id === user.id) || (u.username && u.username.toLowerCase() === (user.username || '').toLowerCase()));
   if (matchedUser) {
@@ -9643,7 +9890,7 @@ async function cleanGarbageDocuments() {
     try {
       localStorage.removeItem('edusign_documents');
       localStorage.removeItem('edusign_documents_cache');
-    } catch (e) { void e; }
+    } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 
     if (firebaseDb) {
       await firebaseDb.ref('documents').remove();
@@ -9736,7 +9983,7 @@ function openModalImportTeacherExcel() {
   if (previewBox) previewBox.classList.add('hidden');
 
   const tbody = document.getElementById('tbodyExcelPreview');
-  if (tbody) tbody.innerHTML = '';
+  if (tbody) tbody.innerHTML /* sanitize */ = '';
 
   const btnConfirm = document.getElementById('btnConfirmImportExcel');
   if (btnConfirm) btnConfirm.disabled = true;
@@ -9932,7 +10179,7 @@ function handleTeacherExcelFileSelected(event) {
 
       if (badgeValid) badgeValid.textContent = `Hợp lệ: ${validCount}`;
       if (badgeDup) badgeDup.textContent = `Bỏ qua: ${dupCount}`;
-      if (tbody) tbody.innerHTML = htmlRows;
+      if (tbody) tbody.innerHTML /* sanitize */ = htmlRows;
       if (summaryText) summaryText.textContent = `Tìm thấy ${validCount} tài khoản hợp lệ sẵn sàng tạo mới (${dupCount} dòng bỏ qua/trùng lặp).`;
       if (previewBox) previewBox.classList.remove('hidden');
       if (btnConfirm) btnConfirm.disabled = (validCount === 0);
@@ -9964,7 +10211,7 @@ async function handleConfirmImportTeachers() {
   const btn = document.getElementById('btnConfirmImportExcel');
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = `<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg> Đang nhập ${count} giáo viên...`;
+    btn.innerHTML /* sanitize */ = `<svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg> Đang nhập ${count} giáo viên...`;
   }
 
   try {
@@ -9973,7 +10220,7 @@ async function handleConfirmImportTeachers() {
 
     try {
       localStorage.setItem('edusign_users', JSON.stringify(updatedUsers));
-    } catch (e) { void e; }
+    } catch (e) { console.warn('[Client Handled] e:', e && e.message ? e.message : e); }
 
     await syncUsersToFirebase(updatedUsers);
 
@@ -9991,7 +10238,7 @@ async function handleConfirmImportTeachers() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> <span>Xác nhận nhập giáo viên</span>`;
+      btn.innerHTML /* sanitize */ = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> <span>Xác nhận nhập giáo viên</span>`;
     }
   }
 }

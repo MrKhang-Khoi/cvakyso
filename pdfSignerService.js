@@ -37,7 +37,7 @@ function convertDocxToPdf(docxPath, outputPath) {
         const expectedPdf = path.join(outDir, path.basename(absDocx, path.extname(absDocx)) + '.pdf');
         if (fs.existsSync(expectedPdf) && fs.statSync(expectedPdf).size > 100) {
           if (expectedPdf !== absPdf) {
-            try { fs.copyFileSync(expectedPdf, absPdf); fs.unlinkSync(expectedPdf); } catch (e) {}
+            try { fs.copyFileSync(expectedPdf, absPdf); fs.unlinkSync(expectedPdf); } catch (e) { void e; }
           }
           return resolve(absPdf);
         }
@@ -80,8 +80,8 @@ function convertDocxToPdf(docxPath, outputPath) {
 
     const { execFile } = require('child_process');
     execFile('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tempPs1], { timeout: 45000 }, (error, stdout, stderr) => {
-      try { if (fs.existsSync(tempPs1)) fs.unlinkSync(tempPs1); } catch (e) {}
-      try { if (fs.existsSync(stagedDocx)) fs.unlinkSync(stagedDocx); } catch (e) {}
+      try { if (fs.existsSync(tempPs1)) fs.unlinkSync(tempPs1); } catch (e) { void e; }
+      try { if (fs.existsSync(stagedDocx)) fs.unlinkSync(stagedDocx); } catch (e) { void e; }
 
       const absPdf = path.resolve(outputPath);
       if (fs.existsSync(stagedPdf) && fs.statSync(stagedPdf).size > 100) {
@@ -89,14 +89,14 @@ function convertDocxToPdf(docxPath, outputPath) {
           const outDir = path.dirname(absPdf);
           if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
           fs.copyFileSync(stagedPdf, absPdf);
-          try { fs.unlinkSync(stagedPdf); } catch (e) {}
+          try { fs.unlinkSync(stagedPdf); } catch (e) { void e; }
           resolve(absPdf);
         } catch (copyOutErr) {
-          try { if (fs.existsSync(stagedPdf)) fs.unlinkSync(stagedPdf); } catch (e) {}
+          try { if (fs.existsSync(stagedPdf)) fs.unlinkSync(stagedPdf); } catch (e) { void e; }
           reject(new Error(`Không thể lưu file PDF sau chuyển đổi: ${copyOutErr.message}`));
         }
       } else {
-        try { if (fs.existsSync(stagedPdf)) fs.unlinkSync(stagedPdf); } catch (e) {}
+        try { if (fs.existsSync(stagedPdf)) fs.unlinkSync(stagedPdf); } catch (e) { void e; }
         reject(new Error('Chuyển đổi Word sang PDF không thành công: ' + (stderr || error?.message || 'File PDF đầu ra rỗng hoặc không tạo được')));
       }
     });
@@ -136,19 +136,51 @@ function resolveImageBuffer(imgDataOrPath) {
 }
 
 /**
+ * Kiểm tra tính toàn vẹn của tệp PNG (IDAT chunks) trước khi đưa vào UPNG của pdf-lib
+ * Ngăn chặn triệt để lỗ hổng DoS treo cứng máy chủ (infinite loop / ReDoS) khi gặp ảnh PNG hỏng hoặc cắt cụt.
+ */
+function isSafePng(buf) {
+  if (!buf || buf.length < 8) return false;
+  if (buf[0] !== 0x89 || buf[1] !== 0x50 || buf[2] !== 0x4e || buf[3] !== 0x47) return false;
+  try {
+    let offset = 8;
+    const idatChunks = [];
+    while (offset + 8 <= buf.length) {
+      const len = buf.readUInt32BE(offset);
+      const type = buf.toString('ascii', offset + 4, offset + 8);
+      if (offset + 12 + len > buf.length) return false;
+      if (type === 'IDAT') {
+        idatChunks.push(buf.slice(offset + 8, offset + 8 + len));
+      }
+      offset += 12 + len;
+    }
+    if (idatChunks.length === 0) return false;
+    const allIdat = Buffer.concat(idatChunks);
+    const zlib = require('zlib');
+    zlib.inflateSync(allIdat);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
  * Nhúng ảnh (PNG hoặc JPG) an toàn vào tài liệu PDF
  */
 async function embedImageToPdf(pdfDoc, imgBuffer) {
   if (!imgBuffer || imgBuffer.length === 0) return null;
   try {
-    return await pdfDoc.embedPng(imgBuffer);
-  } catch (ePng) {
-    try {
-      return await pdfDoc.embedJpg(imgBuffer);
-    } catch (eJpg) {
-      console.error('Không thể nhúng ảnh vào PDF:', ePng.message, eJpg.message);
-      return null;
+    if (isSafePng(imgBuffer)) {
+      return await pdfDoc.embedPng(imgBuffer);
     }
+  } catch (ePng) {
+    console.warn('[embedImageToPdf] Lỗi nhúng PNG:', ePng.message);
+  }
+  try {
+    return await pdfDoc.embedJpg(imgBuffer);
+  } catch (eJpg) {
+    console.warn('[embedImageToPdf] Không thể nhúng ảnh vào PDF:', eJpg.message);
+    return null;
   }
 }
 
@@ -168,7 +200,7 @@ async function generateSignedPdf(doc) {
       if (buf.length > 50 && buf.toString('ascii', 0, 5).startsWith('%PDF')) {
         sourcePdfBuffer = buf;
       }
-    } catch (e) {}
+    } catch (e) { void e; }
   }
 
   // 1. Đọc file nguồn từ fileBase64 nếu có
@@ -190,8 +222,8 @@ async function generateSignedPdf(doc) {
           if (fs.existsSync(tempPdf) && fs.statSync(tempPdf).size > 100) {
             sourcePdfBuffer = fs.readFileSync(tempPdf);
           }
-          try { if (fs.existsSync(tempDocx)) fs.unlinkSync(tempDocx); } catch (e) {}
-          try { if (fs.existsSync(tempPdf)) fs.unlinkSync(tempPdf); } catch (e) {}
+          try { if (fs.existsSync(tempDocx)) fs.unlinkSync(tempDocx); } catch (e) { void e; }
+          try { if (fs.existsSync(tempPdf)) fs.unlinkSync(tempPdf); } catch (e) { void e; }
         } catch (convErr) {
           console.warn('Word COM conversion note:', convErr.message);
           if (doc.onlyConvert) {
@@ -213,7 +245,7 @@ async function generateSignedPdf(doc) {
     if (resolvedSigned && fs.existsSync(resolvedSigned)) {
       try {
         sourcePdfBuffer = fs.readFileSync(resolvedSigned);
-      } catch (e) {}
+      } catch (e) { void e; }
     }
   }
 
@@ -593,7 +625,7 @@ function findSignerRunner() {
     if (fs.existsSync(csproj)) {
       return { command: 'dotnet', argsPrefix: ['run', '--project', path.join(__dirname, 'RealPdfSigner'), '--'] };
     }
-  } catch (e) {}
+  } catch (e) { void e; }
 
   return null;
 }
@@ -641,7 +673,7 @@ async function findSmartSignatureAnchor(pdfBufferOrPath, signerName = 'Hà Văn 
     // An toàn: nếu có lỗi thì trả về null để dùng tọa độ mặc định
   } finally {
     if (shouldCleanup && tempPath && fs.existsSync(tempPath)) {
-      try { fs.unlinkSync(tempPath); } catch (e) {}
+      try { fs.unlinkSync(tempPath); } catch (e) { void e; }
     }
   }
 
@@ -723,12 +755,12 @@ async function signWithRealVgca(doc) {
       });
 
       // Dọn dẹp file trung gian
-      try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (e) {}
+      try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (e) { void e; }
       return result;
     } catch (err) {
       console.error('[VGCA Engine] C# Runner thất bại:', err.message);
       // Dọn dẹp trước khi throw
-      try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (e) {}
+      try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (e) { void e; }
       // === Fix F: KHÔNG fallback sang ký giả — throw lỗi rõ ràng ===
       throw new Error(
         `Ký số thất bại: ${err.message}\n` +
@@ -741,7 +773,7 @@ async function signWithRealVgca(doc) {
   }
 
   // === Fix F: Không có Agent → KHÔNG được ký giả — trả lỗi rõ ràng ===
-  try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (e) {}
+  try { if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput); } catch (e) { void e; }
 
   throw new Error(
     'EduSign Agent chưa được cài đặt hoặc chưa chạy trên máy tính này.\n' +

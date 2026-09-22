@@ -3,18 +3,18 @@
     "hashes": [
       {
         "file": "js\\app.js",
-        "hash": "d23a059dbd4ed5220391e740c229aa34a80e5489867167da7b8563b90373337a",
-        "size": 451015
+        "hash": "85a9d8f735a37e9463faf5f19075697153b1836aac71867e2ef6ebc07047df0b",
+        "size": 484461
       },
       {
         "file": "public\\js\\app.js",
-        "hash": "d23a059dbd4ed5220391e740c229aa34a80e5489867167da7b8563b90373337a",
-        "size": 451015
+        "hash": "85a9d8f735a37e9463faf5f19075697153b1836aac71867e2ef6ebc07047df0b",
+        "size": 484461
       },
       {
         "file": "docs\\js\\app.js",
-        "hash": "d23a059dbd4ed5220391e740c229aa34a80e5489867167da7b8563b90373337a",
-        "size": 451015
+        "hash": "85a9d8f735a37e9463faf5f19075697153b1836aac71867e2ef6ebc07047df0b",
+        "size": 484461
       }
     ],
     "allEqual": true,
@@ -23,7 +23,7 @@
   },
   "probeA": {
     "status": 200,
-    "latencyMs": 1913,
+    "latencyMs": 2183,
     "body": {
       "success": false,
       "error": "UNAUTHORIZED_SECRET_TOKEN"
@@ -32,7 +32,7 @@
   },
   "probeB": {
     "status": 200,
-    "latencyMs": 3255,
+    "latencyMs": 3017,
     "body": {
       "success": true,
       "delivered": true,
@@ -43,7 +43,7 @@
   },
   "probeC": {
     "status": 200,
-    "latencyMs": 3128,
+    "latencyMs": 3663,
     "body": {
       "success": true,
       "eventType": "SUBMITTED",

@@ -102,11 +102,47 @@ function readJsonSafe(filePath, defaultVal = []) {
 
 // =================== CƠ CHẾ HÀNG ĐỢI GHI ĐĨA BẤT ĐỒNG BỘ & BỘ NHỚ ĐỆM ===================
 let _usersCache = null;
+let _usersFileMtime = 0;
+let _usersFileSize = 0;
+let _usersContentHash = '';
 
-// Đọc danh sách người dùng (ưu tiên bộ nhớ RAM, chống lệch pha dữ liệu)
+// Đọc danh sách người dùng (tự động invalidate cache khi mtime, size hoặc content hash SHA-256 thay đổi)
 function getUsers(forceReload = false) {
-  if (forceReload || !_usersCache) {
-    _usersCache = readJsonSafe(USERS_FILE, []);
+  let currentMtime = 0;
+  let currentSize = 0;
+  let currentHash = '';
+  let rawBuffer = null;
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      const stat = fs.statSync(USERS_FILE);
+      currentMtime = stat.mtimeMs;
+      currentSize = stat.size;
+      rawBuffer = fs.readFileSync(USERS_FILE);
+      currentHash = crypto.createHash('sha256').update(rawBuffer).digest('hex');
+    }
+  } catch (statErr) {
+    currentMtime = Date.now();
+  }
+
+  const needsReload = forceReload || !_usersCache || currentMtime !== _usersFileMtime || currentSize !== _usersFileSize || (currentHash && currentHash !== _usersContentHash);
+
+  if (needsReload) {
+    let rawData = [];
+    if (rawBuffer) {
+      try {
+        let str = rawBuffer.toString('utf8');
+        if (str.charCodeAt(0) === 0xFEFF) str = str.slice(1);
+        rawData = JSON.parse(str.trim());
+      } catch {
+        rawData = readJsonSafe(USERS_FILE, []);
+      }
+    } else {
+      rawData = readJsonSafe(USERS_FILE, []);
+    }
+    _usersCache = Array.isArray(rawData) ? rawData : [];
+    _usersFileMtime = currentMtime;
+    _usersFileSize = currentSize;
+    _usersContentHash = currentHash;
   }
   return _usersCache;
 }
@@ -117,11 +153,11 @@ try {
   if (fs.existsSync(dataDir)) {
     fs.readdirSync(dataDir).forEach(f => {
       if (f.endsWith('.tmp')) {
-        try { fs.unlinkSync(path.join(dataDir, f)); } catch {}
+        try { fs.unlinkSync(path.join(dataDir, f)); } catch (unlinkTmpErr) { console.warn('[dataStore Init] Không thể xóa tệp tmp cũ:', unlinkTmpErr.message); }
       }
     });
   }
-} catch {}
+} catch (cleanTmpErr) { console.warn('[dataStore Init] Lỗi quét thư mục data:', cleanTmpErr.message); }
 
 /**
  * Ghi tệp JSON bất đồng bộ an toàn với cơ chế retry phi nghẽn (non-blocking).
@@ -130,42 +166,28 @@ try {
 async function _writeJsonAsyncWithRetry(filePath, data, maxAttempts = 12) {
   const content = JSON.stringify(data, null, 2);
   let tempPath = null;
+  let lastErr = null;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       tempPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2, 6)}.tmp`;
       await fs.promises.writeFile(tempPath, content, 'utf8');
-      try {
-        await fs.promises.rename(tempPath, filePath);
-      } catch (renameErr) {
-        // Khắc phục tranh chấp khóa tệp NTFS trên Windows: copy đè và xóa tệp tạm
-        try {
-          await fs.promises.copyFile(tempPath, filePath);
-          try { await fs.promises.unlink(tempPath); } catch {}
-        } catch (copyErr) {
-          throw renameErr;
-        }
-      }
+      await fs.promises.rename(tempPath, filePath);
       return;
     } catch (err) {
+      lastErr = err;
       if (tempPath) {
         try {
           if (fs.existsSync(tempPath)) {
             await fs.promises.unlink(tempPath);
           }
-        } catch {}
+        } catch (unlinkTempErr) { console.warn('[dataStore] Lỗi dọn tệp tạm khi lỗi ghi:', unlinkTempErr.message); }
       }
-      try {
-        // Fallback ghi trực tiếp nếu thao tác đổi tên tạm thất bại
-        await fs.promises.writeFile(filePath, content, 'utf8');
-        return;
-      } catch (err2) {
-        if (attempt === maxAttempts - 1) {
-          throw err2;
-        }
-        // Non-blocking backoff delay: nhường CPU cho Event Loop xử lý các request khác
-        const delay = Math.min(200, 15 * Math.pow(1.3, attempt) + Math.random() * 10);
-        await new Promise(r => setTimeout(r, delay));
+      if (attempt === maxAttempts - 1) {
+        throw new Error(`[dataStore] Giao dịch ghi file bất đồng bộ thất bại sau ${maxAttempts} lần thử cho [${filePath}]: ${lastErr.message}`);
       }
+      // Non-blocking backoff delay: nhường CPU cho Event Loop xử lý các request khác
+      const delay = Math.min(200, 15 * Math.pow(1.3, attempt) + Math.random() * 10);
+      await new Promise(r => setTimeout(r, delay));
     }
   }
 }
@@ -213,8 +235,10 @@ function _queueFileSave(filePath, data) {
     _processFileQueue(normalizedPath, q);
   });
 
-  // Bắt lỗi ngầm để tránh unhandledRejection nếu caller gọi save không dùng await
-  promise.catch(() => {});
+  // Bắt lỗi ngầm có ghi nhận log để tránh unhandledRejection
+  promise.catch((err) => {
+    console.warn('[FileQueue] Cảnh báo lỗi ghi file nền:', err.message);
+  });
   return promise;
 }
 
@@ -252,7 +276,7 @@ async function _processFileQueue(filePath, q) {
         } else {
           r.reject(writeErr);
         }
-      } catch {}
+      } catch (resolverErr) { console.warn('[dataStore] Lỗi resolve promise:', resolverErr.message); }
     }
 
     // Nếu trong lúc ghi vừa rồi có yêu cầu lưu mới đến, tiếp tục vòng lặp ghi đợt tiếp theo
@@ -286,29 +310,56 @@ function saveJsonSafeSync(filePath, data) {
   const tempPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2, 6)}.tmp`;
   try {
     fs.writeFileSync(tempPath, content, 'utf8');
-    fs.renameSync(tempPath, filePath);
-  } catch {
+  } catch (writeErr) {
     if (fs.existsSync(tempPath)) {
-      try { fs.unlinkSync(tempPath); } catch {}
+      try { fs.unlinkSync(tempPath); } catch (uErr) { console.warn('[dataStore] Lỗi dọn tệp tạm khi ghi lỗi:', uErr.message); }
     }
-    fs.writeFileSync(filePath, content, 'utf8');
+    throw new Error(`[dataStore] Lỗi ghi dữ liệu vào tệp tạm [${tempPath}]: ${writeErr.message}`);
+  }
+
+  let renamed = false;
+  let lastErr = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      fs.renameSync(tempPath, filePath);
+      renamed = true;
+      break;
+    } catch (err) {
+      lastErr = err;
+      const start = Date.now();
+      while (Date.now() - start < 15) { /* spin wait on Windows file locking */ }
+    }
+  }
+
+  if (!renamed) {
+    if (fs.existsSync(tempPath)) {
+      try { fs.unlinkSync(tempPath); } catch (unlinkSyncErr) { console.warn('[dataStore] Lỗi dọn tệp tạm sync:', unlinkSyncErr.message); }
+    }
+    throw new Error(`[dataStore] Giao dịch ghi file nguyên tử thất bại cho [${filePath}]: ${lastErr ? lastErr.message : 'Unknown error'}`);
   }
 }
 
 function saveUsers(users) {
-  if (Array.isArray(users)) {
-    _usersCache = users;
-  }
-  return saveJsonSafe(USERS_FILE, _usersCache);
+  const usersToSave = Array.isArray(users) ? users : _usersCache;
+  saveJsonSafeSync(USERS_FILE, usersToSave);
+  _usersCache = usersToSave;
+  return true;
 }
 
-function getUserById(id) {
-  return getUsers().find(u => u.id === id);
+function getUserById(id, forceReload = false) {
+  if (forceReload) return getUsers(true).find(u => u.id === id);
+  let u = getUsers().find(x => x.id === id);
+  if (!u) u = getUsers(true).find(x => x.id === id);
+  return u;
 }
 
-function getUserByUsername(username) {
+function getUserByUsername(username, forceReload = false) {
   if (!username) return null;
-  return getUsers().find(u => u.username.toLowerCase() === username.toLowerCase().trim());
+  const lower = username.toLowerCase().trim();
+  if (forceReload) return getUsers(true).find(u => (u.username || '').toLowerCase() === lower);
+  let u = getUsers().find(x => (x.username || '').toLowerCase() === lower);
+  if (!u) u = getUsers(true).find(x => (x.username || '').toLowerCase() === lower);
+  return u;
 }
 
 // =================== QUẢN LÝ TỔ CHUYÊN MÔN (DEPARTMENTS) ===================
@@ -435,7 +486,7 @@ function createUser(userData) {
     password: userData.password || '123456',
     name: userData.name ? userData.name.trim() : username,
     role: userData.role || 'TEACHER', // ADMIN, BGH, HEAD_DEPT, TEACHER
-    roleTitle: roleTitleMap[userData.role] || 'Giáo viên',
+    roleTitle: userData.roleTitle || roleTitleMap[userData.role] || 'Giáo viên',
     department: userData.department || 'Tổ Toán - Tin',
     departmentId: userData.departmentId || null,
     signType: userData.signType || (userData.role === 'BGH' || userData.role === 'ADMIN' ? 'USB_TOKEN' : 'VGCA'), // VGCA, USB_TOKEN
@@ -462,12 +513,15 @@ function createUser(userData) {
 }
 
 function updateUser(id, updates) {
-  const users = getUsers();
-  let index = users.findIndex(u => u.id === id);
-  if (index === -1 && updates.username) {
+  const users = getUsers(true);
+  let index = users.findIndex(u => u.id === id || (u.username && u.username.toLowerCase() === id.toLowerCase()));
+  if (index === -1 && updates && updates.username) {
     index = users.findIndex(u => (u.username || '').toLowerCase() === updates.username.toLowerCase().trim());
   }
   if (index === -1) {
+    if (!updates || !updates.username) {
+      throw new Error(`Không tìm thấy người dùng [${id}] để cập nhật!`);
+    }
     return createUser({ id, ...updates });
   }
 
@@ -522,8 +576,8 @@ function updateUser(id, updates) {
 
 function toggleUserLock(id) {
   if (id === 'admin') throw new Error('Không thể khóa tài khoản Quản trị viên gốc!');
-  const users = getUsers();
-  const user = users.find(u => u.id === id);
+  const users = getUsers(true);
+  const user = users.find(u => u.id === id || (u.username && u.username.toLowerCase() === id.toLowerCase()));
   if (!user) throw new Error('Không tìm thấy người dùng!');
   user.status = (user.status === 'LOCKED') ? 'ACTIVE' : 'LOCKED';
   saveUsers(users);
@@ -584,7 +638,7 @@ function isDocArchived(d) {
     d.oneDriveUploaded === true ||
     Boolean(d.oneDriveInfo) ||
     (d.driveInfo && (d.driveInfo.fileId || d.driveInfo.folderPath)) ||
-    d.googleDriveUrl != null
+    (d.googleDriveUrl !== null && d.googleDriveUrl !== undefined)
   );
 }
 
@@ -606,7 +660,7 @@ function sanitizeDocuments(docs) {
       doc.oneDriveSynced === true ||
       doc.oneDriveUploaded === true ||
       (doc.driveInfo && (doc.driveInfo.fileId || doc.driveInfo.folderPath)) ||
-      doc.googleDriveUrl != null
+      (doc.googleDriveUrl !== null && doc.googleDriveUrl !== undefined)
     );
 
     // 1. Nếu ĐÃ lưu OneDrive/Drive thành công -> đánh dấu isArchived = true
@@ -683,8 +737,15 @@ async function flushDocuments() {
   return true;
 }
 
-function getDocumentById(id) {
-  return getDocuments().find(d => d.id === id);
+function getDocumentById(id, forceReload = false) {
+  if (forceReload) {
+    return getDocuments(true).find(d => d.id === id);
+  }
+  let doc = getDocuments().find(d => d.id === id);
+  if (!doc) {
+    doc = getDocuments(true).find(d => d.id === id);
+  }
+  return doc;
 }
 
 function normalizeFilePath(p) {
@@ -769,9 +830,10 @@ function createDocument(docData, currentUser = {}) {
     grade: docData.grade || 'Khối 9',
     week: docData.week || 'Tuần 1',
     term: docData.term || 'Học kỳ I',
-    createdAt: docData.createdAt || new Date().toISOString().replace('T', ' ').substring(0, 19),
+    createdAt: docData.createdAt || docData.createdDate || new Date().toISOString().replace('T', ' ').substring(0, 19),
     updatedAt: docData.updatedAt || new Date().toISOString(),
     status: defaultStatus,
+    syncStatus: docData.syncStatus || null,
     currentSignerRole: currentSignerRole,
     nextSignerId: docData.nextSignerId || null,
     nextSignerName: docData.nextSignerName || null,
@@ -811,15 +873,16 @@ function createDocument(docData, currentUser = {}) {
     signatures: docData.signatures || [],
     reportCategory: docData.reportCategory || (docData.requiresSeal ? 'SCHOOL' : (docData.category === 'REPORT' ? 'INTERNAL' : null)),
     categoryType: docData.categoryType || (docData.reportCategory === 'SCHOOL' ? 'SCHOOL_REPORT' : (docData.category === 'REPORT' ? 'INTERNAL_REPORT' : null)),
-    requiresSeal: docData.requiresSeal !== undefined ? Boolean(docData.requiresSeal) : (docData.reportCategory === 'SCHOOL'),
-    hasSchoolSeal: docData.hasSchoolSeal !== undefined ? Boolean(docData.hasSchoolSeal) : false,
-    sealedAt: docData.sealedAt || null,
-    bghApprovedAt: docData.bghApprovedAt || null,
-    bghSigner: docData.bghSigner || null,
+    requiresSeal: docData.categoryType === 'INTERNAL_REPORT' ? false : (docData.requiresSeal !== undefined ? Boolean(docData.requiresSeal) : (docData.reportCategory === 'SCHOOL')),
+    hasSchoolSeal: (docData.categoryType !== 'INTERNAL_REPORT') && (docData.verifiedSchoolSeal === true),
+    sealedAt: (docData.categoryType !== 'INTERNAL_REPORT' && docData.verifiedSchoolSeal === true && typeof docData.sealedAt === 'string' && docData.sealedAt.trim()) ? docData.sealedAt.trim() : null,
+    bghApprovedAt: ((Boolean(currentUser && (currentUser.role === 'BGH' || currentUser.role === 'ADMIN' || (currentUser.department && currentUser.department.includes('Ban Giám hiệu'))) && (docData.verifiedBghSession === true || docData.verifiedSchoolSeal === true))) && docData.categoryType !== 'INTERNAL_REPORT' && typeof docData.bghApprovedAt === 'string' && docData.bghApprovedAt.trim()) ? docData.bghApprovedAt.trim() : null,
+    bghSigner: ((Boolean(currentUser && (currentUser.role === 'BGH' || currentUser.role === 'ADMIN' || (currentUser.department && currentUser.department.includes('Ban Giám hiệu'))) && (docData.verifiedBghSession === true || docData.verifiedSchoolSeal === true))) && docData.categoryType !== 'INTERNAL_REPORT' && typeof docData.bghSigner === 'string' && docData.bghSigner.trim()) ? docData.bghSigner.trim() : null,
     driveInfo: docData.driveInfo || null,
     googleDriveUrl: docData.googleDriveUrl || null,
     googleDriveFolder: docData.googleDriveFolder || null,
     googleDriveFileName: docData.googleDriveFileName || null,
+    payloadHash: docData.payloadHash || null,
     logs: [
       {
         time: new Date().toISOString().replace('T', ' ').substring(0, 19),
@@ -830,7 +893,8 @@ function createDocument(docData, currentUser = {}) {
   };
 
   docs.unshift(newDoc);
-  saveDocuments(docs);
+  _docsCache = docs;
+  saveJsonSafeSync(DOCS_FILE, docs);
   syncDocToFirebase(newDoc);
   return newDoc;
 }
@@ -847,8 +911,12 @@ function syncDocToFirebase(doc) {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cleanDoc)
-    }).catch(() => {});
-  } catch (e) {}
+    }).catch((err) => {
+      console.warn('[Firebase Sync Doc] Lỗi đồng bộ ngầm:', err.message);
+    });
+  } catch (e) {
+    console.warn('[Firebase Sync Doc] Lỗi khởi tạo payload:', e.message);
+  }
 }
 
 function syncSignatureToFirebase(userId, signatureImage) {
@@ -861,8 +929,12 @@ function syncSignatureToFirebase(userId, signatureImage) {
         signatureImage,
         updatedAt: new Date().toISOString()
       })
-    }).catch(() => {});
-  } catch (e) {}
+    }).catch((err) => {
+      console.warn('[Firebase Sync Sig] Lỗi đồng bộ ngầm:', err.message);
+    });
+  } catch (e) {
+    console.warn('[Firebase Sync Sig] Lỗi khởi tạo payload:', e.message);
+  }
 }
 
 function updateDocument(id, updates) {
@@ -872,16 +944,27 @@ function updateDocument(id, updates) {
 
   const cleanUpdates = { ...updates };
   if (cleanUpdates.fileBase64 && (!cleanUpdates.filePath || !docs[index].filePath)) {
+    const uploadDir = path.join(__dirname, 'uploads', 'documents');
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+    const cleanBase64 = cleanUpdates.fileBase64.replace(/^data:[^;]+;base64,/, '');
+    const rawBuffer = Buffer.from(cleanBase64, 'base64');
+    if (rawBuffer.length < 50) {
+      throw new Error('[dataStore updateDocument] Dữ liệu file nhị phân cập nhật quá nhỏ hoặc không hợp lệ.');
+    }
+    const safeId = id.replace(/[^a-zA-Z0-9_\-]/g, '_');
+    const fname = `doc_${safeId}_updated.pdf`;
+    const fpath = path.join(uploadDir, fname);
+    const tempFpath = `${fpath}.${Date.now()}.${Math.random().toString(36).slice(2, 6)}.tmp`;
     try {
-      const uploadDir = path.join(__dirname, 'uploads', 'documents');
-      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-      const cleanBase64 = cleanUpdates.fileBase64.replace(/^data:[^;]+;base64,/, '');
-      const rawBuffer = Buffer.from(cleanBase64, 'base64');
-      const safeId = id.replace(/[^a-zA-Z0-9_\-]/g, '_');
-      const fname = `doc_${safeId}_updated.pdf`;
-      fs.writeFileSync(path.join(uploadDir, fname), rawBuffer);
+      fs.writeFileSync(tempFpath, rawBuffer);
+      fs.renameSync(tempFpath, fpath);
       cleanUpdates.filePath = `uploads/documents/${fname}`;
-    } catch (e) {}
+    } catch (writeErr) {
+      if (fs.existsSync(tempFpath)) {
+        try { fs.unlinkSync(tempFpath); } catch (uErr) { console.warn('[dataStore updateDocument] Lỗi dọn tệp tạm:', uErr.message); }
+      }
+      throw new Error(`[dataStore updateDocument] Lỗi lưu tệp nhị phân cập nhật: ${writeErr.message}`);
+    }
   }
 
   delete cleanUpdates.fileBase64;
@@ -889,10 +972,12 @@ function updateDocument(id, updates) {
   if (cleanUpdates.filePath) cleanUpdates.filePath = normalizeFilePath(cleanUpdates.filePath);
   if (cleanUpdates.realSignedPath) cleanUpdates.realSignedPath = normalizeFilePath(cleanUpdates.realSignedPath);
 
-  Object.assign(docs[index], cleanUpdates);
-  saveDocuments(docs);
-  syncDocToFirebase(docs[index]);
-  return docs[index];
+  const updatedDoc = { ...docs[index], ...cleanUpdates };
+  const newDocs = docs.map((d, i) => i === index ? updatedDoc : d);
+  saveJsonSafeSync(DOCS_FILE, newDocs);
+  _docsCache = newDocs;
+  syncDocToFirebase(updatedDoc);
+  return updatedDoc;
 }
 
 function archiveDocument(id, driveInfo = null) {
@@ -912,12 +997,21 @@ function archiveDocument(id, driveInfo = null) {
 }
 
 function deleteDocument(id) {
-  let docs = getDocuments();
-  docs = docs.filter(d => d.id !== id);
-  saveDocuments(docs);
+  let docs = getDocuments(true);
+  const originalLength = docs.length;
+  const newDocs = docs.filter(d => d.id !== id);
+  if (newDocs.length === originalLength) {
+    return false; // Bản ghi không tồn tại
+  }
+  saveJsonSafeSync(DOCS_FILE, newDocs);
+  _docsCache = newDocs;
   try {
-    fetch(`${FIREBASE_RTDB_URL}/documents/${id}.json`, { method: 'DELETE' }).catch(() => {});
-  } catch (e) {}
+    fetch(`${FIREBASE_RTDB_URL}/documents/${id}.json`, { method: 'DELETE' }).catch((err) => {
+      console.warn('[Firebase Delete Doc] Lỗi xóa ngầm:', err.message);
+    });
+  } catch (e) {
+    console.warn('[Firebase Delete Doc] Lỗi khởi tạo xóa:', e.message);
+  }
   return true;
 }
 
@@ -933,7 +1027,9 @@ function getBghSigningConfig(forceReload = false) {
       _bghConfigCache = JSON.parse(fs.readFileSync(BGH_CONFIG_FILE, 'utf8'));
       return _bghConfigCache;
     }
-  } catch (err) {}
+  } catch (err) {
+    console.warn('[dataStore] Lỗi đọc cấu hình BGH từ đĩa:', err.message);
+  }
   _bghConfigCache = {
     signType: 'USB_TOKEN', // 'USB_TOKEN' hoặc 'SMART_CA'
     serialNumber: '025E056A3F133DA9', // USB Token Ban Giám hiệu (Cô Ngô Thị Liền)

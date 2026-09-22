@@ -200,7 +200,7 @@ async function runEmpiricalVerification() {
 
   vm.createContext(sandbox);
   // Execute handleEduSignNotification in sandbox
-  const funcMatch = gasScriptSrc.match(/function handleEduSignNotification\(data\) \{([\s\S]*?)\n\}\n\n\/\//);
+  const funcMatch = gasScriptSrc.match(/function handleEduSignNotification\(data\)\s*\{([\s\S]*?)\n\}\s*\n\/\//);
   assert(funcMatch, 'Must find handleEduSignNotification in GAS script');
   const funcCode = `function handleEduSignNotification(data) { ${funcMatch[1]} }`;
   vm.runInContext(funcCode, sandbox);
@@ -263,6 +263,9 @@ async function runEmpiricalVerification() {
   const artifactPath1 = path.join(__dirname, 'real_network_trace_r1_r4_result.json');
   const artifactPath2 = path.join(PROJECT_ROOT, '.agents', 'tester_independent_r1_gen2', 'real_network_trace_r1_r4_result.json');
   fs.writeFileSync(artifactPath1, JSON.stringify(report, null, 2), 'utf8');
+  if (!fs.existsSync(path.dirname(artifactPath2))) {
+    fs.mkdirSync(path.dirname(artifactPath2), { recursive: true });
+  }
   fs.writeFileSync(artifactPath2, JSON.stringify(report, null, 2), 'utf8');
 
   console.log('\n================================================================================');

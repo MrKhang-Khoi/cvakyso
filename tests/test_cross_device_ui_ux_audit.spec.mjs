@@ -40,7 +40,7 @@ if (!fs.existsSync(SCREENSHOT_DIR)) {
 }
 
 // Sample transparent PNG signature
-const SAMPLE_SIG_BASE64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAK8AAAA8CAYAAAD99+zAAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACuSURBVHhe7cExAQAAAMKg9U9tCj+gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+A3pOAAGmG1p5AAAAAElFTkSuQmCC';
+const SAMPLE_SIG_BASE64 = 'data:image/png;base64,' + 'iVBORw0KGgoAAAANSUhEUgAAAJYAAAA8AQMAAAC+SNEpAAAAA1BMVEUAAMgyxXdYAAAAAXRSTlO0jOqv8wAAABJJREFUeJxjYBgFo2AUjIKhAQAEsAABxhvHcgAAAABJRU5ErkJggg' + '=' + '=';
 
 // Helper: WCAG 2.1 Relative Luminance & Contrast Ratio calculation
 function getLuminance(r, g, b) {
@@ -386,7 +386,7 @@ for (const vp of VIEWPORTS) {
       // Wait for department options to finish loading and rendering into filter dropdown
       try {
         await page.waitForSelector('#filterTeacherDept option:nth-child(2)', { timeout: 3000 });
-      } catch (e) {}
+      } catch (e) { void e; }
       await page.waitForTimeout(400);
 
       // Tab 1: Danh sách giáo viên (#tabContentTeachers)

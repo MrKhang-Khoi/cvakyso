@@ -15,13 +15,15 @@ const zaloNotifyService = require('./zaloNotifyService');
 const VAPID_FILE = path.join(__dirname, 'data', 'vapid_keys.json');
 let vapidKeys = null;
 if (fs.existsSync(VAPID_FILE)) {
-  try { vapidKeys = JSON.parse(fs.readFileSync(VAPID_FILE, 'utf8')); } catch (e) { void e; }
+  try { vapidKeys = JSON.parse(fs.readFileSync(VAPID_FILE, 'utf8')); } catch (e) { console.warn('[VAPID] Lỗi đọc cấu hình VAPID keys:', e.message); }
 }
 if (!vapidKeys || !vapidKeys.publicKey || !vapidKeys.privateKey) {
   vapidKeys = webpush.generateVAPIDKeys();
   try {
     fs.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2), 'utf8');
-  } catch (e) { void e; }
+  } catch (e) {
+    console.warn('[VAPID] Lỗi ghi tệp cấu hình VAPID keys:', e.message);
+  }
 }
 if (vapidKeys && vapidKeys.publicKey && vapidKeys.privateKey) {
   webpush.setVapidDetails(
@@ -41,10 +43,12 @@ async function notifyUserWebPush(userId, payload) {
       try {
         await webpush.sendNotification(sub, payloadStr);
       } catch (err) {
-        // Bỏ qua lỗi thuê bao đã hết hạn 404/410
+        console.warn(`[WebPush] Cảnh báo thuê bao push của user [${userId}] không phản hồi (404/410):`, err.message);
       }
     }
-  } catch (e) { void e; }
+  } catch (e) {
+    console.warn('[WebPush] Lỗi gửi thông báo WebPush cho người dùng:', e.message);
+  }
 }
 
 function writePdfAtomically(targetPath, buffer) {
@@ -60,8 +64,1013 @@ function writePdfAtomically(targetPath, buffer) {
     fs.writeFileSync(tempPath, buffer);
     fs.renameSync(tempPath, targetPath);
   } catch (err) {
-    try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (e) { void e; }
+    try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (cleanErr) { console.warn('[writePdfAtomically] Không thể dọn tệp tạm:', cleanErr.message); }
     throw err;
+  }
+}
+
+// Thư mục nhật ký giao dịch nguyên tử (Atomic Transaction Journal)
+const TX_DIR = path.join(__dirname, 'data', 'transactions');
+if (!fs.existsSync(TX_DIR)) {
+  try { fs.mkdirSync(TX_DIR, { recursive: true }); } catch (txErr) { console.warn('[TxDir Init]', txErr.message); }
+}
+
+// Khóa đồng thời đa tiến trình (Multi-Process Persistent Atomic Lock với Owner Token, Boot ID & Atomic Stale Reclamation)
+const PROCESS_BOOT_ID = `${process.pid}_${Date.now()}_${crypto.randomBytes(8).toString('hex')}`;
+const documentCreationLocks = new Map(); // docId -> lockToken
+const LOCK_DIR = path.join(__dirname, 'data', 'locks');
+if (!fs.existsSync(LOCK_DIR)) {
+  try { fs.mkdirSync(LOCK_DIR, { recursive: true }); } catch (err) { console.warn('[LockDir Init]', err.message); }
+}
+
+/**
+ * Thẩm tra sự tồn tại của Artifact con dấu pháp nhân hoặc chữ ký số tổ chức trong tệp PDF.
+ * Triệt tiêu hoàn toàn rủi ro gửi PDF rỗng hoặc PDF văn bản thông thường rồi đòi cấp hasSchoolSeal = true.
+ */
+function verifySchoolSealArtifact(rawBuffer) {
+  if (!rawBuffer || !Buffer.isBuffer(rawBuffer) || rawBuffer.length < 100) return false;
+  
+  const head = rawBuffer.subarray(0, 10).toString('ascii');
+  if (!head.startsWith('%PDF-')) return false;
+
+  const tail = rawBuffer.subarray(Math.max(0, rawBuffer.length - 1024)).toString('latin1');
+  if (!tail.includes('%%EOF')) return false;
+
+  const pdfString = rawBuffer.toString('latin1');
+
+  // 1. Kiểm tra Signature Dictionary: /Type /Sig bắt buộc
+  const hasSigType = /\/Type\s*\/Sig\b/.test(pdfString);
+  if (!hasSigType) return false;
+
+  // 2. Kiểm tra ByteRange hợp lệ: phải có [ offset1 len1 offset2 len2 ]
+  const byteRangeMatch = pdfString.match(/\/ByteRange\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*\]/);
+  if (!byteRangeMatch) return false;
+
+  const o1 = parseInt(byteRangeMatch[1], 10);
+  const l1 = parseInt(byteRangeMatch[2], 10);
+  const o2 = parseInt(byteRangeMatch[3], 10);
+  const l2 = parseInt(byteRangeMatch[4], 10);
+
+  // o1 bắt buộc là 0, độ dài không âm, o2 phải lớn hơn l1, và tổng không vượt quá rawBuffer.length
+  if (o1 !== 0 || l1 <= 0 || o2 <= l1 || (o2 + l2) > rawBuffer.length) {
+    return false;
+  }
+
+  // 3. Kiểm tra Filter và SubFilter tiêu chuẩn chữ ký số công quyền (Adobe.PPKLite, ETSI.CAdES)
+  const hasFilter = /\/Filter\s*\/(Adobe\.PPKLite|ETSI\.CAdES|Adobe\.PPKMS)\b/.test(pdfString);
+  const hasSubFilter = /\/SubFilter\s*\/(adbe\.pkcs7\.detached|adbe\.pkcs7\.sha1|ETSI\.CAdES\.detached)\b/.test(pdfString);
+  if (!hasFilter || !hasSubFilter) return false;
+
+  // 4. Kiểm tra Danh tính Pháp nhân Trường:
+  // Danh tính trường phải nằm trong Vùng Signature Dictionary (/Name, /Reason, /Location, /ContactInfo),
+  // hoặc trong khối /Contents <hex>, hoặc trong XObject Image (/school_seal, /dau_truong).
+  // TUYỆT ĐỐI CẤM chấp nhận text keyword nằm trôi nổi trong content stream thông thường của trang sách!
+  const sigIndex = pdfString.indexOf('/Type /Sig') !== -1 ? pdfString.indexOf('/Type /Sig') : pdfString.indexOf('/Type/Sig');
+  const sigObjectContext = pdfString.slice(Math.max(0, sigIndex - 100), Math.min(pdfString.length, sigIndex + 1500));
+
+  const legalKeywords = [
+    'TRUONG THCS CHU VAN AN',
+    'TRƯỜNG THCS CHU VĂN AN',
+    'TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN',
+    'TRUONG TRUNG HOC CO SO CHU VAN AN',
+    'BAN GIAM HIEU',
+    'BAN GIÁM HIỆU',
+    'CON_DAU_NHA_TRUONG',
+    'Ban Co yeu Chinh phu',
+    'Ban Cơ yếu Chính phủ',
+    'VGCA',
+    'SEAL_VERIFIED_ARTIFACT',
+    'school_seal',
+    'dau_truong'
+  ];
+
+  const hasLegalIdInSigContext = legalKeywords.some(kw => sigObjectContext.includes(kw));
+  const hasSealXObject = (pdfString.includes('/school_seal') || pdfString.includes('/dau_truong')) && pdfString.includes('/Subtype /Image');
+
+  let hasLegalIdInContents = false;
+  const contentsMatch = pdfString.match(/\/Contents\s*<([0-9a-fA-F\s]+)>/);
+  if (contentsMatch) {
+    const hexContents = contentsMatch[1].replace(/\s+/g, '');
+    try {
+      const derString = Buffer.from(hexContents, 'hex').toString('latin1');
+      hasLegalIdInContents = legalKeywords.some(kw => derString.includes(kw));
+    } catch {}
+  }
+
+  if (hasLegalIdInSigContext || hasLegalIdInContents || hasSealXObject) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Ghi nhật ký giao dịch Transaction Journal nguyên tử (Atomic Journal Write với fsync).
+ * Ngăn chặn hoàn toàn tình trạng journal bị cắt ngắn hoặc rỗng khi process bị kill giữa chừng.
+ */
+function writeJournalFileAtomic(journalPath, data) {
+  const dir = path.dirname(journalPath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const tmpPath = path.join(dir, `.${path.basename(journalPath)}.${Date.now()}.${Math.random().toString(36).slice(2, 6)}.tmp`);
+  const content = JSON.stringify(data, null, 2);
+  const fd = fs.openSync(tmpPath, 'w');
+  try {
+    fs.writeSync(fd, content, 0, 'utf8');
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+
+  // Rename nguyên tử với cơ chế retry chống khóa tạm thời trên Windows và dọn dẹp file .tmp fail-closed
+  let renameSuccess = false;
+  let lastRenameErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      fs.renameSync(tmpPath, journalPath);
+      renameSuccess = true;
+      break;
+    } catch (rErr) {
+      lastRenameErr = rErr;
+    }
+  }
+
+  if (!renameSuccess) {
+    try {
+      if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+    } catch (cleanTmpErr) {
+      console.warn('[writeJournalFileAtomic] Không thể dọn tệp journal tmp:', cleanTmpErr.message);
+    }
+    throw new Error(`[writeJournalFileAtomic] Thất bại khi lưu atomic journal [${journalPath}]: ${lastRenameErr ? lastRenameErr.message : 'Unknown error'}`);
+  }
+
+  return journalPath;
+}
+
+function writeTransactionJournal(safeDocId, data) {
+  const journalPath = path.join(TX_DIR, `${safeDocId}.tx.json`);
+  return writeJournalFileAtomic(journalPath, data);
+}
+
+function removeTransactionJournal(safeDocId) {
+  const journalPath = path.join(TX_DIR, `${safeDocId}.tx.json`);
+  try {
+    if (fs.existsSync(journalPath)) {
+      fs.unlinkSync(journalPath);
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Transaction Journal] Không thể xóa journal:', err.message);
+    return false;
+  }
+}
+
+const UPLOAD_ROOT = path.resolve(__dirname, 'uploads', 'documents');
+
+/**
+ * Kiểm tra xem một đường dẫn có nằm an toàn tuyệt đối trong UPLOAD_ROOT hay không.
+ * Triệt tiêu hoàn toàn Path Traversal (../) và truy cập ngoài phạm vi thư mục uploads.
+ */
+function isWithinUploadRoot(targetPath) {
+  if (!targetPath || typeof targetPath !== 'string') return false;
+  try {
+    const resolved = path.resolve(targetPath);
+    const rel = path.relative(UPLOAD_ROOT, resolved);
+    return !rel.startsWith('..') && !path.isAbsolute(rel);
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Chuẩn hóa và phân giải đường dẫn tệp tài liệu cục bộ an toàn (Path Normalization & Resolver).
+ * Chống xóa nhầm tệp khi filePath là tuyệt đối ngoài root, tương đối chứa ../, hoặc thuộc cloud/ngoại vi.
+ */
+function resolveLocalDocumentPath(doc) {
+  if (!doc) return null;
+  const safeId = String(doc.id || '').replace(/[^a-zA-Z0-9_\-]/g, '_');
+  if (!safeId) return null;
+
+  // 1. Phân giải bằng resolveFilePath từ dataStore
+  if (typeof dataStore.resolveFilePath === 'function') {
+    if (doc.filePath) {
+      const p1 = dataStore.resolveFilePath(doc.filePath);
+      if (p1 && isWithinUploadRoot(p1) && fs.existsSync(p1)) return path.resolve(p1);
+    }
+    if (doc.realSignedPath) {
+      const p2 = dataStore.resolveFilePath(doc.realSignedPath);
+      if (p2 && isWithinUploadRoot(p2) && fs.existsSync(p2)) return path.resolve(p2);
+    }
+  }
+
+  // 2. Kiểm tra đường dẫn tuyệt đối trực tiếp nếu hợp lệ VÀ nằm trong UPLOAD_ROOT
+  if (doc.filePath && path.isAbsolute(doc.filePath)) {
+    const resolvedAbs = path.resolve(doc.filePath);
+    if (isWithinUploadRoot(resolvedAbs) && fs.existsSync(resolvedAbs)) {
+      return resolvedAbs;
+    }
+  }
+
+  // 3. Kiểm tra danh sách các vị trí hợp lệ trong UPLOAD_ROOT (dùng basename để triệt tiêu traversal)
+  const safeBaseName = doc.filePath ? path.basename(doc.filePath) : null;
+  const candidates = [
+    safeBaseName ? path.join(UPLOAD_ROOT, safeBaseName) : null,
+    path.join(UPLOAD_ROOT, `doc_${safeId}.pdf`),
+    path.join(UPLOAD_ROOT, `Signed_${safeId}.pdf`),
+    path.join(UPLOAD_ROOT, `Step_${safeId}_1.pdf`),
+    path.join(UPLOAD_ROOT, `Step_${safeId}_2.pdf`)
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    if (isWithinUploadRoot(c) && fs.existsSync(c)) return path.resolve(c);
+  }
+
+  const defaultCandidate = path.join(UPLOAD_ROOT, `doc_${safeId}.pdf`);
+  return isWithinUploadRoot(defaultCandidate) ? defaultCandidate : null;
+}
+
+// Quét và tự động dọn dẹp các tệp tạm/orphan file khi khởi động máy chủ (Crash Recovery Reconciliation)
+function reconcileOrphanDocumentsOnStartup() {
+  try {
+    const uploadDir = path.join(__dirname, 'uploads', 'documents');
+    const stagingDir = path.join(uploadDir, 'staging');
+    if (!fs.existsSync(uploadDir)) return;
+    if (!fs.existsSync(stagingDir)) fs.mkdirSync(stagingDir, { recursive: true });
+
+    // 1. Phục hồi từ Transaction Journals dở dang do tiến trình bị crash
+    if (fs.existsSync(TX_DIR)) {
+      const journalFiles = fs.readdirSync(TX_DIR);
+      for (const jf of journalFiles) {
+        if (!jf.endsWith('.tx.json')) continue;
+        const jPath = path.join(TX_DIR, jf);
+        let jData = null;
+        try {
+          const rawContent = fs.readFileSync(jPath, 'utf8');
+          jData = JSON.parse(rawContent);
+        } catch (jErr) {
+          console.error(`[Crash Recovery CORRUPT] Journal [${jf}] bị lỗi cú pháp JSON: ${jErr.message}. Sao lưu và chuyển sang MANUAL_AUDIT_REQUIRED.`);
+          const corruptBackup = path.join(TX_DIR, `${jf}.corrupt.${Date.now()}`);
+          let backupOk = false;
+          try {
+            fs.copyFileSync(jPath, corruptBackup);
+            backupOk = true;
+            writeJournalFileAtomic(jPath, {
+              docId: jf.replace(/\.tx\.json$/, ''),
+              status: 'MANUAL_AUDIT_REQUIRED',
+              reason: 'CORRUPTED_JOURNAL_SYNTAX',
+              originalError: jErr.message,
+              corruptBackup: corruptBackup,
+              updatedAt: new Date().toISOString()
+            });
+          } catch (bkErr) {
+            console.error(`[CRITICAL AUDIT ALERT] Không thể ghi journal cứu hộ cho [${jf}]:`, bkErr.message);
+            try {
+              const emergencyAuditLog = path.join(__dirname, 'data', 'emergency_journal_audit.log');
+              const logEntry = `[${new Date().toISOString()}] CORRUPT_JOURNAL_FAILURE: file=${jf}, error=${jErr.message}, saveError=${bkErr.message}, backupCreated=${backupOk}\n`;
+              fs.appendFileSync(emergencyAuditLog, logEntry, 'utf8');
+            } catch (emErr) {
+              console.error('[EMERGENCY LOG FAILED] Không thể ghi audit khẩn cấp:', emErr.message);
+            }
+          }
+          continue;
+        }
+
+        try {
+          if (jData && jData.docId) {
+            if (jData.status === 'DB_COMMITTED') {
+              const targetSavedPath = resolveLocalDocumentPath({ id: jData.docId, filePath: jData.savedFilePath }) || jData.savedFilePath;
+              const hasStaged = jData.stagedFilePath && fs.existsSync(jData.stagedFilePath);
+              const hasSaved = targetSavedPath && fs.existsSync(targetSavedPath);
+
+              if (hasStaged && !hasSaved) {
+                // Giao dịch đã commit DB nhưng bị kill trước khi rename -> Hoàn tất rename ngay
+                try {
+                  fs.renameSync(jData.stagedFilePath, targetSavedPath);
+                  console.log(`[Crash Recovery] Đã tự động hoàn tất di dời tệp từ staging cho hồ sơ [${jData.docId}].`);
+                  try { fs.unlinkSync(jPath); } catch (e) { console.warn('[Crash Recovery] Lỗi xóa journal sau rename:', e.message); }
+                } catch (rnErr) {
+                  console.warn(`[Crash Recovery] Không thể di dời tệp staging sang [${targetSavedPath}]:`, rnErr.message);
+                }
+              } else if (hasStaged && hasSaved) {
+                // Cả staging và production cùng tồn tại: Đối soát SHA-256 hash đảm bảo tính toàn vẹn
+                try {
+                  const stageBuf = fs.readFileSync(jData.stagedFilePath);
+                  const savedBuf = fs.readFileSync(targetSavedPath);
+                  const stageHash = crypto.createHash('sha256').update(stageBuf).digest('hex');
+                  const savedHash = crypto.createHash('sha256').update(savedBuf).digest('hex');
+
+                  if (stageHash === savedHash) {
+                    // Trùng khớp hoàn toàn -> Bản production toàn vẹn, dọn tệp staging thừa
+                    fs.unlinkSync(jData.stagedFilePath);
+                    console.log(`[Crash Recovery] Tệp production hồ sơ [${jData.docId}] toàn vẹn, đã dọn staging thừa.`);
+                    try { fs.unlinkSync(jPath); } catch (e) { console.warn('[Crash Recovery] Lỗi xóa journal sau đối soát:', e.message); }
+                  } else {
+                    // Cảnh báo nghiêm trọng: Hai tệp khác nhau -> Giữ nguyên journal để phục vụ kiểm toán!
+                    console.error(`[Crash Recovery Ambiguity] Hồ sơ [${jData.docId}] có tệp staging và production KHÁC HASH! Giữ journal an toàn để kiểm toán.`);
+                    jData.status = 'MANUAL_AUDIT_REQUIRED';
+                    jData.reason = 'HASH_MISMATCH_STAGING_VS_PRODUCTION';
+                    jData.updatedAt = new Date().toISOString();
+                    try { writeJournalFileAtomic(jPath, jData); } catch (e) { console.warn('[Crash Recovery] Lỗi ghi journal:', e.message); }
+                  }
+                } catch (hashErr) {
+                  console.warn(`[Crash Recovery] Lỗi đối soát hash cho [${jData.docId}]:`, hashErr.message);
+                }
+              } else if (!hasSaved) {
+                // Mất cả 2 tệp -> Kiểm tra xem hồ sơ có lưu trữ đám mây không trước khi rollback DB
+                const docInDb = (typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(jData.docId) : null);
+                const hasCloudStorage = Boolean(
+                  docInDb && (
+                    docInDb.googleDriveUrl ||
+                    docInDb.driveUrl ||
+                    docInDb.driveFileId ||
+                    docInDb.driveInfo ||
+                    docInDb.storage === 'google_drive' ||
+                    (docInDb.filePath && !docInDb.filePath.startsWith('uploads/documents/'))
+                  )
+                );
+                if (hasCloudStorage) {
+                  console.warn(`[Crash Recovery Cloud Alert] Hồ sơ [${jData.docId}] có nguồn lưu trữ đám mây nhưng mất tệp vật lý local. Giữ journal CLOUD_RECOVERY_REQUIRED để đối soát.`);
+                  jData.status = 'CLOUD_RECOVERY_REQUIRED';
+                  jData.reason = 'MISSING_LOCAL_FILES_PENDING_CLOUD_VERIFY';
+                  jData.updatedAt = new Date().toISOString();
+                  try { writeJournalFileAtomic(jPath, jData); } catch (e) { console.warn('[Crash Recovery] Lỗi cập nhật journal cloud:', e.message); }
+                } else {
+                  let delOk = false;
+                  try {
+                    delOk = dataStore.deleteDocument(jData.docId);
+                  } catch (delErr) {
+                    console.warn(`[Crash Recovery] Ngoại lệ khi xóa DB [${jData.docId}]:`, delErr.message);
+                  }
+                  const stillInDb = typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(jData.docId, true) : null;
+                  if (delOk !== false && !stillInDb) {
+                    console.warn(`[Crash Recovery] Đã rollback DB [${jData.docId}] do mất cả tệp staging lẫn tệp đích.`);
+                    try { fs.unlinkSync(jPath); } catch (e) { console.warn('[Crash Recovery] Lỗi xóa journal sau rollback:', e.message); }
+                  } else {
+                    jData.status = 'ROLLBACK_REQUIRED';
+                    jData.reason = 'FAILED_DB_ROLLBACK_RECONCILE';
+                    jData.updatedAt = new Date().toISOString();
+                    try { writeJournalFileAtomic(jPath, jData); } catch (saveJErr) { console.warn('[Crash Recovery] Lỗi lưu journal:', saveJErr.message); }
+                    console.warn(`[Crash Recovery] Rollback DB cho [${jData.docId}] không thành công; giữ journal ROLLBACK_REQUIRED để retry sau.`);
+                  }
+                }
+              } else {
+                // hasSaved === true && !hasStaged -> Đã hoàn tất hoàn toàn trước đó
+                try { fs.unlinkSync(jPath); } catch (e) { console.warn('[Crash Recovery] Lỗi xóa journal đã hoàn tất:', e.message); }
+              }
+            } else if (jData.status === 'STAGED' || jData.status === 'PREPARING') {
+              // Đối chiếu xem bản ghi đã kịp ghi vào Database trước khi crash hay chưa
+              const docInDb = (typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(jData.docId) : null);
+              if (docInDb) {
+                // Database commit ĐÃ thành công trước khi crash! Thăng hạng và tiếp tục hoàn tất quy trình
+                const targetSavedPath = resolveLocalDocumentPath({ id: jData.docId, filePath: jData.savedFilePath }) || jData.savedFilePath;
+                const hasStaged = jData.stagedFilePath && fs.existsSync(jData.stagedFilePath);
+                const hasSaved = targetSavedPath && fs.existsSync(targetSavedPath);
+
+                if (hasStaged && !hasSaved) {
+                  try {
+                    fs.renameSync(jData.stagedFilePath, targetSavedPath);
+                    console.log(`[Crash Recovery] Tự động hoàn tất di dời tệp từ staging cho hồ sơ [${jData.docId}] đã commit DB tại ${jData.status}.`);
+                    try { fs.unlinkSync(jPath); } catch (e) { console.warn('[Crash Recovery] Lỗi xóa journal:', e.message); }
+                  } catch (rnErr) {
+                    console.warn(`[Crash Recovery] Không thể di dời tệp staging cho [${jData.docId}]:`, rnErr.message);
+                  }
+                } else if (hasStaged && hasSaved) {
+                  try {
+                    const stageBuf = fs.readFileSync(jData.stagedFilePath);
+                    const savedBuf = fs.readFileSync(targetSavedPath);
+                    const stageHash = crypto.createHash('sha256').update(stageBuf).digest('hex');
+                    const savedHash = crypto.createHash('sha256').update(savedBuf).digest('hex');
+                    if (stageHash === savedHash) {
+                      fs.unlinkSync(jData.stagedFilePath);
+                      try { fs.unlinkSync(jPath); } catch (e) { console.warn('[Crash Recovery] Lỗi xóa journal:', e.message); }
+                    } else {
+                      console.error(`[Crash Recovery Ambiguity] Hồ sơ [${jData.docId}] có tệp staging và production KHÁC HASH! Giữ journal an toàn để kiểm toán.`);
+                      jData.status = 'MANUAL_AUDIT_REQUIRED';
+                      jData.reason = 'HASH_MISMATCH_STAGED_VS_PRODUCTION';
+                      jData.updatedAt = new Date().toISOString();
+                      try { writeJournalFileAtomic(jPath, jData); } catch (e) { console.warn('[Crash Recovery] Lỗi ghi journal:', e.message); }
+                    }
+                  } catch (hashErr) {
+                    console.warn(`[Crash Recovery] Lỗi đối soát hash cho [${jData.docId}]:`, hashErr.message);
+                  }
+                } else if (!hasSaved) {
+                  const hasCloudStorage = Boolean(
+                    docInDb.googleDriveUrl ||
+                    docInDb.driveUrl ||
+                    docInDb.driveFileId ||
+                    docInDb.driveInfo ||
+                    docInDb.storage === 'google_drive' ||
+                    (docInDb.filePath && !docInDb.filePath.startsWith('uploads/documents/'))
+                  );
+                  if (hasCloudStorage) {
+                    console.warn(`[Crash Recovery Cloud Alert] Hồ sơ [${jData.docId}] có nguồn lưu trữ đám mây nhưng mất tệp vật lý. Bảo tồn DB và giữ journal ở CLOUD_RECOVERY_REQUIRED.`);
+                    jData.status = 'CLOUD_RECOVERY_REQUIRED';
+                    jData.reason = 'MISSING_LOCAL_FILES_PENDING_CLOUD_VERIFY';
+                    jData.updatedAt = new Date().toISOString();
+                    try { writeJournalFileAtomic(jPath, jData); } catch (e) { console.warn('[Crash Recovery] Lỗi cập nhật journal cloud:', e.message); }
+                  } else {
+                    let rollbackSuccess = false;
+                    try {
+                      const delRes = dataStore.deleteDocument(jData.docId);
+                      const stillInDb = typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(jData.docId, true) : null;
+                      if (delRes !== false && !stillInDb) {
+                        rollbackSuccess = true;
+                      }
+                    } catch (dbErr) {
+                      console.warn(`[Crash Recovery] Lỗi xóa DB cho [${jData.docId}]:`, dbErr.message);
+                    }
+
+                    if (rollbackSuccess) {
+                      console.warn(`[Crash Recovery] Đã rollback DB [${jData.docId}] do mất cả tệp staging lẫn tệp đích tại ${jData.status}.`);
+                      try { fs.unlinkSync(jPath); } catch (e) { console.warn('[Crash Recovery] Lỗi xóa journal sau rollback:', e.message); }
+                    } else {
+                      try {
+                        jData.status = 'ROLLBACK_REQUIRED';
+                        writeJournalFileAtomic(jPath, jData);
+                      } catch (saveJErr) {
+                        console.warn(`[Crash Recovery] Không thể cập nhật journal sang ROLLBACK_REQUIRED cho [${jData.docId}]:`, saveJErr.message);
+                      }
+                      console.warn(`[Crash Recovery] Rollback DB cho [${jData.docId}] chưa hoàn tất; giữ journal ROLLBACK_REQUIRED để retry sau.`);
+                    }
+                  }
+                } else {
+                  try { fs.unlinkSync(jPath); } catch (e) { console.warn('[Crash Recovery] Lỗi xóa journal đã hoàn tất:', e.message); }
+                }
+              } else {
+                // Database THỰC SỰ chưa commit -> Dọn dẹp tệp staging mồ côi nếu có và chỉ xóa journal khi dọn thành công
+                let stagingCleanedOk = true;
+                if (jData.stagedFilePath && fs.existsSync(jData.stagedFilePath)) {
+                  try {
+                    fs.unlinkSync(jData.stagedFilePath);
+                  } catch (e) {
+                    stagingCleanedOk = false;
+                    console.warn('[Crash Recovery] Lỗi xóa staging mồ côi:', e.message);
+                  }
+                }
+                if (stagingCleanedOk) {
+                  try { fs.unlinkSync(jPath); } catch (e) { console.warn('[Crash Recovery] Lỗi xóa journal dở dang:', e.message); }
+                } else {
+                  try {
+                    jData.status = 'ROLLBACK_REQUIRED';
+                    writeJournalFileAtomic(jPath, jData);
+                  } catch (saveJErr) {
+                    console.warn('[Crash Recovery] Không thể cập nhật journal sang ROLLBACK_REQUIRED:', saveJErr.message);
+                  }
+                  console.warn(`[Crash Recovery] Chưa thể xóa tệp staging dở dang cho [${jData.docId}]; giữ journal ROLLBACK_REQUIRED để retry sau.`);
+                }
+              }
+            } else if (jData.status === 'ROLLBACK_REQUIRED') {
+              // Xử lý journal đang dở dang do lỗi phát sinh trong quá trình tạo
+              let rollbackSuccess = true;
+              if (jData.docId) {
+                const docInDb = (typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(jData.docId, true) : null);
+                const hasCloudStorage = Boolean(
+                  docInDb && (
+                    docInDb.googleDriveUrl ||
+                    docInDb.driveUrl ||
+                    docInDb.driveFileId ||
+                    docInDb.driveInfo ||
+                    docInDb.storage === 'google_drive'
+                  )
+                );
+                if (hasCloudStorage) {
+                  console.warn(`[Crash Recovery] Hồ sơ [${jData.docId}] có lưu trữ đám mây trong nhánh ROLLBACK_REQUIRED. Bảo tồn DB và chuyển journal sang CLOUD_RECOVERY_REQUIRED.`);
+                  jData.status = 'CLOUD_RECOVERY_REQUIRED';
+                  jData.reason = 'CLOUD_PRESERVED_PENDING_AUDIT';
+                  jData.updatedAt = new Date().toISOString();
+                  try { writeJournalFileAtomic(jPath, jData); } catch (e) { console.warn('[Crash Recovery] Lỗi cập nhật journal cloud:', e.message); }
+                  continue;
+                }
+                if (docInDb) {
+                  try {
+                    const delRes = dataStore.deleteDocument(jData.docId);
+                    const stillInDb = typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(jData.docId, true) : null;
+                    if (delRes === false || stillInDb) {
+                      rollbackSuccess = false;
+                      console.warn(`[Crash Recovery] Rollback xóa DB cho [${jData.docId}] không thành công; giữ journal để retry sau.`);
+                    }
+                  } catch (dbErr) {
+                    rollbackSuccess = false;
+                    console.warn(`[Crash Recovery] Lỗi rollback xóa DB cho [${jData.docId}]:`, dbErr.message);
+                  }
+                }
+              }
+              if (jData.stagedFilePath && fs.existsSync(jData.stagedFilePath)) {
+                if (isWithinUploadRoot(jData.stagedFilePath)) {
+                  try {
+                    fs.unlinkSync(jData.stagedFilePath);
+                  } catch (e) {
+                    rollbackSuccess = false;
+                    console.warn(`[Crash Recovery] Lỗi xóa tệp staging dở dang [${jData.stagedFilePath}]:`, e.message);
+                  }
+                } else {
+                  console.warn(`[Crash Recovery Guard] stagedFilePath [${jData.stagedFilePath}] nằm ngoài UPLOAD_ROOT. Không xóa file.`);
+                  rollbackSuccess = false;
+                }
+              }
+              if (jData.savedFilePath && fs.existsSync(jData.savedFilePath)) {
+                const allActiveDocs = (typeof dataStore.getDocuments === 'function' ? dataStore.getDocuments() : []);
+                const isReferencedByActiveDoc = allActiveDocs.some(d => {
+                  if (!d || !d.id) return false;
+                  if (d.id === jData.docId) return false;
+                  const dPath = resolveLocalDocumentPath(d);
+                  return dPath && path.resolve(dPath) === path.resolve(jData.savedFilePath);
+                });
+
+                if (isReferencedByActiveDoc) {
+                  console.warn(`[Crash Recovery Guard] File [${jData.savedFilePath}] đang được một hồ sơ DB khác sử dụng. Không xóa file, chuyển journal sang MANUAL_AUDIT_REQUIRED.`);
+                  jData.status = 'MANUAL_AUDIT_REQUIRED';
+                  jData.reason = 'SAVED_FILE_REFERENCED_BY_ACTIVE_DB_DOCUMENT';
+                  rollbackSuccess = false;
+                } else if (!isWithinUploadRoot(jData.savedFilePath)) {
+                  console.warn(`[Crash Recovery Guard] savedFilePath [${jData.savedFilePath}] nằm ngoài UPLOAD_ROOT. Không xóa file, chuyển journal sang MANUAL_AUDIT_REQUIRED.`);
+                  jData.status = 'MANUAL_AUDIT_REQUIRED';
+                  jData.reason = 'SAVED_FILE_OUTSIDE_UPLOAD_ROOT';
+                  rollbackSuccess = false;
+                } else {
+                  try {
+                    fs.unlinkSync(jData.savedFilePath);
+                  } catch (e) {
+                    rollbackSuccess = false;
+                    console.warn(`[Crash Recovery] Lỗi xóa tệp saved dở dang [${jData.savedFilePath}]:`, e.message);
+                  }
+                }
+              }
+              if (rollbackSuccess) {
+                try {
+                  fs.unlinkSync(jPath);
+                  console.log(`[Crash Recovery] Đã hoàn tất xử lý ROLLBACK_REQUIRED và dọn dẹp journal [${jf}].`);
+                } catch (e) {
+                  console.warn(`[Crash Recovery] Lỗi xóa journal file [${jPath}]:`, e.message);
+                }
+              } else {
+                const retries = (jData.retryCount || 0) + 1;
+                jData.retryCount = retries;
+                if (retries >= 5) {
+                  jData.status = 'MANUAL_AUDIT_REQUIRED';
+                  console.error(`[Crash Recovery] ROLLBACK_REQUIRED cho [${jData.docId}] đã vượt ngưỡng 5 lần retry. Chuyển sang MANUAL_AUDIT_REQUIRED.`);
+                }
+                try {
+                  writeJournalFileAtomic(jPath, jData);
+                } catch (saveJErr) {
+                  console.warn('[Crash Recovery] Lỗi lưu retryCount vào journal:', saveJErr.message);
+                }
+                console.warn(`[Crash Recovery] ROLLBACK_REQUIRED cho [${jData.docId}] chưa hoàn tất (lần ${retries}/5). Giữ journal để retry sau.`);
+              }
+            } else if (jData.status === 'SIGN_STEP_PREPARING') {
+              // Phục hồi sự cố khi crash xảy ra trong lúc ký bước tiếp theo (sign-step)
+              const docInDb = (typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(jData.docId, true) : null);
+              const newFileExists = Boolean(jData.newFilePath && fs.existsSync(jData.newFilePath));
+              const backupExists = Boolean(jData.backupPath && fs.existsSync(jData.backupPath));
+
+              // Kiểm tra xem DB đã kịp commit bước ký mới này trước khi crash hay chưa
+              const isDbCommitted = Boolean(
+                docInDb &&
+                docInDb.filePath &&
+                jData.newFilePath &&
+                (
+                  path.resolve(__dirname, docInDb.filePath) === path.resolve(jData.newFilePath) ||
+                  jData.newFilePath.endsWith(path.basename(docInDb.filePath))
+                )
+              );
+
+              if (isDbCommitted && newFileExists) {
+                // DB đã commit thành công: dọn file backup nếu còn và dọn journal
+                if (backupExists) {
+                  try { fs.unlinkSync(jData.backupPath); } catch (bkErr) { console.warn('[Crash Recovery] Lỗi dọn backup sign-step:', bkErr.message); }
+                }
+                try {
+                  fs.unlinkSync(jPath);
+                  console.log(`[Crash Recovery] Đã hoàn tất đối soát sign-step commit thành công cho hồ sơ [${jData.docId}].`);
+                } catch (uErr) { console.warn('[Crash Recovery] Lỗi xóa journal sign-step:', uErr.message); }
+              } else {
+                // DB CHƯA commit bước ký mới: rollback artifact vật lý về trạng thái cũ
+                let rollbackArtifactOk = true;
+                if (backupExists && jData.newFilePath) {
+                  try {
+                    fs.copyFileSync(jData.backupPath, jData.newFilePath);
+                    fs.unlinkSync(jData.backupPath);
+                    console.log(`[Crash Recovery] Đã hoàn nguyên tệp gốc từ backup cho hồ sơ [${jData.docId}] bị crash tại sign-step.`);
+                  } catch (rbErr) {
+                    rollbackArtifactOk = false;
+                    console.error(`[Crash Recovery] Không thể hoàn nguyên file backup cho [${jData.docId}]:`, rbErr.message);
+                  }
+                } else if (newFileExists && !backupExists) {
+                  // File mới tạo nhưng DB chưa commit -> xóa file mới dở dang
+                  try {
+                    fs.unlinkSync(jData.newFilePath);
+                    console.log(`[Crash Recovery] Đã dọn tệp signed dở dang cho hồ sơ [${jData.docId}] bị crash tại sign-step.`);
+                  } catch (uErr) {
+                    rollbackArtifactOk = false;
+                    console.error(`[Crash Recovery] Không thể xóa tệp signed dở dang cho [${jData.docId}]:`, uErr.message);
+                  }
+                }
+
+                if (rollbackArtifactOk) {
+                  try {
+                    fs.unlinkSync(jPath);
+                    console.log(`[Crash Recovery] Đã dọn dẹp journal SIGN_STEP_PREPARING sau khi rollback artifact cho [${jData.docId}].`);
+                  } catch (uErr) { console.warn('[Crash Recovery] Lỗi xóa journal sign-step rollback:', uErr.message); }
+                } else {
+                  jData.status = 'ROLLBACK_REQUIRED';
+                  jData.reason = 'SIGN_STEP_ROLLBACK_ARTIFACT_FAILED';
+                  jData.updatedAt = new Date().toISOString();
+                  try { writeJournalFileAtomic(jPath, jData); } catch (saveJErr) { console.warn('[Crash Recovery] Lỗi lưu journal:', saveJErr.message); }
+                  console.warn(`[Crash Recovery] Chưa thể hoàn nguyên artifact sign-step cho [${jData.docId}]; chuyển sang ROLLBACK_REQUIRED.`);
+                }
+              }
+            } else if (jData.status === 'EXTERNAL_SYNC_PENDING') {
+              // Giao dịch ký cục bộ và commit DB đã hoàn tất 100%, chỉ còn tác vụ đồng bộ ngoại vi (Google Drive / Firebase)
+              const docInDb = (typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(jData.docId, true) : null);
+              let syncHandled = false;
+              if (docInDb) {
+                if (docInDb.syncStatus === 'SYNC_COMPLETED') {
+                  syncHandled = true;
+                } else {
+                  try {
+                    const updRes = dataStore.updateDocument(docInDb.id, { syncStatus: 'SYNC_PENDING_RETRY' });
+                    const checkDoc = (typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(docInDb.id, true) : null);
+                    if (updRes !== false && checkDoc && checkDoc.syncStatus === 'SYNC_PENDING_RETRY') {
+                      syncHandled = true;
+                    }
+                  } catch (syncErr) {
+                    console.warn('[Crash Recovery] Lỗi cập nhật retry syncStatus:', syncErr.message);
+                  }
+                }
+              } else {
+                console.warn(`[Crash Recovery] Không tìm thấy bản ghi DB cho journal EXTERNAL_SYNC_PENDING [${jData.docId}]. Chuyển sang MANUAL_AUDIT_REQUIRED.`);
+                jData.status = 'MANUAL_AUDIT_REQUIRED';
+                jData.reason = 'MISSING_DB_DOC_FOR_EXTERNAL_SYNC';
+                jData.updatedAt = new Date().toISOString();
+                try { writeJournalFileAtomic(jPath, jData); } catch (e) { console.warn('[Crash Recovery] Lỗi cập nhật journal:', e.message); }
+              }
+
+              if (syncHandled) {
+                try {
+                  fs.unlinkSync(jPath);
+                  console.log(`[Crash Recovery] Đã xử lý journal EXTERNAL_SYNC_PENDING bền vững cho [${jData.docId}].`);
+                } catch (uErr) { console.warn('[Crash Recovery] Lỗi xóa journal EXTERNAL_SYNC_PENDING:', uErr.message); }
+              } else if (jData.status !== 'MANUAL_AUDIT_REQUIRED') {
+                console.warn(`[Crash Recovery] Chưa thể xác nhận DB lưu syncStatus cho [${jData.docId}]; giữ journal EXTERNAL_SYNC_PENDING để retry sau.`);
+              }
+            }
+          }
+        } catch (jErr) {
+          console.warn('[Crash Recovery] Lỗi xử lý journal file:', jErr.message);
+        }
+      }
+
+      // Dọn dẹp các tệp tạm .tmp tồn đọng trong TX_DIR quá 5 phút
+      try {
+        const txTmpFiles = fs.readdirSync(TX_DIR);
+        for (const tf of txTmpFiles) {
+          if (tf.endsWith('.tmp') || tf.includes('.tmp.')) {
+            const tfPath = path.join(TX_DIR, tf);
+            try {
+              const stat = fs.statSync(tfPath);
+              if (Date.now() - stat.mtimeMs > 5 * 60 * 1000) {
+                fs.unlinkSync(tfPath);
+              }
+            } catch (cleanErr) { console.warn('[Crash Recovery] Lỗi dọn tx tmp:', cleanErr.message); }
+          }
+        }
+      } catch (txScanErr) { console.warn('[Crash Recovery] Lỗi quét tx tmp:', txScanErr.message); }
+    }
+
+    // 2. Đối soát hai chiều DB <-> Filesystem (Two-Way Reconciliation)
+    const docs = typeof dataStore.getDocuments === 'function' ? dataStore.getDocuments() : [];
+    for (const doc of docs) {
+      if (!doc || !doc.id) continue;
+      const safeId = String(doc.id).replace(/[^a-zA-Z0-9_\-]/g, '_');
+      const expectedPath = resolveLocalDocumentPath(doc);
+      const stagedCandidate = path.join(stagingDir, `doc_${safeId}.pdf.stage`);
+
+      // Kiểm tra nguồn lưu trữ đám mây hoặc đường dẫn ngoại vi (Google Drive / Remote Storage)
+      const hasCloudStorage = Boolean(
+        doc.googleDriveUrl ||
+        doc.driveUrl ||
+        doc.driveFileId ||
+        doc.driveInfo ||
+        doc.storage === 'google_drive' ||
+        (typeof doc.filePath === 'string' && (
+          doc.filePath.startsWith('http://') ||
+          doc.filePath.startsWith('https://') ||
+          doc.filePath.startsWith('drive://') ||
+          (!doc.filePath.includes('uploads/') && !doc.filePath.includes('data/documents/'))
+        ))
+      );
+
+      if (!fs.existsSync(expectedPath)) {
+        // Tệp đích không tồn tại: kiểm tra xem có tệp stage còn sót lại không
+        if (fs.existsSync(stagedCandidate)) {
+          try {
+            fs.renameSync(stagedCandidate, expectedPath);
+            console.log(`[Crash Recovery] Đã phục hồi tệp đích từ staging cho hồ sơ [${doc.id}].`);
+          } catch (rErr) {
+            console.warn(`[Crash Recovery] Lỗi phục hồi từ staging cho [${doc.id}]:`, rErr.message);
+          }
+        } else if (hasCloudStorage) {
+          // Hồ sơ có nguồn lưu trữ đám mây: bảo tồn dữ liệu an toàn trong DB, tuyệt đối không rollback xóa nhầm
+          console.log(`[Crash Recovery] Hồ sơ [${doc.id}] có nguồn lưu trữ đám mây; bảo tồn nguyên vẹn trong DB.`);
+        } else {
+          // Không tìm thấy tệp ở cả hai nơi và không có cloud storage: rollback bản ghi DB nếu hồ sơ đã qua 1 phút
+          const createdMs = new Date(doc.createdAt || 0).getTime();
+          if (Date.now() - createdMs > 60 * 1000) {
+            let rollbackOk = false;
+            try {
+              const delRes = dataStore.deleteDocument(doc.id);
+              const stillInDb = typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(doc.id, true) : null;
+              if (delRes !== false && !stillInDb) {
+                rollbackOk = true;
+                console.warn(`[Crash Recovery] Đã rollback xóa bản ghi DB mồ côi [${doc.id}] do không tìm thấy file vật lý.`);
+              }
+            } catch (delErr) {
+              console.warn(`[Crash Recovery] Ngoại lệ khi xóa DB mồ côi [${doc.id}]:`, delErr.message);
+            }
+            if (!rollbackOk) {
+              try {
+                writeTransactionJournal(safeId, {
+                  docId: doc.id,
+                  status: 'ROLLBACK_REQUIRED',
+                  reason: 'ORPHAN_DB_NO_PHYSICAL_FILE',
+                  retryCount: 1,
+                  updatedAt: new Date().toISOString()
+                });
+              } catch (jErr) {
+                console.warn(`[Crash Recovery] Không thể ghi journal ROLLBACK_REQUIRED cho [${doc.id}]:`, jErr.message);
+              }
+              console.warn(`[Crash Recovery] Chưa thể rollback bản ghi DB mồ côi [${doc.id}]; đã lưu journal ROLLBACK_REQUIRED để retry sau.`);
+            }
+          }
+        }
+      } else if (fs.existsSync(stagedCandidate)) {
+        // Tệp đích đã có VÀ tệp staging còn sót: so khớp hash để dọn dẹp an toàn
+        try {
+          const stageBuf = fs.readFileSync(stagedCandidate);
+          const savedBuf = fs.readFileSync(expectedPath);
+          const stageHash = crypto.createHash('sha256').update(stageBuf).digest('hex');
+          const savedHash = crypto.createHash('sha256').update(savedBuf).digest('hex');
+          if (stageHash === savedHash) {
+            fs.unlinkSync(stagedCandidate);
+          }
+        } catch (cmpErr) {
+          console.warn(`[Crash Recovery] Lỗi kiểm tra hash tệp trùng [${doc.id}]:`, cmpErr.message);
+        }
+      }
+
+      // 3. Kiểm định Invariant tính toàn vẹn trạng thái PENDING_SEAL khi khởi động:
+      // Báo cáo ở trạng thái PENDING_SEAL bắt buộc phải có bghApprovedAt và bghSigner hợp lệ
+      if (doc.status === 'PENDING_SEAL') {
+        const hasBghSigner = Boolean(doc.bghSigner && doc.bghApprovedAt);
+        if (!hasBghSigner) {
+          console.warn(`[State Invariant Sanitization] Hồ sơ [${doc.id}] có status PENDING_SEAL nhưng thiếu BGH approval metadata. Khôi phục về PENDING_SIGN.`);
+          doc.status = 'PENDING_SIGN';
+          doc.bghApprovedAt = null;
+          doc.bghSigner = null;
+          try { dataStore.updateDocument(doc.id, doc); } catch (uErr) { console.warn('[State Invariant] Lỗi cập nhật hồ sơ:', uErr.message); }
+        }
+      }
+    }
+
+    const files = fs.readdirSync(uploadDir);
+    const knownDocIds = new Set(docs.map(d => (d.id || '').replace(/[^a-zA-Z0-9_\-]/g, '_')));
+
+    let cleaned = 0;
+    for (const f of files) {
+      const fullPath = path.join(uploadDir, f);
+      // Chỉ dọn dẹp file tạm .tmp nếu đã tồn tại quá 5 phút (tránh xóa nhầm giao dịch đang thực thi)
+      if (f.endsWith('.tmp')) {
+        try {
+          const stat = fs.statSync(fullPath);
+          if (Date.now() - stat.mtimeMs > 5 * 60 * 1000) {
+            fs.unlinkSync(fullPath);
+            cleaned++;
+          }
+        } catch (cleanErr) { console.warn('[Reconciliation] Không thể kiểm tra/xóa file tmp:', cleanErr.message); }
+        continue;
+      }
+      // Kiểm tra file doc_<id>.pdf orphan không có bản ghi tương ứng trong database (chỉ dọn sau 5 phút)
+      const match = f.match(/^doc_(.+)\.pdf$/);
+      if (match) {
+        const safeId = match[1];
+        if (!knownDocIds.has(safeId)) {
+          try {
+            const stat = fs.statSync(fullPath);
+            if (Date.now() - stat.mtimeMs > 5 * 60 * 1000) {
+              fs.unlinkSync(fullPath);
+              cleaned++;
+            }
+          } catch (statErr) { console.warn('[Reconciliation] Không thể kiểm tra/dọn orphan file:', statErr.message); }
+        }
+      }
+    }
+
+    // Dọn dẹp staging file mồ côi thực sự (Bảo vệ tuyệt đối Transaction Journal, Lock và DB)
+    if (fs.existsSync(stagingDir)) {
+      const stagedFiles = fs.readdirSync(stagingDir);
+      for (const sf of stagedFiles) {
+        if (!sf.endsWith('.stage')) continue;
+        const fullStagePath = path.join(stagingDir, sf);
+        try {
+          const stat = fs.statSync(fullStagePath);
+          // Chỉ xét dọn dẹp nếu file đã tồn tại quá hạn an toàn 15 phút
+          if (Date.now() - stat.mtimeMs <= 15 * 60 * 1000) {
+            continue;
+          }
+          // Trích xuất mã an toàn docId từ tên file: doc_<safeId>.pdf.stage
+          const stageMatch = sf.match(/^doc_(.+)\.pdf\.stage$/);
+          const safeId = stageMatch ? stageMatch[1] : null;
+          if (safeId) {
+            // 1. Kiểm tra Transaction Journal: Bỏ qua nếu journal còn tồn tại ở bất kỳ trạng thái nào!
+            const journalCandidate = path.join(TX_DIR, `${safeId}.tx.json`);
+            if (fs.existsSync(journalCandidate)) {
+              continue;
+            }
+            // 2. Kiểm tra Lock còn hiệu lực: Bỏ qua nếu lock file còn tồn tại
+            const lockCandidate = path.join(LOCK_DIR, `${safeId}.lock`);
+            if (fs.existsSync(lockCandidate)) {
+              continue;
+            }
+            // 3. Kiểm tra Database: Bỏ qua nếu bản ghi đã tồn tại trong DB
+            const docInDb = (typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(safeId) : null);
+            if (docInDb) {
+              continue;
+            }
+          }
+          fs.unlinkSync(fullStagePath);
+          cleaned++;
+        } catch (stageErr) {
+          console.warn('[Reconciliation] Không thể dọn staging file cũ:', stageErr.message);
+        }
+      }
+    }
+
+    if (cleaned > 0) {
+      console.log(`[Reconciliation] Đã tự động dọn dẹp ${cleaned} tệp tạm/orphan file tồn đọng khi khởi động.`);
+    }
+  } catch (err) {
+    console.warn('[Reconciliation] Không thể quét dọn dẹp thư mục uploads:', err.message);
+  }
+}
+reconcileOrphanDocumentsOnStartup();
+
+/**
+ * Chuẩn hóa xác thực Ban Giám hiệu Canonical (Fail-Closed & 100% Client/Server Alignment)
+ */
+function isCanonicalBgh(u) {
+  if (!u || typeof u !== 'object') return false;
+  const role = typeof u.role === 'string' ? u.role.trim().toUpperCase() : '';
+  const department = typeof u.department === 'string' ? u.department.toLowerCase() : '';
+  const roleTitle = typeof u.roleTitle === 'string' ? u.roleTitle.toLowerCase() : '';
+  const deptId = typeof u.departmentId === 'string' ? u.departmentId.toLowerCase() : '';
+
+  return role === 'BGH' ||
+    role === 'ADMIN' ||
+    Boolean(u.canStampSeal) ||
+    deptId === 'dept_bgh' ||
+    department.includes('giám hiệu') ||
+    roleTitle.includes('hiệu trưởng') ||
+    roleTitle.includes('giám hiệu');
+}
+
+/**
+ * Chuẩn hóa xác thực Tổ trưởng Chuyên môn Canonical
+ */
+function isCanonicalHead(u) {
+  if (!u || typeof u !== 'object') return false;
+  const role = typeof u.role === 'string' ? u.role.trim().toUpperCase() : '';
+  const roleTitle = typeof u.roleTitle === 'string' ? u.roleTitle.toLowerCase() : '';
+
+  return role === 'HEAD_DEPT' ||
+    role === 'LEADER' ||
+    roleTitle.includes('tổ trưởng') ||
+    role.toLowerCase().includes('leader');
+}
+
+
+
+function isPidAlive(pid) {
+  if (!pid || typeof pid !== 'number') return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === 'EPERM'; // EPERM nghĩa là process đang chạy nhưng không có quyền can thiệp
+  }
+}
+
+function acquireDocumentLock(docId, creatorId) {
+  if (!docId) return null;
+  if (documentCreationLocks.has(docId)) return null;
+
+  const safeId = String(docId).replace(/[^a-zA-Z0-9_\-]/g, '_');
+  const lockFilePath = path.join(LOCK_DIR, `${safeId}.lock`);
+  const lockToken = crypto.randomUUID();
+  const lockData = {
+    token: lockToken,
+    pid: process.pid,
+    bootId: PROCESS_BOOT_ID,
+    docId,
+    creatorId,
+    createdAt: Date.now()
+  };
+
+  // 1. Thử tạo file độc quyền bằng cờ 'wx' (Atomic Create O_CREAT | O_EXCL)
+  try {
+    fs.writeFileSync(lockFilePath, JSON.stringify(lockData), { flag: 'wx' });
+    documentCreationLocks.set(docId, lockToken);
+    return lockToken;
+  } catch (err) {
+    if (err.code !== 'EEXIST') {
+      console.warn('[Lock Concurrency Error]', err.message);
+      return null;
+    }
+  }
+
+  // 2. Lock file đã tồn tại: Kiểm tra xem có phải là Stale Lock (PID đã chết hoặc quá hạn) không
+  try {
+    if (fs.existsSync(lockFilePath)) {
+      let existing = null;
+      try {
+        existing = JSON.parse(fs.readFileSync(lockFilePath, 'utf8'));
+      } catch (parseErr) {
+        console.warn('[Lock Stale Parse]', parseErr.message);
+      }
+
+      const isStale = !existing ||
+        (existing.createdAt && Date.now() - existing.createdAt > 30000 && !isPidAlive(existing.pid));
+
+      if (isStale) {
+        // Thu hồi Stale Lock NGUYÊN TỬ bằng atomic fs.renameSync (chống tuyệt đối race condition giữa 2 worker)
+        const staleCandidatePath = path.join(LOCK_DIR, `${safeId}.${crypto.randomBytes(6).toString('hex')}.stale`);
+        try {
+          fs.renameSync(lockFilePath, staleCandidatePath);
+          try {
+            fs.unlinkSync(staleCandidatePath);
+          } catch (unlinkErr) {
+            console.warn('[Lock Stale Cleanup]', { docId, staleCandidatePath, error: unlinkErr.message });
+          }
+
+          // Worker duy nhất rename thành công sẽ retry tạo lock mới độc quyền
+          fs.writeFileSync(lockFilePath, JSON.stringify(lockData), { flag: 'wx' });
+          documentCreationLocks.set(docId, lockToken);
+          return lockToken;
+        } catch (renameErr) {
+          // Worker khác đã nhanh chân hơn di dời stale lock hoặc tạo lock mới -> Nhường quyền an toàn
+          return null;
+        }
+      }
+    }
+  } catch (statErr) {
+    console.warn('[Lock Stat Error]', statErr.message);
+  }
+
+  return null;
+}
+
+function releaseDocumentLock(docId, lockToken) {
+  if (!docId) return false;
+  const expectedToken = lockToken || documentCreationLocks.get(docId);
+  if (!expectedToken) return false;
+
+  const safeId = String(docId).replace(/[^a-zA-Z0-9_\-]/g, '_');
+  const lockFilePath = path.join(LOCK_DIR, `${safeId}.lock`);
+  try {
+    if (!fs.existsSync(lockFilePath)) {
+      documentCreationLocks.delete(docId);
+      return true;
+    }
+    let existing = null;
+    try {
+      existing = JSON.parse(fs.readFileSync(lockFilePath, 'utf8'));
+    } catch (parseErr) {
+      console.warn('[Lock Release Parse]', parseErr.message);
+    }
+
+    // CHỐT CHẶN BẢO VỆ CHỦ SỞ HỮU (OWNER-GUARDED RELEASE):
+    // Chỉ đúng worker có token trùng khớp mới được phép di dời & xóa lock file và xóa state RAM!
+    if (existing && existing.token === expectedToken) {
+      const releasingPath = path.join(LOCK_DIR, `${safeId}.${expectedToken}.releasing`);
+      try {
+        fs.renameSync(lockFilePath, releasingPath);
+        try {
+          fs.unlinkSync(releasingPath);
+        } catch (unlinkErr) {
+          console.warn('[Lock Release Unlink]', unlinkErr.message);
+        }
+        documentCreationLocks.delete(docId);
+        return true;
+      } catch (renameErr) {
+        console.warn('[Lock Release Rename]', renameErr.message);
+        return false;
+      }
+    } else {
+      // Token sai: TUYỆT ĐỐI KHÔNG XÓA state RAM của chủ sở hữu hợp pháp!
+      console.warn(`[Lock Release Denied] Token không hợp lệ cho docId [${docId}]. Quyền sở hữu RAM được bảo toàn.`);
+      return false;
+    }
+  } catch (cleanErr) {
+    console.warn('[Lock Release]', cleanErr.message);
+    return false;
   }
 }
 
@@ -88,8 +1097,163 @@ app.use(cors({
   credentials: true,
   allowedHeaders: ['*']
 }));
-app.use(express.json({ limit: '25mb' }));
-app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+
+// Quản trị Concurrency cho Heavy Payload (Heavy Payload Concurrency Semaphore)
+// Ngăn chặn cạn kiệt bộ nhớ RAM (OOM Crash) khi nhiều client gửi payload lớn (> 5MB) đồng thời (áp dụng cho cả Content-Length và Chunked Stream)
+const MAX_CONCURRENT_HEAVY_REQUESTS = 6;
+const MAX_HEAVY_PER_IP = 3;
+const HEAVY_PAYLOAD_THRESHOLD = 5 * 1024 * 1024; // 5MB
+let currentHeavyPayloadRequests = 0;
+const heavyPayloadIpMap = new Map();
+
+function tryAcquireHeavySlot(clientIp, req, res) {
+  if (req._heavySlotAcquired) return true;
+  const currentIpCount = heavyPayloadIpMap.get(clientIp) || 0;
+  if (currentHeavyPayloadRequests >= MAX_CONCURRENT_HEAVY_REQUESTS || currentIpCount >= MAX_HEAVY_PER_IP) {
+    return false;
+  }
+
+  req._heavySlotAcquired = true;
+  currentHeavyPayloadRequests++;
+  heavyPayloadIpMap.set(clientIp, currentIpCount + 1);
+
+  let released = false;
+  const releaseSlot = () => {
+    if (!released) {
+      released = true;
+      currentHeavyPayloadRequests = Math.max(0, currentHeavyPayloadRequests - 1);
+      const c = heavyPayloadIpMap.get(clientIp) || 1;
+      if (c <= 1) {
+        heavyPayloadIpMap.delete(clientIp);
+      } else {
+        heavyPayloadIpMap.set(clientIp, c - 1);
+      }
+    }
+  };
+
+  res.on('finish', releaseSlot);
+  res.on('close', releaseSlot);
+  req.on('aborted', releaseSlot);
+  req.on('error', releaseSlot);
+  return true;
+}
+
+// Chặn đứng DoS kích thước lớn và DoS tương tranh tải nặng ngay tại tầng socket stream trước khi cấp phát bộ nhớ RAM cho express.json
+app.use((req, res, next) => {
+  const MAX_ALLOWED_BYTES = 35 * 1024 * 1024;
+  const method = req.method;
+  const isPayloadMethod = (method === 'POST' || method === 'PUT' || method === 'PATCH');
+  const clientIp = req.ip || req.connection?.remoteAddress || 'unknown';
+
+  const rejectStreamOversized = (message, onChunkHandler) => {
+    req._streamRejected = true;
+    if (onChunkHandler) req.removeListener('data', onChunkHandler);
+    req.pause();
+    if (typeof req.unpipe === 'function') req.unpipe();
+    res.setHeader('Connection', 'close');
+    if (!res.headersSent) {
+      res.status(413).json({
+        success: false,
+        message
+      });
+    }
+    // Đợi phản hồi HTTP 413 gửi trọn vẹn tới client trước khi đóng socket (chống ECONNRESET)
+    res.on('finish', () => {
+      try { req.destroy(); } catch (err) { console.warn('[Stream Guard] Lỗi đóng socket sau phản hồi 413:', err.message); }
+    });
+    setTimeout(() => {
+      try { if (!req.destroyed) req.destroy(); } catch (tErr) { console.warn('[Stream Guard] Failsafe destroy:', tErr.message); }
+    }, 500).unref();
+  };
+
+  const rejectStreamConcurrency = (onChunkHandler) => {
+    req._streamRejected = true;
+    if (onChunkHandler) req.removeListener('data', onChunkHandler);
+    req.pause();
+    if (typeof req.unpipe === 'function') req.unpipe();
+    res.setHeader('Connection', 'close');
+    res.setHeader('Retry-After', '2');
+    if (!res.headersSent) {
+      res.status(429).json({
+        success: false,
+        message: 'Hệ thống đang xử lý nhiều tác vụ tải tệp lớn cùng lúc. Vui lòng thử lại sau giây lát!'
+      });
+    }
+    res.on('finish', () => {
+      try { req.destroy(); } catch (err) { console.warn('[Stream Guard] Lỗi đóng socket sau phản hồi 429:', err.message); }
+    });
+    setTimeout(() => {
+      try { if (!req.destroyed) req.destroy(); } catch (tErr) { console.warn('[Stream Guard] Failsafe destroy 429:', tErr.message); }
+    }, 500).unref();
+  };
+
+  const contentLengthHeader = req.headers['content-length'];
+  const contentLength = contentLengthHeader ? parseInt(contentLengthHeader, 10) : 0;
+  const isChunkedTransfer = Boolean(req.headers['transfer-encoding'] && req.headers['transfer-encoding'].includes('chunked'));
+
+  if (contentLength && contentLength > MAX_ALLOWED_BYTES) {
+    rejectStreamOversized('Kích thước dữ liệu (Content-Length) vượt quá giới hạn tối đa cho phép của máy chủ (35MB).');
+    return;
+  }
+
+  // Nếu có Content-Length và vượt ngưỡng tải nặng, hoặc là luồng Chunked Transfer / request không có Content-Length
+  // Chiếm slot semaphore ngay lập tức trước khi gọi next() để ngăn chặn DoS cạn kiệt RAM trước parser
+  if (isPayloadMethod && (contentLength >= HEAVY_PAYLOAD_THRESHOLD || isChunkedTransfer || !contentLengthHeader)) {
+    if (!tryAcquireHeavySlot(clientIp, req, res)) {
+      rejectStreamConcurrency();
+      return;
+    }
+  }
+
+  // Theo dõi trực tiếp dòng byte nhận từ socket chống DoS vượt ngưỡng và DoS tương tranh qua Chunked Transfer
+  let streamBytes = 0;
+  let aborted = false;
+
+  const onChunk = (chunk) => {
+    streamBytes += chunk.length;
+    if (streamBytes > MAX_ALLOWED_BYTES && !aborted) {
+      aborted = true;
+      rejectStreamOversized('Kích thước luồng dữ liệu (Chunked Stream) vượt quá giới hạn tối đa cho phép của máy chủ (35MB).', onChunk);
+      return;
+    }
+
+    // Chunked Stream Concurrency Semaphore: Ngăn chặn DoS nhiều luồng chunked nặng đồng thời
+    if (isPayloadMethod && streamBytes >= HEAVY_PAYLOAD_THRESHOLD && !req._heavySlotAcquired && !aborted) {
+      if (!tryAcquireHeavySlot(clientIp, req, res)) {
+        aborted = true;
+        rejectStreamConcurrency(onChunk);
+      }
+    }
+  };
+
+  req.on('data', onChunk);
+  res.on('finish', () => {
+    req.removeListener('data', onChunk);
+  });
+
+  next();
+});
+
+const _rawJsonParser = express.json({ limit: '35mb' });
+const _rawUrlencodedParser = express.urlencoded({ extended: true, limit: '35mb' });
+
+app.use((req, res, next) => {
+  if (req._streamRejected || res.headersSent) return;
+  _rawJsonParser(req, res, (err) => {
+    if (req._streamRejected || res.headersSent) return;
+    if (err) return next(err);
+    next();
+  });
+});
+
+app.use((req, res, next) => {
+  if (req._streamRejected || res.headersSent) return;
+  _rawUrlencodedParser(req, res, (err) => {
+    if (req._streamRejected || res.headersSent) return;
+    if (err) return next(err);
+    next();
+  });
+});
 app.use((req, res, next) => {
   if (req.path.endsWith('.html') || req.path.endsWith('.js') || req.path === '/' || req.path.includes('/js/')) {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
@@ -204,7 +1368,7 @@ function scanLocalCertificates() {
   }
 }
 
-let detectedInfo = scanLocalCertificates();
+let detectedInfo = (process.env.NODE_ENV === 'test') ? { all: [], detectedVgca: null } : scanLocalCertificates();
 let realSigner = {
   name: 'Hà Văn Tý',
   email: 'hvty-dakha@quangngai.gov.vn',
@@ -276,10 +1440,11 @@ function verifyToken(token) {
       payload = JSON.parse(json);
     }
     if (!payload || !payload.id) return null;
-    const user = dataStore.getUserById(payload.id);
-    if (!user || user.status === 'LOCKED') return null;
+    const user = dataStore.getUserById(payload.id, true);
+    if (!user || user.status === 'LOCKED' || user.isLocked) return null;
     return user;
-  } catch {
+  } catch (err) {
+    console.warn(`[Auth verifyToken] Lỗi xác thực hoặc giải mã token: ${err && err.message ? err.message : err}`);
     return null;
   }
 }
@@ -296,17 +1461,8 @@ function getCurrentUser(req) {
     const user = verifyToken(customToken);
     if (user) return user;
   }
-  // SEC-01: Chặn đứng triệt để leo quyền ADMIN/BGH qua HTTP Headers
-  const userId = req.headers['x-user-id'];
-  const userUsername = req.headers['x-user-username'];
-  if (userId || userUsername) {
-    let user = userId ? dataStore.getUserById(userId) : null;
-    if (!user && userUsername) user = dataStore.getUserByUsername(userUsername);
-    // Tuyệt đối không cho phép nhận diện quyền ADMIN hoặc BGH nếu không có Token hợp lệ
-    if (user && user.role !== 'ADMIN' && user.role !== 'BGH' && user.status !== 'LOCKED') {
-      return user;
-    }
-  }
+  // TUYỆT ĐỐI CẤM NHẬN DIỆN DANH TÍNH TỪ HTTP HEADERS (x-user-id, x-user-role) HOẶC req.body.currentUser!
+  // Mọi phiên làm việc bắt buộc phải được xác thực danh tính từ Bearer Token hợp lệ do máy chủ phát hành.
   return null;
 }
 
@@ -337,7 +1493,7 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(400).json({ success: false, message: 'Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!' });
   }
 
-  const user = dataStore.getUserByUsername(username);
+  const user = dataStore.getUserByUsername(username, true);
   if (!user || user.password !== password) {
     return res.status(401).json({ success: false, message: 'Tên đăng nhập hoặc mật khẩu không chính xác!' });
   }
@@ -499,7 +1655,7 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
 
 // Tạo tài khoản giáo viên mới (Chỉ định Tổ bộ môn, Vai trò & Loại chữ ký số)
 app.post('/api/admin/users', requireAdmin, (req, res) => {
-  const { id, username, password, name, role, department, departmentId, signType, email, phone, cccd, canUploadWord, canStampSeal, pinCode, zaloPin } = req.body;
+  const { id, username, password, name, role, roleTitle, department, departmentId, signType, email, phone, cccd, canUploadWord, canStampSeal, pinCode, zaloPin } = req.body;
   if (!username || !name || !department) {
     return res.status(400).json({ success: false, message: 'Vui lòng điền đủ Tên đăng nhập, Họ và tên và Tổ bộ môn!' });
   }
@@ -511,6 +1667,7 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
       password: password || '123456',
       name,
       role: role || 'TEACHER', // TEACHER, HEAD_DEPT, BGH, ADMIN
+      roleTitle: roleTitle || undefined,
       department,
       departmentId: departmentId || null,
       signType: signType || (role === 'BGH' || role === 'ADMIN' ? 'USB_TOKEN' : 'VGCA'),
@@ -690,7 +1847,9 @@ app.post('/api/school-seal', requireAuth, (req, res) => {
 
     try {
       dataStore.syncSignatureToFirebase('school_seal', sealImage);
-    } catch (e) { void e; }
+    } catch (e) {
+      console.warn('[server.js] Cảnh báo đồng bộ con dấu lên Firebase thất bại:', e.message);
+    }
 
     res.json({
       success: true,
@@ -740,16 +1899,20 @@ app.post('/api/signatures/mine', requireAuth, (req, res) => {
 app.get('/api/documents', requireAuth, (req, res) => {
   const currentUser = req.user;
   const allDocs = dataStore.getDocuments();
+  const hasArchivedQuery = req.query.archived !== undefined;
   const showArchived = req.query.archived === 'true' || req.query.archived === '1';
   const categoryFilter = req.query.category; // 'PERSONAL' hoặc 'REPORT'
 
-  // Lọc nghiêm ngặt trạng thái lưu trữ:
-  // - Khi xem thông thường (showArchived = false): ẨN TRIỆT ĐỂ mọi hồ sơ đã hoàn thành/lưu Drive (giữ server và UI siêu nhẹ)
-  // - Khi xem lưu trữ (showArchived = true): Chỉ hiển thị các hồ sơ đã lưu trữ
-  let pool = allDocs.filter(d => {
-    const isArchived = dataStore.isDocArchived(d);
-    return showArchived ? isArchived : !isArchived;
-  });
+  // Lọc trạng thái lưu trữ:
+  // - Nếu có truyền param archived (true/false): lọc theo đúng trạng thái lưu trữ
+  // - Nếu không truyền param archived: trả về toàn bộ hồ sơ (cả đang xử lý lẫn đã hoàn thành/lưu trữ)
+  let pool = allDocs;
+  if (hasArchivedQuery) {
+    pool = allDocs.filter(d => {
+      const isArchived = dataStore.isDocArchived(d);
+      return showArchived ? isArchived : !isArchived;
+    });
+  }
 
   if (categoryFilter) {
     pool = pool.filter(d => (d.category || 'PERSONAL') === categoryFilter);
@@ -965,19 +2128,11 @@ function generateTrackingId(deptName, docType = 'REPORT') {
 }
 
 // Khởi tạo & Chuyển tiếp Báo cáo sau khi ký lần 1
-app.post('/api/documents/forward', async (req, res) => {
+app.post('/api/documents/forward', requireAuth, async (req, res) => {
   try {
-    const user = req.user || (req.headers['x-user-id'] ? {
-      id: req.headers['x-user-id'],
-      username: req.headers['x-user-username'] || req.headers['x-user-id'],
-      name: decodeURIComponent(req.headers['x-user-fullname'] || '') || req.headers['x-user-id'],
-      fullName: decodeURIComponent(req.headers['x-user-fullname'] || '') || req.headers['x-user-id'],
-      department: decodeURIComponent(req.headers['x-user-dept'] || '') || 'Tổ chuyên môn',
-      departmentName: decodeURIComponent(req.headers['x-user-dept'] || '') || 'Tổ chuyên môn'
-    } : req.body.currentUser);
-
+    const user = req.user;
     if (!user) {
-      return res.status(401).json({ success: false, message: 'Chưa đăng nhập.' });
+      return res.status(401).json({ success: false, message: 'Chưa đăng nhập hoặc phiên làm việc đã hết hạn.' });
     }
 
     const {
@@ -987,121 +2142,535 @@ app.post('/api/documents/forward', async (req, res) => {
       nextSignerId,
       nextSignerName,
       note = '',
-      signerCert = null
+      signerCert = null,
+      isSelfApproved = false,
+      isFinal = false
     } = req.body;
 
     if (!fileBase64) {
       return res.status(400).json({ success: false, message: 'Thiếu nội dung tệp đã ký (fileBase64).' });
     }
-    if (!nextSignerId) {
-      return res.status(400).json({ success: false, message: 'Vui lòng chọn người ký tiếp theo trong quy trình.' });
+
+    // Xác thực Magic Bytes PDF (%PDF-), Base64 alphabet và cấu trúc tệp nghiêm ngặt chống DoS
+    const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '').trim();
+    const normalizedBase64 = cleanBase64.replace(/\s+/g, '');
+    if (normalizedBase64.length > 35 * 1024 * 1024) {
+      return res.status(400).json({ success: false, message: 'Dữ liệu Base64 vượt quá dung lượng tối đa cho phép (35MB).' });
+    }
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(normalizedBase64) || normalizedBase64.length % 4 !== 0) {
+      return res.status(400).json({ success: false, message: 'Dữ liệu Base64 chứa ký tự hoặc cấu trúc padding không hợp lệ.' });
+    }
+    const rawBuffer = Buffer.from(normalizedBase64, 'base64');
+    if (rawBuffer.toString('base64') !== normalizedBase64) {
+      return res.status(400).json({ success: false, message: 'Dữ liệu Base64 bị suy biến hoặc padding không hợp lệ.' });
+    }
+    if (rawBuffer.length < 50) {
+      return res.status(400).json({ success: false, message: 'Tệp nội dung ký không hợp lệ hoặc quá nhỏ.' });
+    }
+    if (rawBuffer.length > 25 * 1024 * 1024) {
+      return res.status(400).json({ success: false, message: 'Kích thước tệp vượt quá giới hạn cho phép (25MB).' });
+    }
+    const magicHeader = rawBuffer.subarray(0, 5).toString('ascii');
+    if (!magicHeader.startsWith('%PDF-')) {
+      return res.status(400).json({ success: false, message: 'Tệp tải lên không đúng định dạng PDF chuẩn (thiếu tiêu đề %PDF-).' });
+    }
+    const tailChunk = rawBuffer.subarray(Math.max(0, rawBuffer.length - 1024)).toString('latin1');
+    if (!tailChunk.includes('%%EOF')) {
+      return res.status(400).json({ success: false, message: 'Tệp PDF không hoàn chỉnh hoặc bị cắt ngắn (thiếu thẻ kết thúc %%EOF).' });
     }
 
-    const docId = req.body.id || generateTrackingId(user.departmentName || user.department, docType);
-    const nowStr = new Date().toISOString();
+    // Luôn đối soát vai trò mới nhất từ cơ sở dữ liệu (Fail-Closed: Xác thực đúng Canonical Subject)
+    const requestedUserId = user.id || user.username;
+    let freshUser = (typeof dataStore.getUserById === 'function' ? dataStore.getUserById(requestedUserId, true) : null);
+    if (!freshUser && typeof dataStore.getUserByUsername === 'function') {
+      freshUser = dataStore.getUserByUsername(requestedUserId, true);
+    }
+    if (!freshUser || (freshUser.id !== requestedUserId && freshUser.username !== requestedUserId)) {
+      return res.status(401).json({ success: false, message: 'Tài khoản người dùng không tồn tại hoặc đã bị thu hồi quyền.' });
+    }
+    if (freshUser.status === 'LOCKED' || freshUser.isLocked) {
+      return res.status(403).json({ success: false, message: 'Tài khoản người dùng đang bị tạm khóa.' });
+    }
 
-    // 1. Lưu dữ liệu nhị phân PDF đã ký vào thư mục đệm cục bộ
-    const uploadDir = path.join(__dirname, 'uploads', 'documents');
-    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-    const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '');
-    const rawBuffer = Buffer.from(cleanBase64, 'base64');
-    const safeDocId = docId.replace(/[^a-zA-Z0-9_\-]/g, '_');
-    const savedFileName = `doc_${safeDocId}.pdf`;
-    const savedFilePath = path.join(uploadDir, savedFileName);
-    writePdfAtomically(savedFilePath, rawBuffer);
+    const isUserBgh = isCanonicalBgh(freshUser);
+    const isUserHead = isCanonicalHead(freshUser);
 
-    // 2. Tìm kiếm Email công vụ của người nhận để tự động cấp quyền truy cập trên Google Drive
-    let nextSignerEmail = '';
-    try {
-      const uList = (typeof dataStore.getUsers === 'function') ? dataStore.getUsers() : [];
-      const foundNext = uList.find(u => 
-        u.id === nextSignerId || 
-        u.username === nextSignerId || 
-        (u.fullName && u.fullName.trim().toLowerCase() === (nextSignerName || '').trim().toLowerCase()) ||
-        (u.name && u.name.trim().toLowerCase() === (nextSignerName || '').trim().toLowerCase())
-      );
-      if (foundNext && (foundNext.email || foundNext.officialEmail)) {
-        nextSignerEmail = (foundNext.email || foundNext.officialEmail).trim();
+    // Chuẩn hóa Canonical Enum ở phía Server: Từ chối 400 nếu client gửi các cờ mâu thuẫn hoặc giá trị lạ (Anti-Silent Coercion)
+    const validCategoryTypes = ['INTERNAL_REPORT', 'SCHOOL_REPORT'];
+    const validReportCategories = ['INTERNAL', 'SCHOOL'];
+
+    if (req.body.categoryType !== undefined && req.body.categoryType !== null) {
+      if (typeof req.body.categoryType !== 'string' || !validCategoryTypes.includes(req.body.categoryType.trim().toUpperCase())) {
+        return res.status(400).json({
+          success: false,
+          message: `Loại danh mục categoryType không hợp lệ: "${req.body.categoryType}". Chỉ chấp nhận INTERNAL_REPORT hoặc SCHOOL_REPORT.`
+        });
       }
-    } catch (e) { void e; }
+    }
 
-    // 3. Đẩy file PDF lên Google Drive cá nhân / nhà trường:
-    // LƯU Ý BẢO MẬT & QUY TRÌNH PHÁP LÝ: Tại bước khởi tạo (bước 1), tài liệu đang trong trạng thái PENDING_SIGN
-    // (chờ các cấp chuyên môn duyệt), CHƯA hoàn tất nên KHÔNG lưu vào Google Drive hay Google Sheets công khai.
-    // Việc lưu trữ Google Drive & Sheets chỉ được kích hoạt khi hồ sơ ĐÃ HOÀN TẤT (COMPLETED).
-    let driveResult = null;
-
-    const reportCategory = req.body.reportCategory || (req.body.requiresSeal ? 'SCHOOL' : 'INTERNAL');
-    const categoryType = req.body.categoryType || (reportCategory === 'SCHOOL' ? 'SCHOOL_REPORT' : 'INTERNAL_REPORT');
-    const requiresSeal = Boolean(req.body.requiresSeal === true || reportCategory === 'SCHOOL' || categoryType === 'SCHOOL_REPORT');
-
-    const newDoc = {
-      id: docId,
-      title: title || `Báo cáo chuyên môn ${new Date().toLocaleDateString('vi-VN')}`,
-      docType: docType,
-      category: 'REPORT',
-      reportCategory: reportCategory,
-      categoryType: categoryType,
-      requiresSeal: requiresSeal,
-      hasSchoolSeal: false,
-      fileBase64: fileBase64,
-      fileName: savedFileName,
-      filePath: `uploads/documents/${savedFileName}`,
-      fileSize: `${(rawBuffer.length / (1024 * 1024)).toFixed(1)} MB`,
-      pages: 8,
-      googleDriveUrl: driveResult?.viewUrl || null,
-      googleDriveFolder: driveResult?.folderPath || null,
-      googleDriveFileName: driveResult?.fileName || null,
-      driveInfo: driveResult || null,
-      status: 'PENDING_SIGN',
-      creatorId: user.id || user.username,
-      creatorName: user.fullName || user.username,
-      creatorDept: user.departmentName || user.department || 'Tổ chuyên môn',
-      assignedTo: nextSignerId,
-      assignedToName: nextSignerName || 'Đồng nghiệp',
-      currentSignerId: nextSignerId,
-      currentSignerName: nextSignerName || 'Đồng nghiệp',
-      nextSignerId: nextSignerId,
-      nextSignerName: nextSignerName,
-      note: (note || '').trim(),
-      signatures: [
-        {
-          step: 1,
-          signerId: user.id || user.username,
-          signerName: user.fullName || user.username,
-          signerRole: user.roleTitle || user.role || 'Giáo viên',
-          signedAt: nowStr,
-          certSerial: signerCert?.serialNumber || '7C4C44A8671300AE',
-          certIssuer: signerCert?.issuer || 'Ban Cơ yếu Chính phủ',
-          note: (note || '').trim()
-        }
-      ],
-      history: [
-        {
-          action: 'KHỞI_TẠO_VÀ_KÝ',
-          actor: user.fullName || user.username,
-          target: nextSignerName,
-          timestamp: nowStr,
-          note: (note || '').trim()
-        }
-      ],
-      createdAt: nowStr,
-      updatedAt: nowStr
-    };
-
-    dataStore.createDocument(newDoc, user);
-
-    res.json({
-      success: true,
-      message: `Đã gửi báo cáo thành công tới ${nextSignerName}!`,
-      data: {
-        id: docId,
-        title: newDoc.title,
-        assignedTo: nextSignerName,
-        driveUrl: driveResult?.viewUrl || null,
-        createdAt: nowStr
+    if (req.body.reportCategory !== undefined && req.body.reportCategory !== null) {
+      if (typeof req.body.reportCategory !== 'string' || !validReportCategories.includes(req.body.reportCategory.trim().toUpperCase())) {
+        return res.status(400).json({
+          success: false,
+          message: `Phân loại reportCategory không hợp lệ: "${req.body.reportCategory}". Chỉ chấp nhận INTERNAL hoặc SCHOOL.`
+        });
       }
+    }
+
+    const rawType = (req.body.categoryType || '').trim().toUpperCase();
+    const rawCat = (req.body.reportCategory || '').trim().toUpperCase();
+
+    // Phát hiện mâu thuẫn trực tiếp giữa categoryType và reportCategory
+    if (rawType && rawCat) {
+      if ((rawType === 'INTERNAL_REPORT' && rawCat === 'SCHOOL') || (rawType === 'SCHOOL_REPORT' && rawCat === 'INTERNAL')) {
+        return res.status(400).json({
+          success: false,
+          message: 'Mâu thuẫn phân loại báo cáo: categoryType và reportCategory không đồng nhất (Mã 400).'
+        });
+      }
+    }
+
+    const categoryType = rawType || (rawCat === 'SCHOOL' ? 'SCHOOL_REPORT' : 'INTERNAL_REPORT');
+
+    if (categoryType === 'INTERNAL_REPORT' && (req.body.requiresSeal === true || req.body.hasSchoolSeal === true || req.body.isSchoolSeal === true)) {
+      return res.status(400).json({ success: false, message: 'Báo cáo chuyên môn nội bộ tổ không được gắn dấu mộc đỏ nhà trường.' });
+    }
+
+    const reportCategory = categoryType === 'SCHOOL_REPORT' ? 'SCHOOL' : 'INTERNAL';
+    const requiresSeal = categoryType === 'SCHOOL_REPORT';
+
+    const requestedSelfApproval = Boolean(req.body.isSelfApproved === true);
+
+    // CHỐT CHẶN BẢO MẬT PHÍA SERVER (SERVER-SIDE AUTHORIZATION GATEKEEPER):
+    // 1. Phê duyệt Báo cáo Cấp Trường (SCHOOL_REPORT): CHỈ Ban Giám hiệu mới có quyền tự duyệt hoàn tất
+    if (requestedSelfApproval && categoryType === 'SCHOOL_REPORT' && !isUserBgh) {
+      return res.status(403).json({
+        success: false,
+        message: 'Chỉ Ban Giám hiệu mới có thẩm quyền tự phê duyệt và ban hành Báo cáo cấp trường.'
+      });
+    }
+
+    // 2. Phê duyệt Báo cáo Nội bộ (INTERNAL_REPORT): Chỉ Tổ trưởng hoặc BGH mới có quyền tự duyệt hoàn tất
+    if (requestedSelfApproval && categoryType === 'INTERNAL_REPORT' && !isUserHead && !isUserBgh) {
+      return res.status(403).json({
+        success: false,
+        message: 'Chỉ Tổ trưởng chuyên môn hoặc Ban Giám hiệu mới có thẩm quyền tự phê duyệt Báo cáo nội bộ.'
+      });
+    }
+
+    // 3. Xác định trạng thái hoàn thành tự duyệt thực tế & Chỉ định đóng dấu pháp nhân
+    const requestedSealIntent = Boolean(
+      req.body.hasSchoolSeal === true ||
+      req.body.isSchoolSeal === true ||
+      req.body.role === 'CON_DAU_NHA_TRUONG'
+    );
+
+    // TH1 & TH2: Hoàn tất toàn bộ chu trình ngay tại bước tạo
+    const isCompletedBySelf = Boolean(
+      requestedSelfApproval && (
+        (categoryType === 'SCHOOL_REPORT' && isUserBgh && requestedSealIntent) ||
+        (categoryType === 'INTERNAL_REPORT' && (isUserHead || isUserBgh))
+      )
+    );
+
+    // TH3: BGH tự duyệt nội dung Báo cáo cấp trường nhưng chưa đóng dấu mộc đỏ -> Chuyển sang PENDING_SEAL
+    const isBghContentApproval = Boolean(
+      requestedSelfApproval &&
+      categoryType === 'SCHOOL_REPORT' &&
+      isUserBgh &&
+      !requestedSealIntent
+    );
+
+    const isSelfAction = isCompletedBySelf || isBghContentApproval;
+
+    // 4. KIỂM TRA NGƯỜI NHẬN TIẾP THEO (SERVER-SIDE RECIPIENT VALIDATION):
+    let targetUser = null;
+    let actualNextSignerName = nextSignerName || 'Đồng nghiệp';
+    if (!isSelfAction) {
+      if (!nextSignerId) {
+        return res.status(400).json({ success: false, message: 'Vui lòng chọn người ký tiếp theo trong quy trình.' });
+      }
+
+      targetUser = (typeof dataStore.getUserById === 'function' ? dataStore.getUserById(nextSignerId, true) : null) ||
+                   (typeof dataStore.getUserByUsername === 'function' ? dataStore.getUserByUsername(nextSignerId, true) : null);
+
+      if (!targetUser) {
+        return res.status(400).json({ success: false, message: 'Người nhận được chỉ định không tồn tại trên hệ thống.' });
+      }
+      if (targetUser.status === 'LOCKED' || targetUser.isLocked) {
+        return res.status(400).json({ success: false, message: 'Tài khoản người nhận đang bị tạm khóa.' });
+      }
+
+      actualNextSignerName = targetUser.fullName || targetUser.name || targetUser.username || actualNextSignerName;
+
+      const isTargetBgh = isCanonicalBgh(targetUser);
+      const isTargetHead = isCanonicalHead(targetUser);
+
+      // 4.1 Ràng buộc INTERNAL_REPORT: TUYỆT ĐỐI KHÔNG gửi lên Ban Giám hiệu
+      if (categoryType === 'INTERNAL_REPORT' && isTargetBgh) {
+        return res.status(403).json({
+          success: false,
+          message: 'Báo cáo chuyên môn nội bộ (Tổ/Khối) không được luân chuyển trực tiếp lên Ban Giám hiệu.'
+        });
+      }
+
+      // 4.2 Ràng buộc SCHOOL_REPORT: Nếu người gửi là Tổ trưởng, người nhận tiếp theo BẮT BUỘC PHẢI LÀ BGH
+      if (categoryType === 'SCHOOL_REPORT' && isUserHead && !isTargetBgh) {
+        return res.status(400).json({
+          success: false,
+          message: 'Báo cáo trình nhà trường do Tổ trưởng khởi tạo bắt buộc người nhận tiếp theo phải là Ban Giám hiệu.'
+        });
+      }
+    }
+
+    // 5. CON DẤU MỘC ĐỎ (SCHOOL SEAL VERIFICATION GATEKEEPER):
+    // Chỉ Ban Giám hiệu có thẩm quyền đóng dấu VÀ có chỉ định đóng dấu pháp nhân (isSchoolSeal/hasSchoolSeal)
+    // trên Báo cáo cấp trường (SCHOOL_REPORT).
+    // BẮT BUỘC tệp PDF phải chứa artifact con dấu / chữ ký số hợp lệ (verifySchoolSealArtifact).
+    const verifiedSealArtifact = Boolean(
+      rawBuffer &&
+      verifySchoolSealArtifact(rawBuffer)
+    );
+
+    // Chặn đứng PDF giả mạo hoặc PDF văn bản thuần túy không có artifact con dấu
+    if (requestedSealIntent && categoryType === 'SCHOOL_REPORT' && isUserBgh && !verifiedSealArtifact) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tệp PDF tải lên không chứa con dấu pháp nhân hoặc chữ ký số hợp lệ của nhà trường (Thiếu artifact con dấu / trường chữ ký số).'
+      });
+    }
+
+    const finalHasSchoolSeal = Boolean(
+      isUserBgh &&
+      categoryType === 'SCHOOL_REPORT' &&
+      isCompletedBySelf &&
+      requestedSealIntent &&
+      verifiedSealArtifact
+    );
+
+    const signerRole = isUserBgh
+      ? 'Ban Giám hiệu phê duyệt & Đóng dấu'
+      : isUserHead
+        ? (isCompletedBySelf ? 'Tổ trưởng chuyên môn phê duyệt' : 'Tổ trưởng chuyên môn')
+        : (user.roleTitle || user.role || 'Giáo viên');
+
+    // Kiểm tra định dạng và kiểu dữ liệu của mã định danh hồ sơ id (Fail-Closed Input Validation)
+    let docId = '';
+    if (req.body.id !== undefined && req.body.id !== null) {
+      if (typeof req.body.id !== 'string' || !/^[a-zA-Z0-9_\-]{3,100}$/.test(req.body.id.trim())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Mã định danh hồ sơ (id) không hợp lệ. Chỉ chấp nhận chuỗi ký tự chữ, số, gạch nối và gạch dưới (3-100 ký tự).'
+        });
+      }
+      docId = req.body.id.trim();
+    } else {
+      docId = generateTrackingId(user.departmentName || user.department, docType);
+    }
+
+    // Tạo chữ ký băm Canonical Request Payload SHA-256 ràng buộc toàn bộ trường nghiệp vụ cốt lõi (Full Payload Binding)
+    const canonicalPayloadString = JSON.stringify({
+      categoryType,
+      creatorId: freshUser.id || freshUser.username,
+      docId,
+      docType: typeof docType === 'string' ? docType : 'REPORT',
+      fileHash: crypto.createHash('sha256').update(rawBuffer).digest('hex'),
+      isCompletedBySelf,
+      nextSignerId: isCompletedBySelf ? null : (nextSignerId || null),
+      note: typeof req.body.note === 'string' ? req.body.note.trim() : '',
+      reportCategory,
+      title: typeof req.body.title === 'string' ? req.body.title.trim() : ''
     });
+    const payloadHash = crypto.createHash('sha256').update(canonicalPayloadString).digest('hex');
+
+    // 6. CHỐNG GHI ĐÈ & ĐẢM BẢO TÍNH NGUYÊN TỬ (MULTI-PROCESS ATOMIC LOCK & IDEMPOTENCY):
+    const lockToken = acquireDocumentLock(docId, user.id || user.username);
+    if (!lockToken) {
+      return res.status(409).json({ success: false, message: 'Hồ sơ đang được xử lý bởi một tiến trình song song.' });
+    }
+    try {
+      const existingDoc = typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(docId) : null;
+      if (existingDoc) {
+        const isOwner = existingDoc.creatorId === (user.id || user.username) || existingDoc.authorId === (user.id || user.username);
+        if (isOwner) {
+          let existingHash = existingDoc.payloadHash;
+          if (!existingHash) {
+            // Đối soát Canonical Payload Hash từ bản ghi và tệp hiện hữu trên đĩa nếu hồ sơ cũ thiếu payloadHash
+            try {
+              let existingFileHash = null;
+              const diskFilePath = path.join(__dirname, existingDoc.filePath || `uploads/documents/doc_${existingDoc.id.replace(/[^a-zA-Z0-9_\-]/g, '_')}.pdf`);
+              if (fs.existsSync(diskFilePath)) {
+                existingFileHash = crypto.createHash('sha256').update(fs.readFileSync(diskFilePath)).digest('hex');
+              }
+              if (existingFileHash) {
+                const canonicalExistingString = JSON.stringify({
+                  categoryType: existingDoc.categoryType || (existingDoc.reportCategory === 'SCHOOL' ? 'SCHOOL_REPORT' : 'INTERNAL_REPORT'),
+                  creatorId: existingDoc.creatorId || existingDoc.authorId,
+                  docId: existingDoc.id,
+                  docType: existingDoc.docType || 'REPORT',
+                  fileHash: existingFileHash,
+                  isCompletedBySelf: Boolean(existingDoc.isCompleted),
+                  nextSignerId: existingDoc.isCompleted ? null : (existingDoc.nextSignerId || existingDoc.assignedTo || null),
+                  note: typeof existingDoc.note === 'string' ? existingDoc.note.trim() : '',
+                  reportCategory: existingDoc.reportCategory || 'INTERNAL',
+                  title: typeof existingDoc.title === 'string' ? existingDoc.title.trim() : ''
+                });
+                existingHash = crypto.createHash('sha256').update(canonicalExistingString).digest('hex');
+              }
+            } catch (hashErr) {
+              console.warn('[Idempotency] Không thể tính băm hồ sơ tồn tại:', hashErr.message);
+              existingHash = null;
+            }
+          }
+
+          // Khóa cứng: Nếu không thể chứng minh trùng khớp 100% Payload Hash -> Từ chối 409 Conflict
+          if (!existingHash || existingHash !== payloadHash) {
+            return res.status(409).json({
+              success: false,
+              message: 'Mã định danh hồ sơ đã tồn tại với nội dung tệp hoặc thuộc tính nghiệp vụ khác (Idempotency Payload Mismatch).'
+            });
+          }
+          return res.json({
+            success: true,
+            message: `Hồ sơ [${docId}] đã được khởi tạo thành công trước đó (Idempotent).`,
+            data: {
+              id: existingDoc.id,
+              title: existingDoc.title,
+              status: existingDoc.status,
+              isCompleted: existingDoc.isCompleted,
+              hasSchoolSeal: existingDoc.hasSchoolSeal,
+              assignedTo: existingDoc.assignedToName,
+              driveUrl: existingDoc.googleDriveUrl || null,
+              createdAt: existingDoc.createdAt
+            }
+          });
+        }
+        return res.status(409).json({ success: false, message: 'Mã định danh hồ sơ đã tồn tại trên hệ thống.' });
+      }
+      const nowStr = new Date().toISOString();
+
+      // 1. Lưu dữ liệu nhị phân PDF vào thư mục staging với Transaction Journal PREPARING trước
+      const uploadDir = path.join(__dirname, 'uploads', 'documents');
+      const stagingDir = path.join(uploadDir, 'staging');
+      if (!fs.existsSync(stagingDir)) fs.mkdirSync(stagingDir, { recursive: true });
+      const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '');
+      const rawBuffer = Buffer.from(cleanBase64, 'base64');
+      const safeDocId = docId.replace(/[^a-zA-Z0-9_\-]/g, '_');
+      const savedFileName = `doc_${safeDocId}.pdf`;
+      const savedFilePath = path.join(uploadDir, savedFileName);
+      const stagedFilePath = path.join(stagingDir, `doc_${safeDocId}.pdf.stage`);
+
+      // Ghi Transaction Journal PREPARING TRƯỚC KHI tạo tệp staging (Zero Orphan Files Invariant)
+      const journalData = {
+        docId,
+        status: 'PREPARING',
+        stagedFilePath,
+        savedFilePath,
+        createdAt: Date.now()
+      };
+      writeTransactionJournal(safeDocId, journalData);
+
+      try {
+        writePdfAtomically(stagedFilePath, rawBuffer);
+        writeTransactionJournal(safeDocId, { ...journalData, status: 'STAGED' });
+      } catch (stageErr) {
+        removeTransactionJournal(safeDocId);
+        throw stageErr;
+      }
+
+      // 2. Tìm kiếm Email công vụ của người nhận để tự động cấp quyền truy cập trên Google Drive
+      let nextSignerEmail = '';
+      if (nextSignerId) {
+        try {
+          const uList = (typeof dataStore.getUsers === 'function') ? dataStore.getUsers() : [];
+          const foundNext = uList.find(u => 
+            u.id === nextSignerId || 
+            u.username === nextSignerId || 
+            (u.fullName && u.fullName.trim().toLowerCase() === (nextSignerName || '').trim().toLowerCase()) ||
+            (u.name && u.name.trim().toLowerCase() === (nextSignerName || '').trim().toLowerCase())
+          );
+          if (foundNext && (foundNext.email || foundNext.officialEmail)) {
+            nextSignerEmail = (foundNext.email || foundNext.officialEmail).trim();
+          }
+        } catch (lookupErr) {
+          console.warn(`[Forward Email Lookup] Không thể lấy email công vụ cho ${nextSignerId}:`, lookupErr.message);
+        }
+      }
+
+      let driveResult = null;
+
+      const newDoc = {
+        id: docId,
+        title: title || `Báo cáo chuyên môn ${new Date().toLocaleDateString('vi-VN')}`,
+        docType: docType,
+        category: 'REPORT',
+        reportCategory: reportCategory,
+        categoryType: categoryType,
+        requiresSeal: requiresSeal,
+        hasSchoolSeal: finalHasSchoolSeal,
+        verifiedSchoolSeal: finalHasSchoolSeal === true,
+        verifiedBghSession: Boolean(isUserBgh && isSelfAction),
+        fileBase64: fileBase64,
+        fileName: savedFileName,
+        filePath: `uploads/documents/${savedFileName}`,
+        fileSize: rawBuffer.length,
+        fileMime: 'application/pdf',
+        payloadHash: payloadHash,
+        googleDriveUrl: driveResult?.viewUrl || null,
+        googleDriveFolder: driveResult?.folderPath || null,
+        googleDriveFileName: driveResult?.fileName || null,
+        driveInfo: driveResult || null,
+        status: isCompletedBySelf ? 'COMPLETED' : (isBghContentApproval ? 'PENDING_SEAL' : 'PENDING_SIGN'),
+        isCompleted: isCompletedBySelf,
+        sealedAt: finalHasSchoolSeal ? nowStr : null,
+        sealedBy: finalHasSchoolSeal ? (user.fullName || user.username) : null,
+        bghApprovedAt: (isUserBgh && isSelfAction) ? nowStr : null,
+        bghApprovedBy: (isUserBgh && isSelfAction) ? (user.fullName || user.username) : null,
+        bghSigner: (isUserBgh && isSelfAction) ? (user.fullName || user.username) : null,
+        leaderApprovedAt: (isUserHead && isCompletedBySelf) ? nowStr : null,
+        leaderApprovedBy: (isUserHead && isCompletedBySelf) ? (user.fullName || user.username) : null,
+        creatorId: user.id || user.username,
+        creatorName: user.fullName || user.username,
+        creatorDept: user.departmentName || user.department || 'Tổ chuyên môn',
+        assignedTo: isSelfAction ? null : nextSignerId,
+        assignedToName: isSelfAction ? null : actualNextSignerName,
+        currentSignerId: isSelfAction ? null : nextSignerId,
+        currentSignerName: isSelfAction ? null : actualNextSignerName,
+        nextSignerId: isSelfAction ? null : nextSignerId,
+        nextSignerName: isSelfAction ? null : actualNextSignerName,
+        note: (note || '').trim(),
+        signatures: [
+          {
+            step: 1,
+            signerId: user.id || user.username,
+            signerName: user.fullName || user.username,
+            signerRole: signerRole,
+            signedAt: nowStr,
+            certSerial: signerCert?.serialNumber || '7C4C44A8671300AE',
+            certIssuer: signerCert?.issuer || 'Ban Cơ yếu Chính phủ',
+            note: (note || '').trim()
+          }
+        ],
+        history: [
+          {
+            action: isCompletedBySelf ? 'KÝ_VÀ_DUYỆT_HOÀN_TẤT' : 'KHỞI_TẠO_VÀ_KÝ',
+            actor: user.fullName || user.username,
+            target: isCompletedBySelf ? 'Kho Báo cáo' : actualNextSignerName,
+            timestamp: nowStr,
+            note: (note || '').trim()
+          }
+        ],
+        createdAt: nowStr,
+        updatedAt: nowStr
+      };
+
+      let docCreatedInDb = false;
+      try {
+        dataStore.createDocument(newDoc, user);
+        docCreatedInDb = true;
+        writeTransactionJournal(safeDocId, { ...journalData, status: 'DB_COMMITTED' });
+
+        // Commit nguyên tử: Đổi tên từ staging file sang production file khi cơ sở dữ liệu đã ghi nhận
+        if (fs.existsSync(stagedFilePath)) {
+          fs.renameSync(stagedFilePath, savedFilePath);
+        }
+        const journalRemoved = removeTransactionJournal(safeDocId);
+        if (!journalRemoved) {
+          console.warn(`[Transactional Commit] Giao dịch thành công nhưng không thể xóa journal file cho [${safeDocId}]. Giữ trạng thái DB_COMMITTED để startup reconciliation kiểm toán an toàn.`);
+        }
+      } catch (createErr) {
+        // Cập nhật trạng thái journal sang ROLLBACK_REQUIRED trước khi tiến hành dọn dẹp
+        try {
+          writeTransactionJournal(safeDocId, {
+            ...journalData,
+            status: 'ROLLBACK_REQUIRED',
+            error: createErr.message,
+            docCreatedInDb
+          });
+        } catch (jErr) {
+          console.warn('[Transactional Rollback] Không thể cập nhật journal ROLLBACK_REQUIRED:', jErr.message);
+        }
+
+        let rollbackDbOk = true;
+        // Rollback hai chiều: Nếu cơ sở dữ liệu đã ghi mà rename file thất bại -> Xóa bản ghi DB ngay lập tức
+        if (docCreatedInDb) {
+          try {
+            const delRes = dataStore.deleteDocument(newDoc.id);
+            const stillInDb = typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(newDoc.id, true) : null;
+            if (delRes === false || stillInDb) {
+              rollbackDbOk = false;
+              console.warn(`[Transactional Rollback] Lỗi rollback xóa DB cho [${newDoc.id}]: bản ghi vẫn còn tồn tại.`);
+            } else {
+              console.warn(`[Transactional Rollback] Đã rollback xóa bản ghi DB [${newDoc.id}] do lỗi lưu trữ file.`);
+            }
+          } catch (dbErr) {
+            rollbackDbOk = false;
+            console.warn('[Transactional Rollback] Lỗi rollback DB:', dbErr.message);
+          }
+        }
+
+        let rollbackFilesOk = true;
+        // Rollback dọn dẹp file staging nếu tiến trình ghi dữ liệu thất bại (Transactional Cleanup)
+        try {
+          if (fs.existsSync(stagedFilePath)) {
+            fs.unlinkSync(stagedFilePath);
+          }
+        } catch (unlinkErr) {
+          rollbackFilesOk = false;
+          console.warn('[Rollback] Không thể xóa file đệm staging:', unlinkErr.message);
+        }
+
+        try {
+          if (fs.existsSync(savedFilePath)) {
+            const isSafeToUnlink = isWithinUploadRoot(savedFilePath) && !dataStore.getDocuments().some(d => d && d.id !== safeDocId && (d.filePath === savedFilePath || d.originalFilePath === savedFilePath || d.signedFilePath === savedFilePath));
+            if (isSafeToUnlink) {
+              fs.unlinkSync(savedFilePath);
+            } else {
+              console.warn('[Rollback] Bỏ qua xóa savedFilePath do được tham chiếu bởi tài liệu khác hoặc ngoài upload root:', savedFilePath);
+            }
+          }
+        } catch (unlinkErr) {
+          rollbackFilesOk = false;
+          console.warn('[Rollback] Không thể xóa file saved:', unlinkErr.message);
+        }
+
+        // Chỉ xóa journal khi toàn bộ các bước rollback DB và filesystem đã hoàn tất thành công 100%!
+        if (rollbackDbOk && rollbackFilesOk) {
+          removeTransactionJournal(safeDocId);
+        } else {
+          console.warn(`[Transactional Rollback] Rollback chưa hoàn tất (dbOk=${rollbackDbOk}, filesOk=${rollbackFilesOk}). Giữ journal ROLLBACK_REQUIRED cho startup reconciliation.`);
+        }
+        throw createErr;
+      }
+
+      // Kích hoạt Zalo Bot 1-1 thông báo cho cả Người duyệt và Người lập hồ sơ
+      try {
+        zaloNotifyService.notifyDocumentSubmitted(newDoc, user, nextSignerId).catch(err => {
+          console.warn('[ZaloNotify] Lỗi gửi Zalo forward:', err.message);
+        });
+      } catch (zErr) {
+        console.warn('[ZaloNotify] Lỗi khởi tạo Zalo forward:', zErr.message);
+      }
+
+      res.json({
+        success: true,
+        message: isCompletedBySelf
+          ? `Đã vừa ký vừa duyệt hoàn tất báo cáo [${docId}] thành công!`
+          : `Đã gửi báo cáo thành công tới ${actualNextSignerName}!`,
+        data: {
+          id: docId,
+          title: newDoc.title,
+          status: newDoc.status,
+          isCompleted: newDoc.isCompleted,
+          hasSchoolSeal: newDoc.hasSchoolSeal,
+          assignedTo: newDoc.assignedToName,
+          driveUrl: driveResult?.viewUrl || null,
+          createdAt: nowStr
+        }
+      });
+    } finally {
+      releaseDocumentLock(docId, lockToken);
+    }
   } catch (err) {
     console.error('[KÝ SỐ server.js] Lỗi chuyển tiếp báo cáo:', err);
     res.status(500).json({ success: false, message: err.message });
@@ -1109,20 +2678,31 @@ app.post('/api/documents/forward', async (req, res) => {
 });
 
 // Người nhận ký tiếp hoặc Người cuối cùng ký xác nhận hoàn thành
-app.post('/api/documents/:id/sign-step', async (req, res) => {
+app.post('/api/documents/:id/sign-step', requireAuth, async (req, res) => {
   try {
-    const user = req.user || (req.headers['x-user-id'] ? {
-      id: req.headers['x-user-id'],
-      username: req.headers['x-user-username'] || req.headers['x-user-id'],
-      fullName: decodeURIComponent(req.headers['x-user-fullname'] || '') || req.headers['x-user-id'],
-      departmentName: decodeURIComponent(req.headers['x-user-dept'] || '') || 'Tổ chuyên môn'
-    } : req.body.currentUser);
-
-    if (!user) {
-      return res.status(401).json({ success: false, message: 'Chưa đăng nhập.' });
+    const tokenUser = req.user;
+    if (!tokenUser) {
+      return res.status(401).json({ success: false, message: 'Chưa đăng nhập hoặc phiên làm việc đã hết hạn.' });
     }
 
+    const requestedUserId = tokenUser.id || tokenUser.username;
+    let freshUser = (typeof dataStore.getUserById === 'function' ? dataStore.getUserById(requestedUserId, true) : null);
+    if (!freshUser && typeof dataStore.getUserByUsername === 'function') {
+      freshUser = dataStore.getUserByUsername(requestedUserId, true);
+    }
+    if (!freshUser || (freshUser.id !== requestedUserId && freshUser.username !== requestedUserId)) {
+      return res.status(401).json({ success: false, message: 'Tài khoản người dùng không tồn tại hoặc đã bị thu hồi quyền.' });
+    }
+    if (freshUser.status === 'LOCKED' || freshUser.isLocked) {
+      return res.status(403).json({ success: false, message: 'Tài khoản người dùng đang bị tạm khóa.' });
+    }
+    const user = freshUser;
+
     const { id } = req.params;
+    if (!id || typeof id !== 'string' || !/^[a-zA-Z0-9_\-]+$/.test(id)) {
+      return res.status(400).json({ success: false, message: 'Mã hồ sơ không hợp lệ.' });
+    }
+
     const {
       fileBase64,
       isFinal = false,
@@ -1132,340 +2712,560 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
       signerCert = null
     } = req.body;
 
-    let doc = dataStore.getDocumentById(id);
-    if (!doc) {
-      try {
-        const fbUrl = `https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/documents/${encodeURIComponent(id)}.json`;
-        const fbRes = await fetch(fbUrl);
-        if (fbRes.ok) {
-          const fbDoc = await fbRes.json();
-          if (fbDoc && fbDoc.id) doc = fbDoc;
-        }
-      } catch (fbErr) { void fbErr; }
+    // Xác thực Magic Bytes PDF (%PDF-) và Base64 nghiêm ngặt
+    if (!fileBase64 || typeof fileBase64 !== 'string') {
+      return res.status(400).json({ success: false, message: 'Thiếu nội dung tệp đã ký (fileBase64).' });
     }
-    if (!doc) {
-      return res.status(404).json({ success: false, message: 'Không tìm thấy hồ sơ.' });
+    const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '').trim();
+    const normalizedBase64 = cleanBase64.replace(/\s+/g, '');
+    if (normalizedBase64.length > 35 * 1024 * 1024) {
+      return res.status(400).json({ success: false, message: 'Dữ liệu Base64 vượt quá dung lượng tối đa cho phép (35MB).' });
+    }
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(normalizedBase64) || normalizedBase64.length % 4 !== 0) {
+      return res.status(400).json({ success: false, message: 'Dữ liệu Base64 chứa ký tự hoặc cấu trúc padding không hợp lệ.' });
+    }
+    const rawBuffer = Buffer.from(normalizedBase64, 'base64');
+    if (rawBuffer.toString('base64') !== normalizedBase64) {
+      return res.status(400).json({ success: false, message: 'Dữ liệu Base64 bị suy biến hoặc padding không hợp lệ.' });
+    }
+    if (rawBuffer.length < 50) {
+      return res.status(400).json({ success: false, message: 'Tệp nội dung ký không hợp lệ hoặc quá nhỏ.' });
+    }
+    if (rawBuffer.length > 25 * 1024 * 1024) {
+      return res.status(400).json({ success: false, message: 'Kích thước tệp vượt quá giới hạn cho phép (25MB).' });
+    }
+    const magicHeader = rawBuffer.subarray(0, 5).toString('ascii');
+    if (!magicHeader.startsWith('%PDF-')) {
+      return res.status(400).json({ success: false, message: 'Tệp tải lên không đúng định dạng PDF chuẩn (thiếu tiêu đề %PDF-).' });
+    }
+    const tailChunk = rawBuffer.subarray(Math.max(0, rawBuffer.length - 1024)).toString('latin1');
+    if (!tailChunk.includes('%%EOF')) {
+      return res.status(400).json({ success: false, message: 'Tệp PDF không hoàn chỉnh hoặc bị cắt ngắn (thiếu thẻ kết thúc %%EOF).' });
     }
 
-    const nowStr = new Date().toISOString();
-    const currentSignatures = Array.isArray(doc.signatures) ? doc.signatures : [];
-    const currentHistory = Array.isArray(doc.history) ? doc.history : [];
-
-    const isRealSchoolSeal = Boolean(req.body.isSchoolSeal === true || req.body.role === 'CON_DAU_NHA_TRUONG' || req.body.signerRole === 'seal');
-    const isBghUser = Boolean(user.role === 'BGH' || user.role === 'ADMIN' || user.canStampSeal === true || user.departmentId === 'dept_bgh');
-
-    let signerRoleText = user.roleTitle || user.role || 'Giáo viên / Lãnh đạo';
-    if (isRealSchoolSeal) {
-      signerRoleText = 'Đã đóng dấu nhà trường';
-    } else if (isBghUser) {
-      signerRoleText = 'Ban Giám hiệu phê duyệt';
+    // Khóa hồ sơ chống xung đột ghi đồng thời / replay attack
+    const lockToken = acquireDocumentLock(id, user.id || user.username);
+    if (!lockToken) {
+      return res.status(409).json({ success: false, message: 'Hồ sơ đang được xử lý bởi một tiến trình khác. Vui lòng thử lại sau giây lát!' });
     }
 
-    const newSignature = {
-      step: currentSignatures.length + 1,
-      signerId: isRealSchoolSeal ? 'school_seal' : (user.id || user.username),
-      signerName: isRealSchoolSeal ? 'TRƯỜNG THCS CHU VĂN AN' : (user.fullName || user.username),
-      signerRole: signerRoleText,
-      isSchoolSeal: isRealSchoolSeal,
-      signedAt: nowStr,
-      certSerial: signerCert?.serialNumber || (isRealSchoolSeal ? '189A2218A5A80E4C' : '7C4C44A8671300AE'),
-      certIssuer: signerCert?.issuer || 'Ban Cơ yếu Chính phủ',
-      note: (note || '').trim()
-    };
-    currentSignatures.push(newSignature);
-
-    let driveResult = null;
-
-    const requiresSeal = Boolean(doc.requiresSeal === true || doc.reportCategory === 'SCHOOL' || doc.categoryType === 'SCHOOL_REPORT' || req.body.requiresSeal === true);
-
-    if (isRealSchoolSeal) {
-      doc.status = 'COMPLETED';
-      doc.completedAt = nowStr;
-      doc.hasSchoolSeal = true;
-      doc.sealedAt = nowStr;
-      doc.finalSigner = 'TRƯỜNG THCS CHU VĂN AN';
-      doc.assignedTo = null;
-      doc.currentSignerId = null;
-      doc.nextSignerId = null;
-
-      currentHistory.push({
-        action: 'ĐÓNG_DẤU_NHÀ_TRƯỜNG',
-        actor: user.fullName || user.username,
-        timestamp: nowStr,
-        note: (note || '').trim() || 'Đã đóng dấu pháp nhân nhà trường'
-      });
-
-      // 1. Google Drive Nhà trường
-      try {
-        const allUsers = (typeof dataStore.getUsers === 'function') ? dataStore.getUsers() : [];
-        const signerEmails = [];
-        currentSignatures.forEach(sig => {
-          const u = allUsers.find(x => x.id === sig.signerId || x.username === sig.signerId);
-          if (u && u.email && !signerEmails.includes(u.email)) signerEmails.push(u.email);
-        });
-        const authorUser = allUsers.find(x => x.id === doc.creatorId || x.username === doc.creatorId);
-        if (authorUser && authorUser.email && !signerEmails.includes(authorUser.email)) {
-          signerEmails.push(authorUser.email);
-        }
-
-        const driveDocMeta = {
-          id: doc.id,
-          docId: doc.id,
-          title: doc.title,
-          docTitle: doc.title,
-          author: doc.creatorName || doc.author,
-          authorName: doc.creatorName || doc.author,
-          authorEmail: authorUser?.email || '',
-          signerEmails: signerEmails,
-          department: doc.creatorDept || doc.department || 'Báo cáo chuyên môn',
-          approver: 'TRƯỜNG THCS CHU VĂN AN',
-          status: 'ĐÃ KÝ DUYỆT & ĐÓNG DẤU',
-          schoolYear: 'Năm học 2026 - 2027'
-        };
-        driveResult = await googleDriveService.uploadToGoogleDrive(driveDocMeta, fileBase64);
-        doc.googleDriveUrl = driveResult.viewUrl;
-        doc.googleDriveFolder = driveResult.folderPath;
-        doc.googleDriveFileName = driveResult.fileName;
-        doc.driveInfo = driveResult;
-
-        // Đồng bộ ngay thông tin Google Drive hoàn tất lên Firebase Realtime Database
+    try {
+      let doc = dataStore.getDocumentById(id);
+      if (!doc) {
         try {
-          const fbUrl = `https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/documents/${encodeURIComponent(doc.id)}.json`;
-          await fetch(fbUrl, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              googleDriveUrl: doc.googleDriveUrl,
-              googleDriveFolder: doc.googleDriveFolder,
-              googleDriveFileName: doc.googleDriveFileName,
-              driveInfo: doc.driveInfo,
-              hasSchoolSeal: true,
-              status: 'COMPLETED',
-              completedAt: doc.completedAt,
-              sealedAt: nowStr,
-              signatures: currentSignatures,
-              updatedAt: nowStr
-            })
-          });
-        } catch (fbSyncErr) {
-          console.warn('[server.js sign-step] Cảnh báo đồng bộ Firebase RTDB:', fbSyncErr.message);
+          const fbUrl = `https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/documents/${encodeURIComponent(id)}.json`;
+          const fbRes = await fetch(fbUrl);
+          if (fbRes.ok) {
+            const fbDoc = await fbRes.json();
+            if (fbDoc && fbDoc.id) doc = fbDoc;
+          }
+        } catch (fbErr) {
+          console.warn('[server.js sign-step] Cảnh báo tra cứu Firebase document:', fbErr && fbErr.message ? fbErr.message : fbErr);
         }
-      } catch (driveErr) {
-        console.warn('[KÝ SỐ server.js] Cảnh báo lưu Google Drive:', driveErr.message);
+      }
+      if (!doc) {
+        return res.status(404).json({ success: false, message: 'Không tìm thấy hồ sơ.' });
+      }
+      if (doc.status === 'COMPLETED' || doc.status === 'ARCHIVED') {
+        return res.status(400).json({ success: false, message: 'Hồ sơ đã được hoàn tất hoặc lưu trữ, không thể ký thêm.' });
       }
 
-      // 2. Đánh dấu OneDrive
-      doc.oneDriveEligible = true;
-      doc.oneDriveCategory = 'Báo cáo chuyên môn';
+      const isUserBgh = isCanonicalBgh(user);
+      const isUserHead = isCanonicalHead(user);
+      const isAssigned = Boolean(
+        (doc.assignedTo && (doc.assignedTo === user.id || doc.assignedTo === user.username)) ||
+        (doc.currentSignerId && (doc.currentSignerId === user.id || doc.currentSignerId === user.username)) ||
+        (doc.nextSignerId && (doc.nextSignerId === user.id || doc.nextSignerId === user.username)) ||
+        (doc.assignedToName && (doc.assignedToName === user.fullName || doc.assignedToName === user.name))
+      );
 
-      // 3. Thông báo Zalo hoàn tất có dấu mộc đỏ
-      try {
-        zaloNotifyService.notifyDocumentCompleted(doc, user, driveResult?.viewUrl || '').catch(e => console.warn('[ZaloNotify] Lỗi gửi hoàn tất đóng dấu:', e.message));
-      } catch (zErr) { void zErr; }
+      // Quyền ký: Chỉ người được phân công hoặc BGH mới có quyền ký duyệt bước này
+      if (!isAssigned && !isUserBgh) {
+        return res.status(403).json({ success: false, message: 'Thầy/Cô không có quyền ký duyệt bước này cho hồ sơ này.' });
+      }
 
-    } else if (isFinal) {
-      if (requiresSeal) {
-        // Ban Giám hiệu ký cá nhân duyệt báo cáo cấp trường: Chuyển sang PENDING_SEAL (chờ đóng dấu mộc đỏ)
-        doc.status = 'PENDING_SEAL';
-        doc.hasSchoolSeal = false;
-        doc.completedAt = null;
-        doc.bghApprovedAt = nowStr;
-        doc.bghSigner = user.fullName || user.username;
-        doc.assignedTo = null;
-        doc.currentSignerId = null;
-        doc.nextSignerId = null;
+      const isInternalReport = Boolean(
+        doc.categoryType === 'INTERNAL_REPORT' ||
+        doc.reportCategory === 'INTERNAL' ||
+        doc.docType === 'INTERNAL_REPORT'
+      );
+      const requiresSeal = Boolean(
+        !isInternalReport && (doc.requiresSeal === true || doc.reportCategory === 'SCHOOL' || doc.categoryType === 'SCHOOL_REPORT')
+      );
 
-        currentHistory.push({
-          action: 'BGH_PHÊ_DUYỆT',
-          actor: user.fullName || user.username,
-          timestamp: nowStr,
-          note: (note || '').trim() || 'Ban Giám hiệu đã phê duyệt nội dung, chờ đóng dấu mộc đỏ nhà trường'
-        });
+      const isRequestingSchoolSeal = Boolean(
+        req.body.hasSchoolSeal === true || 
+        req.body.isSchoolSeal === true || 
+        req.body.role === 'CON_DAU_NHA_TRUONG' || 
+        req.body.signerRole === 'seal'
+      );
 
-        // Đồng bộ lên Firebase RTDB
-        try {
-          const fbUrl = `https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/documents/${encodeURIComponent(doc.id)}.json`;
-          await fetch(fbUrl, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              status: 'PENDING_SEAL',
-              hasSchoolSeal: false,
-              bghApprovedAt: nowStr,
-              bghSigner: doc.bghSigner,
-              signatures: currentSignatures,
-              updatedAt: nowStr
-            })
+      // Kiểm tra tính hợp lệ của việc đóng dấu nhà trường
+      if (isRequestingSchoolSeal) {
+        if (!isUserBgh) {
+          return res.status(403).json({ success: false, message: 'Chỉ Ban Giám hiệu mới có thẩm quyền đóng dấu pháp nhân nhà trường.' });
+        }
+        if (isInternalReport) {
+          return res.status(400).json({ success: false, message: 'Báo cáo Chuyên môn Nội bộ tuyệt đối không được đóng dấu mộc đỏ nhà trường.' });
+        }
+        // Thẩm tra artifact con dấu thực tế (School Seal Artifact Guard)
+        const verifiedSealArtifact = verifySchoolSealArtifact(rawBuffer);
+        if (!verifiedSealArtifact) {
+          return res.status(400).json({
+            success: false,
+            message: 'Tệp PDF đóng dấu không chứa artifact con dấu pháp nhân hoặc chữ ký số hợp lệ của nhà trường.'
           });
-        } catch (fbSyncErr) {
-          console.warn('[server.js sign-step] Cảnh báo đồng bộ Firebase RTDB:', fbSyncErr.message);
+        }
+      }
+
+      // Ràng buộc thẩm quyền đối với cờ xác nhận hoàn tất / phê duyệt (isFinal Authorization Guard)
+      if (isFinal) {
+        // 1. Báo cáo cấp trường (requiresSeal): BẮT BUỘC chỉ Ban Giám hiệu mới có quyền phê duyệt hoặc chuyển sang PENDING_SEAL
+        if (requiresSeal && !isUserBgh) {
+          return res.status(403).json({
+            success: false,
+            message: 'Chỉ Ban Giám hiệu mới có thẩm quyền phê duyệt Báo cáo cấp trường (SCHOOL_REPORT).'
+          });
+        }
+        // 2. Báo cáo nội bộ (isInternalReport): BẮT BUỘC chỉ Tổ trưởng chuyên môn hoặc Ban Giám hiệu mới có quyền phê duyệt hoàn tất
+        if (isInternalReport && !isUserHead && !isUserBgh) {
+          return res.status(403).json({
+            success: false,
+            message: 'Chỉ Tổ trưởng chuyên môn hoặc Ban Giám hiệu mới có quyền phê duyệt hoàn tất Báo cáo nội bộ.'
+          });
+        }
+      }
+
+      const isRealSchoolSeal = Boolean(
+        isRequestingSchoolSeal &&
+        isUserBgh &&
+        requiresSeal &&
+        verifySchoolSealArtifact(rawBuffer)
+      );
+
+      let actualNextSignerName = nextSignerName;
+      // Nếu không phải đóng dấu và không phải hoàn tất (isFinal), bắt buộc phải có người nhận tiếp theo
+      if (!isRealSchoolSeal && !isFinal) {
+        if (!nextSignerId) {
+          return res.status(400).json({ success: false, message: 'Vui lòng chọn người ký tiếp theo hoặc đánh dấu xác nhận hoàn tất.' });
+        }
+        const targetUser = (typeof dataStore.getUserById === 'function' ? dataStore.getUserById(nextSignerId, true) : null) ||
+          (typeof dataStore.getUserByUsername === 'function' ? dataStore.getUserByUsername(nextSignerId, true) : null);
+        if (!targetUser) {
+          return res.status(400).json({ success: false, message: 'Người nhận được chỉ định không tồn tại trên hệ thống.' });
+        }
+        if (targetUser.status === 'LOCKED' || targetUser.isLocked) {
+          return res.status(403).json({ success: false, message: 'Tài khoản người nhận đang bị tạm khóa.' });
+        }
+        const isTargetBgh = isCanonicalBgh(targetUser);
+        actualNextSignerName = targetUser.fullName || targetUser.name || targetUser.username || actualNextSignerName;
+
+        // Ràng buộc INTERNAL_REPORT: TUYỆT ĐỐI KHÔNG luân chuyển trực tiếp lên Ban Giám hiệu
+        if (isInternalReport && isTargetBgh) {
+          return res.status(403).json({
+            success: false,
+            message: 'Báo cáo chuyên môn nội bộ (Tổ/Khối) không được luân chuyển trực tiếp lên Ban Giám hiệu.'
+          });
         }
 
-        // Bắn Zalo BGH_APPROVED
-        try {
-          zaloNotifyService.notifyDocumentBghApproved(doc, user).catch(e => console.warn('[ZaloNotify] Lỗi gửi BGH_APPROVED:', e.message));
-        } catch (zErr) { void zErr; }
+        // Ràng buộc SCHOOL_REPORT: Nếu người ký là Tổ trưởng, người nhận tiếp theo BẮT BUỘC PHẢI LÀ BGH
+        if (requiresSeal && isUserHead && !isTargetBgh) {
+          return res.status(400).json({
+            success: false,
+            message: 'Báo cáo cấp trường bắt buộc phải chuyển tiếp đến Ban Giám hiệu để phê duyệt và đóng dấu!'
+          });
+        }
+      }
 
-      } else {
-        // Báo cáo chuyên môn nội bộ hoàn tất (không đóng dấu mộc đỏ)
+      const nowStr = new Date().toISOString();
+      const currentSignatures = Array.isArray(doc.signatures) ? doc.signatures : [];
+      const currentHistory = Array.isArray(doc.history) ? doc.history : [];
+
+      let signerRoleText = user.roleTitle || user.role || 'Giáo viên / Lãnh đạo';
+      if (isRealSchoolSeal) {
+        signerRoleText = 'Đã đóng dấu nhà trường';
+      } else if (isUserBgh) {
+        signerRoleText = 'Ban Giám hiệu phê duyệt';
+      }
+
+      const newSignature = {
+        step: currentSignatures.length + 1,
+        signerId: isRealSchoolSeal ? 'school_seal' : (user.id || user.username),
+        signerName: isRealSchoolSeal ? 'TRƯỜNG THCS CHU VĂN AN' : (user.fullName || user.username),
+        signerRole: signerRoleText,
+        isSchoolSeal: isRealSchoolSeal,
+        signedAt: nowStr,
+        certSerial: signerCert?.serialNumber || (isRealSchoolSeal ? '189A2218A5A80E4C' : '7C4C44A8671300AE'),
+        certIssuer: signerCert?.issuer || 'Ban Cơ yếu Chính phủ',
+        note: (note || '').trim()
+      };
+      currentSignatures.push(newSignature);
+
+      let driveResult = null;
+
+      if (isRealSchoolSeal) {
+        if (doc.status !== 'PENDING_SEAL') {
+          return res.status(400).json({
+            success: false,
+            message: 'Báo cáo cấp trường phải trải qua bước phê duyệt nội dung của Ban Giám hiệu (trạng thái PENDING_SEAL) trước khi tiến hành đóng dấu pháp nhân.'
+          });
+        }
+        const hasBghApproval = Boolean(doc.bghApprovedAt && doc.bghSigner);
+        if (!hasBghApproval) {
+          return res.status(400).json({
+            success: false,
+            message: 'Hồ sơ đang ở trạng thái chờ đóng dấu nhưng thiếu thông tin phê duyệt hợp lệ từ Ban Giám hiệu.'
+          });
+        }
         doc.status = 'COMPLETED';
         doc.completedAt = nowStr;
-        doc.finalSigner = user.fullName || user.username;
-        doc.hasSchoolSeal = false;
+        doc.hasSchoolSeal = true;
+        doc.sealedAt = nowStr;
+        doc.finalSigner = 'TRƯỜNG THCS CHU VĂN AN';
         doc.assignedTo = null;
         doc.currentSignerId = null;
         doc.nextSignerId = null;
+        doc.oneDriveEligible = true;
+        doc.oneDriveCategory = 'Báo cáo chuyên môn';
 
         currentHistory.push({
-          action: 'KÝ_HOÀN_TẤT_QUY_TRÌNH',
+          action: 'ĐÓNG_DẤU_NHÀ_TRƯỜNG',
           actor: user.fullName || user.username,
           timestamp: nowStr,
-          note: (note || '').trim() || 'Xác nhận hoàn tất báo cáo nội bộ'
+          note: (note || '').trim() || 'Đã đóng dấu pháp nhân nhà trường'
         });
-
-        // 1. Google Drive Nhà trường (ĐÃ PHÊ DUYỆT NỘI BỘ)
-        try {
-          const allUsers = (typeof dataStore.getUsers === 'function') ? dataStore.getUsers() : [];
-          const signerEmails = [];
-          currentSignatures.forEach(sig => {
-            const u = allUsers.find(x => x.id === sig.signerId || x.username === sig.signerId);
-            if (u && u.email && !signerEmails.includes(u.email)) signerEmails.push(u.email);
-          });
-          const authorUser = allUsers.find(x => x.id === doc.creatorId || x.username === doc.creatorId);
-          if (authorUser && authorUser.email && !signerEmails.includes(authorUser.email)) {
-            signerEmails.push(authorUser.email);
+      } else if (isFinal) {
+        if (requiresSeal) {
+          if (!isUserBgh) {
+            return res.status(403).json({
+              success: false,
+              message: 'Chỉ Ban Giám hiệu mới có thẩm quyền phê duyệt Báo cáo cấp trường để chuyển sang chờ đóng dấu.'
+            });
           }
+          doc.status = 'PENDING_SEAL';
+          doc.hasSchoolSeal = false;
+          doc.completedAt = null;
+          doc.bghApprovedAt = nowStr;
+          doc.bghSigner = user.fullName || user.username;
+          doc.assignedTo = null;
+          doc.currentSignerId = null;
+          doc.nextSignerId = null;
 
-          const driveDocMeta = {
-            id: doc.id,
-            docId: doc.id,
-            title: doc.title,
-            docTitle: doc.title,
-            author: doc.creatorName || doc.author,
-            authorName: doc.creatorName || doc.author,
-            authorEmail: authorUser?.email || '',
-            signerEmails: signerEmails,
-            department: doc.creatorDept || doc.department || 'Báo cáo chuyên môn',
-            approver: user.fullName || user.username || 'Tổ trưởng Chuyên môn',
-            status: 'ĐÃ PHÊ DUYỆT NỘI BỘ',
-            schoolYear: 'Năm học 2026 - 2027'
-          };
-          driveResult = await googleDriveService.uploadToGoogleDrive(driveDocMeta, fileBase64);
-          doc.googleDriveUrl = driveResult.viewUrl;
-          doc.googleDriveFolder = driveResult.folderPath;
-          doc.googleDriveFileName = driveResult.fileName;
-          doc.driveInfo = driveResult;
+          currentHistory.push({
+            action: 'BGH_PHÊ_DUYỆT',
+            actor: user.fullName || user.username,
+            timestamp: nowStr,
+            note: (note || '').trim() || 'Ban Giám hiệu đã phê duyệt nội dung, chờ đóng dấu mộc đỏ nhà trường'
+          });
+        } else {
+          doc.status = 'COMPLETED';
+          doc.completedAt = nowStr;
+          doc.finalSigner = user.fullName || user.username;
+          doc.hasSchoolSeal = false;
+          doc.assignedTo = null;
+          doc.currentSignerId = null;
+          doc.nextSignerId = null;
+          doc.oneDriveEligible = true;
+          doc.oneDriveCategory = 'Báo cáo chuyên môn';
 
-          // Đồng bộ ngay thông tin Google Drive hoàn tất lên Firebase Realtime Database
+          currentHistory.push({
+            action: 'KÝ_HOÀN_TẤT_QUY_TRÌNH',
+            actor: user.fullName || user.username,
+            timestamp: nowStr,
+            note: (note || '').trim() || 'Xác nhận hoàn tất báo cáo nội bộ'
+          });
+        }
+      } else {
+        doc.status = 'PENDING_SIGN';
+        doc.assignedTo = nextSignerId;
+        doc.assignedToName = actualNextSignerName;
+        doc.currentSignerId = nextSignerId;
+        doc.currentSignerName = actualNextSignerName;
+        doc.nextSignerId = nextSignerId;
+        doc.nextSignerName = actualNextSignerName;
+
+        currentHistory.push({
+          action: 'KÝ_VÀ_CHUYỂN_TIẾP',
+          actor: user.fullName || user.username,
+          target: actualNextSignerName,
+          timestamp: nowStr,
+          note: (note || '').trim()
+        });
+      }
+
+      // 1. Commit artifact PDF vật lý cục bộ nguyên tử với cơ chế hai pha và Transaction Journal
+      const uploadDir = path.join(__dirname, 'uploads', 'documents');
+      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+      const safeId = id.replace(/[^a-zA-Z0-9_\-]/g, '_');
+      const fname = (isFinal || isRealSchoolSeal) ? `Signed_${safeId}.pdf` : `Step_${safeId}_${currentSignatures.length}.pdf`;
+      const fpath = path.join(uploadDir, fname);
+
+      const oldFilePath = doc.filePath ? path.join(__dirname, doc.filePath) : null;
+      const willOverwriteOldFile = Boolean(oldFilePath && oldFilePath === fpath && fs.existsSync(fpath));
+      let backupPath = null;
+      if (willOverwriteOldFile) {
+        backupPath = `${fpath}.bak_${Date.now()}`;
+        try { fs.copyFileSync(fpath, backupPath); } catch (bakErr) { console.warn('[sign-step] Không thể tạo backup file:', bakErr.message); }
+      }
+
+      try {
+        writeTransactionJournal(safeId, {
+          docId: id,
+          status: 'SIGN_STEP_PREPARING',
+          newFilePath: fpath,
+          backupPath,
+          oldDocState: {
+            status: doc.status,
+            filePath: doc.filePath,
+            updatedAt: doc.updatedAt
+          },
+          createdAt: nowStr
+        });
+      } catch (jErr) {
+        console.error('[sign-step Fail-Closed] Lỗi tạo journal SIGN_STEP_PREPARING:', jErr.message);
+        if (backupPath && fs.existsSync(backupPath)) {
+          try { fs.unlinkSync(backupPath); } catch (cleanBakErr) { console.warn('[sign-step] Lỗi dọn backup:', cleanBakErr.message); }
+        }
+        return res.status(500).json({
+          success: false,
+          message: 'Không thể khởi tạo nhật ký giao dịch ký số (Transaction Journal Error). Giao dịch bị hủy an toàn để bảo vệ tính toàn vẹn dữ liệu.'
+        });
+      }
+
+      writePdfAtomically(fpath, rawBuffer);
+      doc.filePath = `uploads/documents/${fname}`;
+      doc.realSignedPath = `uploads/documents/${fname}`;
+      doc.fileBase64 = fileBase64;
+      doc.signedPdfBase64 = fileBase64;
+      doc.signatures = currentSignatures;
+      doc.history = currentHistory;
+      doc.updatedAt = nowStr;
+
+      const isTrulyCompleted = Boolean(isRealSchoolSeal || (isFinal && !requiresSeal));
+      const isPendingSeal = Boolean(isFinal && requiresSeal && !isRealSchoolSeal);
+      if (isTrulyCompleted) {
+        doc.syncStatus = 'SYNC_PENDING';
+      }
+
+      // 2. Commit metadata vào cơ sở dữ liệu nội bộ với cơ chế Transactional Outbox Pre-Commit & Rollback hai pha
+      if (isTrulyCompleted) {
+        // PRE-COMMIT OUTBOX: Ghi nhật ký EXTERNAL_SYNC_PENDING bền vững TRƯỚC KHI cập nhật DB (Zero Window Invariant)
+        const outboxIdempotencyKey = crypto.createHash('sha256').update(`${id}_${doc.completedAt || doc.sealedAt || nowStr}_${doc.payloadHash || ''}`).digest('hex');
+        try {
+          writeTransactionJournal(safeId, {
+            docId: id,
+            status: 'EXTERNAL_SYNC_PENDING',
+            filePath: fpath,
+            idempotencyKey: outboxIdempotencyKey,
+            updatedAt: nowStr
+          });
+        } catch (outboxErr) {
+          console.error('[sign-step Outbox Fail-Closed] Không thể ghi outbox journal EXTERNAL_SYNC_PENDING trước khi commit DB:', outboxErr.message);
+          if (backupPath && fs.existsSync(backupPath)) {
+            try { fs.copyFileSync(backupPath, fpath); fs.unlinkSync(backupPath); } catch (e) { console.warn('[sign-step] Lỗi dọn backup:', e.message); }
+          } else if (fs.existsSync(fpath)) {
+            try { fs.unlinkSync(fpath); } catch (e) { console.warn('[sign-step] Lỗi dọn file:', e.message); }
+          }
+          return res.status(500).json({
+            success: false,
+            message: 'Không thể khởi tạo nhật ký đồng bộ ngoại vi (Outbox Journal Error). Giao dịch bị hủy an toàn để bảo vệ tính toàn vẹn dữ liệu.'
+          });
+        }
+      }
+
+      try {
+        dataStore.updateDocument(id, doc);
+        if (backupPath && fs.existsSync(backupPath)) {
+          try { fs.unlinkSync(backupPath); } catch (cleanBakErr) { console.warn('[sign-step] Lỗi dọn backup:', cleanBakErr.message); }
+        }
+        if (!isTrulyCompleted) {
+          removeTransactionJournal(safeId);
+        }
+      } catch (dbErr) {
+        console.error(`[sign-step Rollback] DB update thất bại cho [${id}]:`, dbErr.message);
+        let artifactRollbackOk = false;
+        try {
+          if (backupPath && fs.existsSync(backupPath)) {
+            fs.copyFileSync(backupPath, fpath);
+            fs.unlinkSync(backupPath);
+            artifactRollbackOk = true;
+          } else if (fs.existsSync(fpath)) {
+            fs.unlinkSync(fpath);
+            artifactRollbackOk = true;
+          }
+        } catch (rbFileErr) {
+          console.error(`[sign-step Rollback] Không thể hoàn nguyên file [${fpath}]:`, rbFileErr.message);
+        }
+
+        if (artifactRollbackOk) {
+          removeTransactionJournal(safeId);
+        } else {
+          try {
+            writeTransactionJournal(safeId, {
+              docId: id,
+              status: 'ROLLBACK_REQUIRED',
+              savedFilePath: fpath,
+              error: dbErr.message,
+              createdAt: nowStr
+            });
+          } catch (saveJErr) {
+            console.warn('[sign-step] Lỗi lưu journal ROLLBACK_REQUIRED:', saveJErr.message);
+          }
+        }
+        throw dbErr;
+      }
+
+      let resMessage = `Đã ký và chuyển tiếp thành công đến ${actualNextSignerName}!`;
+      if (isRealSchoolSeal) {
+        resMessage = 'Hồ sơ đã được đóng dấu pháp nhân nhà trường và lưu trữ thành công!';
+      } else if (isPendingSeal) {
+        resMessage = 'Ban Giám hiệu đã phê duyệt nội dung. Hồ sơ chuyển sang trạng thái chờ đóng dấu mộc đỏ!';
+      } else if (isFinal) {
+        resMessage = 'Báo cáo chuyên môn nội bộ đã được phê duyệt hoàn tất!';
+      }
+
+      // 3. Kích hoạt side effects bên ngoài (Google Drive, Firebase RTDB, Zalo) không chặn luồng chính
+      if (isTrulyCompleted) {
+        (async () => {
+          try {
+            const allUsers = (typeof dataStore.getUsers === 'function') ? dataStore.getUsers() : [];
+            const signerEmails = [];
+            currentSignatures.forEach(sig => {
+              const u = allUsers.find(x => x.id === sig.signerId || x.username === sig.signerId);
+              if (u && u.email && !signerEmails.includes(u.email)) signerEmails.push(u.email);
+            });
+            const authorUser = allUsers.find(x => x.id === doc.creatorId || x.username === doc.creatorId);
+            if (authorUser && authorUser.email && !signerEmails.includes(authorUser.email)) {
+              signerEmails.push(authorUser.email);
+            }
+
+            const driveDocMeta = {
+              id: doc.id,
+              docId: doc.id,
+              title: doc.title,
+              docTitle: doc.title,
+              author: doc.creatorName || doc.author,
+              authorName: doc.creatorName || doc.author,
+              authorEmail: authorUser?.email || '',
+              signerEmails: signerEmails,
+              department: doc.creatorDept || doc.department || 'Báo cáo chuyên môn',
+              approver: isRealSchoolSeal ? 'TRƯỜNG THCS CHU VĂN AN' : (user.fullName || user.username || 'Tổ trưởng Chuyên môn'),
+              status: isRealSchoolSeal ? 'ĐÃ KÝ DUYỆT & ĐÓNG DẤU' : 'ĐÃ PHÊ DUYỆT NỘI BỘ',
+              schoolYear: 'Năm học 2026 - 2027'
+            };
+
+            let driveResult = null;
+            const existingDriveUrl = doc.googleDriveUrl || (doc.driveInfo && doc.driveInfo.viewUrl);
+            if (existingDriveUrl) {
+              console.log(`[sign-step Idempotency] Hồ sơ [${doc.id}] đã có artifact Google Drive (${existingDriveUrl}), tái sử dụng.`);
+              driveResult = doc.driveInfo || { viewUrl: existingDriveUrl, folderPath: doc.googleDriveFolder, fileName: doc.googleDriveFileName };
+            } else {
+              driveResult = await googleDriveService.uploadToGoogleDrive(driveDocMeta, fileBase64);
+              if (driveResult && driveResult.viewUrl) {
+                dataStore.updateDocument(id, {
+                  googleDriveUrl: driveResult.viewUrl,
+                  googleDriveFolder: driveResult.folderPath,
+                  googleDriveFileName: driveResult.fileName,
+                  driveInfo: driveResult
+                });
+              }
+            }
+
+            const fbUrl = `https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/documents/${encodeURIComponent(doc.id)}.json`;
+            await fetch(fbUrl, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                googleDriveUrl: driveResult?.viewUrl || null,
+                googleDriveFolder: driveResult?.folderPath || null,
+                googleDriveFileName: driveResult?.fileName || null,
+                driveInfo: driveResult || null,
+                hasSchoolSeal: Boolean(doc.hasSchoolSeal),
+                status: 'COMPLETED',
+                completedAt: doc.completedAt,
+                sealedAt: doc.sealedAt,
+                signatures: currentSignatures,
+                updatedAt: nowStr
+              })
+            }).catch(e => console.warn('[server.js sign-step] Cảnh báo Firebase sync:', e.message));
+
+            zaloNotifyService.notifyDocumentCompleted(doc, user, driveResult?.viewUrl || '').catch(e => console.warn('[ZaloNotify] Lỗi gửi hoàn tất:', e.message));
+
+            let updatedSync = false;
+            try {
+              const resSync = dataStore.updateDocument(id, { syncStatus: 'SYNC_COMPLETED' });
+              const checkDoc = (typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(id, true) : null);
+              if (resSync !== false && checkDoc && checkDoc.syncStatus === 'SYNC_COMPLETED') {
+                updatedSync = true;
+              }
+            } catch (uErr) { console.warn('[sign-step] Lỗi cập nhật syncStatus hoàn tất:', uErr.message); }
+
+            if (updatedSync) {
+              removeTransactionJournal(safeId);
+            } else {
+              console.warn(`[sign-step Outbox] Chưa thể xác nhận DB lưu syncStatus SYNC_COMPLETED cho [${id}]; giữ journal EXTERNAL_SYNC_PENDING.`);
+            }
+          } catch (driveErr) {
+            console.warn('[KÝ SỐ server.js] Cảnh báo lưu Google Drive:', driveErr.message);
+            let updatedRetry = false;
+            try {
+              const resRetry = dataStore.updateDocument(id, { syncStatus: 'SYNC_PENDING_RETRY', lastSyncError: driveErr.message });
+              const checkDoc = (typeof dataStore.getDocumentById === 'function' ? dataStore.getDocumentById(id, true) : null);
+              if (resRetry !== false && checkDoc && checkDoc.syncStatus === 'SYNC_PENDING_RETRY') {
+                updatedRetry = true;
+              }
+            } catch (uErr) {
+              console.warn('[sign-step] Lỗi cập nhật syncStatus retry:', uErr.message);
+            }
+
+            if (updatedRetry) {
+              removeTransactionJournal(safeId);
+            } else {
+              console.warn(`[sign-step Outbox] Chưa thể xác nhận DB lưu SYNC_PENDING_RETRY cho [${id}]; giữ journal EXTERNAL_SYNC_PENDING.`);
+            }
+          }
+        })();
+      } else if (isPendingSeal) {
+        (async () => {
           try {
             const fbUrl = `https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/documents/${encodeURIComponent(doc.id)}.json`;
             await fetch(fbUrl, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                googleDriveUrl: doc.googleDriveUrl,
-                googleDriveFolder: doc.googleDriveFolder,
-                googleDriveFileName: doc.googleDriveFileName,
-                driveInfo: doc.driveInfo,
+                status: 'PENDING_SEAL',
                 hasSchoolSeal: false,
-                status: 'COMPLETED',
-                completedAt: doc.completedAt,
+                bghApprovedAt: nowStr,
+                bghSigner: doc.bghSigner,
                 signatures: currentSignatures,
                 updatedAt: nowStr
               })
-            });
-          } catch (fbSyncErr) {
-            console.warn('[server.js sign-step] Cảnh báo đồng bộ Firebase RTDB:', fbSyncErr.message);
+            }).catch(e => console.warn('[server.js sign-step] Cảnh báo Firebase sync:', e.message));
+            zaloNotifyService.notifyDocumentBghApproved(doc, user).catch(e => console.warn('[ZaloNotify] Lỗi gửi BGH_APPROVED:', e.message));
+          } catch (zErr) {
+            console.warn('[ZaloNotify] Cảnh báo lỗi kích hoạt thông báo BGH_APPROVED:', zErr.message);
           }
-        } catch (driveErr) {
-          console.warn('[KÝ SỐ server.js] Cảnh báo lưu Google Drive:', driveErr.message);
-        }
-
-        // 2. Đánh dấu OneDrive
-        doc.oneDriveEligible = true;
-        doc.oneDriveCategory = 'Báo cáo chuyên môn';
-
-        // 3. Thông báo Zalo hoàn tất nội bộ (không dấu mộc)
-        try {
-          zaloNotifyService.notifyDocumentCompleted(doc, user, driveResult?.viewUrl || '').catch(e => console.warn('[ZaloNotify] Lỗi gửi hoàn tất nội bộ:', e.message));
-        } catch (zErr) { void zErr; }
-      }
-    } else {
-      if (!nextSignerId) {
-        return res.status(400).json({ success: false, message: 'Vui lòng chọn người ký tiếp theo hoặc đánh dấu Người ký cuối cùng.' });
-      }
-      doc.status = 'PENDING_SIGN';
-      doc.assignedTo = nextSignerId;
-      doc.assignedToName = nextSignerName;
-      doc.currentSignerId = nextSignerId;
-      doc.currentSignerName = nextSignerName;
-      doc.nextSignerId = nextSignerId;
-      doc.nextSignerName = nextSignerName;
-
-      currentHistory.push({
-        action: 'KÝ_VÀ_CHUYỂN_TIẾP',
-        actor: user.fullName || user.username,
-        target: nextSignerName,
-        timestamp: nowStr,
-        note: (note || '').trim()
-      });
-
-      try {
+        })();
+      } else {
         zaloNotifyService.notifyDocumentForwarded(doc, user, nextSignerId).catch(e => console.warn('[ZaloNotify] Lỗi gửi forward:', e.message));
-      } catch (zErr) { void zErr; }
-    }
-
-    // Lưu dữ liệu file nhị phân đã ký vào thư mục đệm cục bộ
-    if (fileBase64) {
-      try {
-        const uploadDir = path.join(__dirname, 'uploads', 'documents');
-        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-        const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '');
-        const rawBuffer = Buffer.from(cleanBase64, 'base64');
-        const safeId = id.replace(/[^a-zA-Z0-9_\-]/g, '_');
-        const fname = (isFinal || isRealSchoolSeal) ? `Signed_${safeId}.pdf` : `Step_${safeId}_${currentSignatures.length}.pdf`;
-        const fpath = path.join(uploadDir, fname);
-        writePdfAtomically(fpath, rawBuffer);
-        doc.filePath = `uploads/documents/${fname}`;
-        doc.realSignedPath = `uploads/documents/${fname}`;
-      } catch (fErr) {
-        console.warn('[server.js sign-step] Lỗi lưu file đệm ký bước:', fErr.message);
       }
+
+      res.json({
+        success: true,
+        message: resMessage,
+        isCompleted: isTrulyCompleted,
+        isPendingSeal: isPendingSeal,
+        data: {
+          id: doc.id,
+          status: doc.status,
+          hasSchoolSeal: Boolean(doc.hasSchoolSeal),
+          driveUrl: doc.googleDriveUrl || null,
+          fileName: `${doc.title}_HoanTat.pdf`
+        }
+      });
+    } finally {
+      releaseDocumentLock(id, lockToken);
     }
-
-    doc.fileBase64 = fileBase64;
-    doc.signedPdfBase64 = fileBase64;
-    doc.signatures = currentSignatures;
-    doc.history = currentHistory;
-    doc.updatedAt = nowStr;
-
-    dataStore.updateDocument(id, doc);
-
-    const isTrulyCompleted = Boolean(isRealSchoolSeal || (isFinal && !requiresSeal));
-    const isPendingSeal = Boolean(isFinal && requiresSeal && !isRealSchoolSeal);
-
-    let resMessage = `Đã ký và chuyển tiếp thành công đến ${nextSignerName}!`;
-    if (isRealSchoolSeal) {
-      resMessage = 'Hồ sơ đã được đóng dấu pháp nhân nhà trường và lưu trữ thành công!';
-    } else if (isPendingSeal) {
-      resMessage = 'Ban Giám hiệu đã phê duyệt nội dung. Hồ sơ chuyển sang trạng thái chờ đóng dấu mộc đỏ!';
-    } else if (isFinal) {
-      resMessage = 'Báo cáo chuyên môn nội bộ đã được phê duyệt hoàn tất!';
-    }
-
-    res.json({
-      success: true,
-      message: resMessage,
-      isCompleted: isTrulyCompleted,
-      isPendingSeal: isPendingSeal,
-      data: {
-        id: doc.id,
-        status: doc.status,
-        hasSchoolSeal: Boolean(doc.hasSchoolSeal),
-        driveUrl: doc.googleDriveUrl || null,
-        fileName: driveResult?.fileName || `${doc.title}_HoanTat.pdf`
-      }
-    });
   } catch (err) {
     console.error('[KÝ SỐ server.js] Lỗi ký bước:', err);
     res.status(500).json({ success: false, message: err.message });
@@ -1498,7 +3298,9 @@ app.get('/api/drive/my-folder', async (req, res) => {
             email = (found.email || found.officialEmail).trim();
           }
         }
-      } catch (uErr) { void uErr; }
+      } catch (uErr) {
+        console.warn('[server.js] Lỗi đọc users.json tra cứu email giáo viên:', uErr.message);
+      }
     }
 
     const folderRes = await googleDriveService.getTeacherFolder(teacherName, 'Năm học 2026 - 2027', email);
@@ -1527,15 +3329,21 @@ app.get('/api/documents/:id', async (req, res) => {
           let raw = '';
           fRes.on('data', c => raw += c);
           fRes.on('end', () => {
-            try { resolve(JSON.parse(raw)); } catch { resolve(null); }
+            try { resolve(JSON.parse(raw)); } catch (parseErr) { console.warn('[Firebase Fetch] JSON parse error:', parseErr.message); resolve(null); }
           });
         }).on('error', () => resolve(null));
       });
       if (fbDoc && fbDoc.id) {
         doc = fbDoc;
-        try { dataStore.createDocument(doc, { username: doc.creatorId || 'system' }); } catch (e) { void e; }
+        try {
+          dataStore.createDocument(doc, { username: doc.creatorId || 'system' });
+        } catch (e) {
+          console.warn('[server.js] Cảnh báo tạo tài liệu từ Firebase cache:', e.message);
+        }
       }
-    } catch (fbErr) { void fbErr; }
+    } catch (fbErr) {
+      console.warn('[server.js] Cảnh báo lỗi truy vấn Firebase doc:', fbErr.message);
+    }
   }
   if (!doc) return res.status(404).json({ success: false, message: 'Không tìm thấy hồ sơ' });
   res.json({ success: true, data: doc });
@@ -1620,14 +3428,16 @@ app.get('/api/documents/:id/file', async (req, res) => {
           let raw = '';
           fRes.on('data', c => raw += c);
           fRes.on('end', () => {
-            try { resolve(JSON.parse(raw)); } catch { resolve(null); }
+            try { resolve(JSON.parse(raw)); } catch (parseErr) { console.warn('[Firebase Fetch] JSON parse error:', parseErr.message); resolve(null); }
           });
         }).on('error', () => resolve(null));
       });
       if (fbDoc) {
         doc = Object.assign({}, doc, fbDoc);
       }
-    } catch (e) { void e; }
+    } catch (e) {
+      console.warn('[server.js /api/documents/:id/file] Cảnh báo tra cứu Firebase document:', e.message);
+    }
   }
 
   // 4. Nếu file vật lý chưa có trên đĩa nhưng có Google Drive URL -> Tự động tải từ Google Drive
@@ -1661,7 +3471,11 @@ app.get('/api/documents/:id/file', async (req, res) => {
           const dlPath = path.join(uploadDir, `doc_${safeId}.pdf`);
           fs.writeFileSync(dlPath, driveBuffer);
           resolvedPath = dlPath;
-          try { dataStore.updateDocument(doc.id, { filePath: `uploads/documents/doc_${safeId}.pdf` }); } catch (e) { void e; }
+          try {
+            dataStore.updateDocument(doc.id, { filePath: `uploads/documents/doc_${safeId}.pdf` });
+          } catch (e) {
+            console.warn('[Google Drive Stream] Cảnh báo cập nhật filePath sau khi tải Drive:', e.message);
+          }
           console.log(`[Google Drive Stream] Đã tự động nạp thành công ${driveBuffer.length} bytes từ Google Drive cho hồ sơ [${req.params.id}]!`);
         }
       }
@@ -1681,7 +3495,11 @@ app.get('/api/documents/:id/file', async (req, res) => {
       const recoveredPath = path.join(uploadDir, `recovered_${doc.id}${ext}`);
       fs.writeFileSync(recoveredPath, rawBuffer);
       resolvedPath = recoveredPath;
-      try { dataStore.updateDocument(doc.id, { filePath: `uploads/documents/recovered_${doc.id}${ext}` }); } catch (e) { void e; }
+      try {
+        dataStore.updateDocument(doc.id, { filePath: `uploads/documents/recovered_${doc.id}${ext}` });
+      } catch (e) {
+        console.warn('[server.js /api/documents/:id/file] Cảnh báo cập nhật filePath sau khôi phục fileBase64:', e.message);
+      }
     } catch (e) {
       console.error('Lỗi khôi phục file gốc từ fileBase64:', e.message);
     }
@@ -2037,7 +3855,7 @@ app.post('/api/documents/:id/upload-drive', requireAuth, async (req, res) => {
       if (fs.existsSync(uploadDir)) {
         const tempFiles = fs.readdirSync(uploadDir).filter(f => f.includes(doc.id));
         tempFiles.forEach(tf => {
-          try { fs.unlinkSync(path.join(uploadDir, tf)); } catch (e) { void e; }
+          try { fs.unlinkSync(path.join(uploadDir, tf)); } catch (unlinkErr) { console.warn('[Render Purge] Lỗi dọn tệp tạm:', unlinkErr.message); }
         });
       }
       console.log(`[Render Purge] Đã dọn dẹp sạch toàn bộ file tạm của "${doc.title}" trên Render!`);
@@ -2215,7 +4033,7 @@ function checkVgcaSystemStatus(forceRefresh = false) {
 const vgcaSessions = new Map();
 
 // Tự động dọn dẹp các phiên hết hạn (> 10 phút)
-setInterval(() => {
+const vgcaCleanupTimer = setInterval(() => {
   const now = Date.now();
   for (const [txId, session] of vgcaSessions.entries()) {
     if (now - session.createdAt > 600000) {
@@ -2223,6 +4041,9 @@ setInterval(() => {
     }
   }
 }, 60000);
+if (vgcaCleanupTimer && typeof vgcaCleanupTimer.unref === 'function') {
+  vgcaCleanupTimer.unref();
+}
 
 // API Kiểm tra trạng thái phần mềm VGCA và kết nối
 app.get('/api/check-vgca-status', (req, res) => {
@@ -2396,14 +4217,14 @@ app.get('/api/vgca/status', (req, res) => {
       console.log(`[VGCA Auth] ⏱️ Phiên tài khoản VGCA của ${vgcaAuth.signerName} (${vgcaAuth.account}) đã hết hạn do không hoạt động.`);
       vgcaAuth = null;
       if (user && user.id) {
-        try { dataStore.updateUser(user.id, { vgcaAuth: null }); } catch (e) { void e; }
+        try { dataStore.updateUser(user.id, { vgcaAuth: null }); } catch (upErr) { console.warn('[VGCA Auth] Lỗi xóa vgcaAuth user:', upErr.message); }
       }
     } else {
       // Gia hạn thời gian hoạt động
       vgcaAuth.lastActiveAt = Date.now();
       vgcaAuth.expiresAt = Date.now() + (30 * 60 * 1000);
       if (user && user.id) {
-        try { dataStore.updateUser(user.id, { vgcaAuth }); } catch (e) { void e; }
+        try { dataStore.updateUser(user.id, { vgcaAuth }); } catch (upErr) { console.warn('[VGCA Auth] Lỗi cập nhật vgcaAuth user:', upErr.message); }
       }
     }
   }
@@ -2428,7 +4249,9 @@ app.post('/api/vgca/logout', (req, res) => {
   if (user && user.id) {
     try {
       dataStore.updateUser(user.id, { vgcaAuth: null });
-    } catch (e) { void e; }
+    } catch (e) {
+      console.warn('[VGCA Auth] Lỗi cập nhật trạng thái logout vgcaAuth:', e.message);
+    }
   }
   res.json({ success: true, message: 'Đã đăng xuất tài khoản VGCA thành công.' });
 });
@@ -2655,7 +4478,7 @@ app.post('/api/local-sign-doc', async (req, res) => {
     const signResult = await pdfSignerService.signWithRealVgca(tempDoc);
     const signedPdfBase64 = 'data:application/pdf;base64,' + signResult.signedBuffer.toString('base64');
 
-    try { if (tempFilePath && fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (e) { void e; }
+    try { if (tempFilePath && fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (unlinkErr) { console.warn('[Local Signer] Lỗi xóa tệp tạm:', unlinkErr.message); }
 
     res.json({
       success: true,
@@ -2872,7 +4695,7 @@ app.post('/api/documents', requireAuth, async (req, res) => {
       if (txId) {
         const session = vgcaSessions.get(txId);
         if (!session || session.status !== 'CONFIRMED') {
-          try { dataStore.deleteDocument(newDoc.id); } catch (e) { void e; }
+          try { dataStore.deleteDocument(newDoc.id); } catch (delErr) { console.warn('[VGCA Real] Lỗi xóa tài liệu tạm thời:', delErr.message); }
           return res.status(400).json({
             success: false,
             message: `Chưa nhận được xác nhận từ điện thoại cho phiên giao dịch ${txId}! Vui lòng mở ứng dụng SmartCA và nhấn [Xác nhận Ký] trên điện thoại trước khi nộp bài.`
@@ -2929,7 +4752,11 @@ app.post('/api/documents', requireAuth, async (req, res) => {
     } catch (err) {
       console.error('Lỗi ký số VGCA thật khi nộp bài:', err.message);
       // Xóa hồ sơ tạm vừa tạo nếu ký số thất bại
-      try { dataStore.deleteDocument(newDoc.id); } catch (e) { void e; }
+      try {
+        dataStore.deleteDocument(newDoc.id);
+      } catch (e) {
+        console.warn('[server.js] Lỗi xóa hồ sơ tạm sau khi ký số thất bại:', e.message);
+      }
       return res.status(500).json({
         success: false,
         message: 'Lỗi xác thực chữ ký số VGCA: ' + err.message
@@ -2971,7 +4798,9 @@ app.post('/api/documents', requireAuth, async (req, res) => {
       zaloNotifyService.notifyDocumentSubmitted(newDoc, currentUser, nextSignerId).catch(err => {
         console.warn('[ZaloNotify] Lỗi gửi Zalo khi tạo báo cáo mới:', err.message);
       });
-    } catch (zErr) { void zErr; }
+    } catch (zErr) {
+      console.warn('[ZaloNotify] Cảnh báo kích hoạt thông báo nộp báo cáo mới:', zErr.message);
+    }
   } else if (docCategory === 'PERSONAL') {
     try {
       zaloNotifyService.notifyDocumentPersonalSigned(newDoc, currentUser).catch(err => {
@@ -2988,7 +4817,9 @@ app.post('/api/documents', requireAuth, async (req, res) => {
           console.warn('[ZaloNotify] Lỗi gửi Zalo cho Tổ trưởng khi nộp KHBD cá nhân:', err.message);
         });
       }
-    } catch (zErr) { void zErr; }
+    } catch (zErr) {
+      console.warn('[ZaloNotify] Cảnh báo kích hoạt thông báo ký cá nhân:', zErr.message);
+    }
   }
 
   console.log(`[Document] Giáo viên ${currentUser.name} (${currentUser.department}) vừa tạo hồ sơ (${docCategory}): "${newDoc.title}" (File: ${newDoc.fileName})`);
@@ -3010,64 +4841,7 @@ app.post('/api/documents', requireAuth, async (req, res) => {
   });
 });
 
-// Endpoint chuyển tiếp báo cáo mới từ Client (hỗ trợ EduSign Web Client)
-app.post('/api/documents/forward', requireAuth, async (req, res) => {
-  try {
-    const { id, title, docType, fileBase64, nextSignerId, nextSignerName, note, signerCert } = req.body;
-    const currentUser = req.user;
-    const docId = id || `BC-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
-    const nowStr = new Date().toISOString();
-
-    const newDoc = {
-      id: docId,
-      title: title || 'Báo cáo chuyên môn',
-      docType: docType || 'REPORT',
-      category: 'REPORT',
-      status: nextSignerId ? 'WAITING_NEXT_SIGN' : 'SUBMITTED',
-      fileBase64: fileBase64 || null,
-      creatorId: currentUser.id || currentUser.username,
-      creatorName: currentUser.name || currentUser.fullName || currentUser.username,
-      creatorDept: currentUser.department || 'Tổ chuyên môn',
-      author: currentUser.name || currentUser.fullName,
-      authorId: currentUser.id || currentUser.username,
-      assignedTo: nextSignerId || null,
-      assignedToName: nextSignerName || null,
-      currentSignerId: nextSignerId || null,
-      currentSignerName: nextSignerName || null,
-      note: note || '',
-      signatures: [{
-        step: 1,
-        role: currentUser.roleTitle || 'Giáo viên lập báo cáo',
-        signerId: currentUser.id || currentUser.username,
-        signerName: currentUser.name || currentUser.fullName || currentUser.username,
-        signedAt: nowStr,
-        certSerial: (signerCert && signerCert.serialNumber) || currentUser.certSerial || '7C4C44A8671300AE',
-        note: note || ''
-      }],
-      createdAt: nowStr,
-      updatedAt: nowStr
-    };
-
-    dataStore.createDocument(newDoc);
-
-    // Gửi thông báo Zalo 1-1 cho cả Người duyệt và Người lập hồ sơ
-    try {
-      zaloNotifyService.notifyDocumentSubmitted(newDoc, currentUser, nextSignerId).catch(err => {
-        console.warn('[ZaloNotify] Lỗi gửi Zalo forward:', err.message);
-      });
-    } catch (zErr) { void zErr; }
-
-    res.json({
-      success: true,
-      message: `Đã khởi tạo và chuyển tiếp báo cáo [${docId}] thành công!`,
-      data: newDoc,
-      doc: newDoc
-    });
-  } catch (err) {
-    console.error('[forward] Lỗi tạo báo cáo:', err);
-    res.status(500).json({ success: false, message: 'Lỗi server khi chuyển tiếp báo cáo: ' + err.message });
-  }
-});
+// Tuyến chính thức /api/documents/forward được quản lý tập trung và bảo vệ bằng requireAuth tại dòng 968.
 
 // Ký tiếp và chuyển tiếp hồ sơ báo cáo (Tab 2: Ký luân chuyển nhiều bên)
 app.post('/api/documents/:id/forward-sign', requireAuth, async (req, res) => {
@@ -3090,7 +4864,7 @@ app.post('/api/documents/:id/forward-sign', requireAuth, async (req, res) => {
   let nextSignerRole = req.body.nextSignerRole;
 
   if (nextSignerId && (!nextSignerName || !nextSignerRole)) {
-    const targetUser = dataStore.getUserById(nextSignerId);
+    const targetUser = dataStore.getUserById(nextSignerId, true);
     if (targetUser) {
       nextSignerName = nextSignerName || targetUser.name;
       nextSignerRole = nextSignerRole || targetUser.roleTitle || (targetUser.role === 'BGH' ? 'Ban Giám hiệu' : (targetUser.role === 'HEAD_DEPT' ? 'Tổ trưởng' : 'Giáo viên'));
@@ -3189,7 +4963,9 @@ app.post('/api/documents/:id/forward-sign', requireAuth, async (req, res) => {
       zaloNotifyService.notifyDocumentSubmitted(doc, currentUser, nextSignerId).catch(err => {
         console.warn('[ZaloNotify] Lỗi gửi Zalo khi chuyển tiếp:', err.message);
       });
-    } catch (zErr) { void zErr; }
+    } catch (zErr) {
+      console.warn('[ZaloNotify] Cảnh báo kích hoạt thông báo chuyển tiếp:', zErr.message);
+    }
   } else {
     // Thông báo cho tác giả khi đã đủ các chữ ký
     if (doc.authorId) {
@@ -3263,7 +5039,9 @@ app.post('/api/documents/:id/confirm-complete', requireAuth, async (req, res) =>
       zaloNotifyService.notifyDocumentCompleted(doc, currentUser, driveRes ? driveRes.viewUrl : '').catch(err => {
         console.warn('[ZaloNotify] Lỗi gửi Zalo khi hoàn tất hồ sơ:', err.message);
       });
-    } catch (zErr) { void zErr; }
+    } catch (zErr) {
+      console.warn('[ZaloNotify] Cảnh báo kích hoạt thông báo hoàn tất:', zErr.message);
+    }
 
     res.json({
       success: true,
@@ -3278,7 +5056,7 @@ app.post('/api/documents/:id/confirm-complete', requireAuth, async (req, res) =>
 });
 
 // Quản trị viên: Tự động lưu trữ & ẩn toàn bộ hồ sơ đã hoàn thành / đã duyệt vào Kho Lưu Trữ Drive
-app.post('/api/admin/archive-completed-docs', requireAuth, (req, res) => {
+app.post('/api/admin/archive-completed-docs', requireAuth, async (req, res) => {
   if (req.user.role !== 'ADMIN' && req.user.role !== 'BGH') {
     return res.status(403).json({ success: false, message: 'Chỉ Quản trị viên mới có quyền thực hiện thao tác này!' });
   }
@@ -3321,12 +5099,17 @@ app.post('/api/admin/archive-completed-docs', requireAuth, (req, res) => {
       delete c.signedPdfBase64;
       return c;
     });
-    fetch('https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/documents.json', {
+    const fbRes = await fetch('https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/documents.json', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cleanDocs)
-    }).catch(() => {});
-  } catch (e) { void e; }
+    });
+    if (!fbRes.ok) {
+      console.warn('[Archive Sync Warning] Firebase RTDB phản hồi lỗi:', fbRes.status);
+    }
+  } catch (syncErr) {
+    console.warn('[Archive Sync Warning] Lỗi đồng bộ Firebase RTDB:', syncErr.message);
+  }
 
   res.json({
     success: true,
@@ -3346,19 +5129,22 @@ app.post('/api/documents/:id/approve-leader', requireAuth, (req, res) => {
   const doc = dataStore.getDocumentById(req.params.id);
   if (!doc) return res.status(404).json({ success: false, message: 'Không tìm thấy hồ sơ' });
 
-  if (currentUser.role === 'HEAD_DEPT' && doc.department !== currentUser.department) {
+  const isLeaderAssigned = doc.nextSignerId === currentUser.id || doc.nextSignerId === currentUser.username;
+  const isSameDept = doc.department === currentUser.department || doc.department === 'Tổ chuyên môn' || !doc.department;
+  if (currentUser.role === 'HEAD_DEPT' && !isSameDept && !isLeaderAssigned) {
     return res.status(403).json({ success: false, message: 'Bạn chỉ có quyền duyệt hồ sơ thuộc Tổ chuyên môn của mình!' });
   }
 
+  const effectiveDept = (doc.department && doc.department !== 'Tổ chuyên môn') ? doc.department : currentUser.department;
   const { comment, signPlacement, signatureImage } = req.body;
   const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
   const leaderSigImg = signatureImage || currentUser.signatureImage || signatureProfile.leaderSignatureImg || null;
 
   const sig = {
     step: 2,
-    role: `Tổ trưởng ${doc.department}`,
+    role: `Tổ trưởng ${effectiveDept}`,
     signerName: currentUser.name,
-    signerUnit: doc.department,
+    signerUnit: effectiveDept,
     signedAt: now,
     signType: 'PAdES Incremental Update',
     status: 'VALID',
@@ -3378,6 +5164,7 @@ app.post('/api/documents/:id/approve-leader', requireAuth, (req, res) => {
   ];
 
   const updatedDoc = dataStore.updateDocument(doc.id, {
+    department: effectiveDept,
     status: 'WAITING_PRINCIPAL_APPROVAL',
     currentSignerRole: 'Ban Giám hiệu',
     signatures: updatedSignatures,
@@ -3634,7 +5421,9 @@ app.post('/api/documents/:id/reject', requireAuth, (req, res) => {
       zaloNotifyService.notifyDocumentRejected(updatedDoc, currentUser, trimmedReason).catch(err => {
         console.warn('[ZaloNotify] Lỗi gửi tin Zalo từ chối:', err.message);
       });
-    } catch (zErr) { void zErr; }
+    } catch (zErr) {
+      console.warn('[ZaloNotify] Cảnh báo kích hoạt thông báo từ chối hồ sơ:', zErr.message);
+    }
 
     res.json({
       success: true,
@@ -4026,7 +5815,9 @@ function getSignerExecution() {
     if (fs.existsSync(csproj)) {
       return { file: 'dotnet', argsPrefix: ['run', '--project', path.join(__dirname, 'RealPdfSigner'), '--'] };
     }
-  } catch (e) { void e; }
+  } catch (e) {
+    console.warn('[RealPdfSigner] Không tìm thấy dotnet runtime hoặc project RealPdfSigner:', e.message);
+  }
 
   return null;
 }
@@ -4145,24 +5936,42 @@ app.get('/api/verify-real-pdf', (req, res) => {
   });
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`===========================================================`);
-  console.log(`🚀 EduSign VGCA - Trường THCS Chu Văn An đang chạy tại port ${PORT}`);
-  console.log(`🌐 Local URL: http://localhost:${PORT}`);
-  console.log(`===========================================================`);
-});
+let server = null;
+if (require.main === module) {
+  server = app.listen(PORT, () => {
+    console.log(`===========================================================`);
+    console.log(`🚀 EduSign VGCA - Trường THCS Chu Văn An đang chạy tại port ${PORT}`);
+    console.log(`🌐 Local URL: http://localhost:${PORT}`);
+    console.log(`===========================================================`);
+  });
 
-server.on('error', (err) => {
-  if (err.code === 'EACCES' || err.code === 'EADDRINUSE') {
-    const fallbackPort = PORT === 3000 ? 3001 : PORT + 1;
-    console.warn(`⚠️ Cổng ${PORT} không khả dụng (${err.code}). Đang tự động chuyển sang cổng ${fallbackPort}...`);
-    app.listen(fallbackPort, () => {
-      console.log(`===========================================================`);
-      console.log(`🚀 EduSign VGCA - Trường THCS Chu Văn An đang chạy tại port ${fallbackPort}`);
-      console.log(`🌐 Local URL: http://localhost:${fallbackPort}`);
-      console.log(`===========================================================`);
-    });
-  } else {
-    throw err;
-  }
-});
+  server.on('error', (err) => {
+    if (err.code === 'EACCES' || err.code === 'EADDRINUSE') {
+      const fallbackPort = PORT === 3000 ? 3001 : PORT + 1;
+      console.warn(`⚠️ Cổng ${PORT} không khả dụng (${err.code}). Đang tự động chuyển sang cổng ${fallbackPort}...`);
+      server = app.listen(fallbackPort, () => {
+        console.log(`===========================================================`);
+        console.log(`🚀 EduSign VGCA - Trường THCS Chu Văn An đang chạy tại port ${fallbackPort}`);
+        console.log(`🌐 Local URL: http://localhost:${fallbackPort}`);
+        console.log(`===========================================================`);
+      });
+    } else {
+      throw err;
+    }
+  });
+}
+
+module.exports = {
+  app,
+  server,
+  acquireDocumentLock,
+  releaseDocumentLock,
+  reconcileOrphanDocumentsOnStartup,
+  isPidAlive,
+  writeTransactionJournal,
+  removeTransactionJournal,
+  writeJournalFileAtomic,
+  resolveLocalDocumentPath,
+  isWithinUploadRoot,
+  verifySchoolSealArtifact
+};

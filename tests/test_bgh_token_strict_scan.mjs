@@ -1,15 +1,67 @@
 import { chromium } from 'playwright';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const artifactDir = path.resolve('C:/Users/HPZBook/.gemini/antigravity/brain/287d173b-7c06-47d6-8969-b9c95c30858a');
+if (!fs.existsSync(artifactDir)) fs.mkdirSync(artifactDir, { recursive: true });
 
 async function runTest() {
   console.log('🚀 [TEST] Khởi chạy kiểm thử nghiêm ngặt quét USB Token BGH & Đối soát CCCD...');
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
+
+  // Mô phỏng EduSign Agent với 2 chứng thư: Hà Văn Tý (Virtual CSP) và Nguyễn Văn Hiền (Hardware RSA)
+  // để kiểm thử chuẩn xác khả năng loại trừ Virtual CSP và đối soát CCCD phần cứng
+  await page.route('**/api/check-vgca-status*', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        success: true,
+        tokenConnected: true,
+        cspHealthy: true,
+        hasCspError: false,
+        certInfo: {
+          serialNumber: '15FA69CF7ACCCC76',
+          thumbprint: 'AABBCCDDEEFF0011223344556677889900AABBCC',
+          signerName: 'Nguyễn Văn Hiền',
+          email: 'nvhien-dakha@quangngai.gov.vn',
+          cccd: '042084009999',
+          subject: 'E=nvhien-dakha@quangngai.gov.vn, CN=Nguyễn Văn Hiền, OU=TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN, O=ỦY BAN NHÂN DÂN TỈNH QUẢNG NGÃI, C=VN',
+          issuer: 'CN=CA phục vụ các cơ quan Nhà nước G2, O=Ban Cơ yếu Chính phủ, C=VN',
+          notAfter: '2031-12-31 23:59:59',
+          isHardware: true,
+          keyAlgorithm: 'RSA'
+        },
+        availableCerts: [
+          {
+            serialNumber: '7C4C44A8671300AE',
+            thumbprint: '6398E3DC37E44EBBF976DFDE9F0143E1BDA5346D',
+            signerName: 'Hà Văn Tý',
+            email: 'hvty-dakha@quangngai.gov.vn',
+            isHardware: false,
+            keyAlgorithm: 'ECDSA'
+          },
+          {
+            serialNumber: '15FA69CF7ACCCC76',
+            thumbprint: 'AABBCCDDEEFF0011223344556677889900AABBCC',
+            signerName: 'Nguyễn Văn Hiền',
+            email: 'nvhien-dakha@quangngai.gov.vn',
+            cccd: '042084009999',
+            subject: 'E=nvhien-dakha@quangngai.gov.vn, CN=Nguyễn Văn Hiền, OU=TRƯỜNG TRUNG HỌC CƠ SỞ CHU VĂN AN, O=ỦY BAN NHÂN DÂN TỈNH QUẢNG NGÃI, C=VN',
+            issuer: 'CN=CA phục vụ các cơ quan Nhà nước G2, O=Ban Cơ yếu Chính phủ, C=VN',
+            notAfter: '2031-12-31 23:59:59',
+            isHardware: true,
+            keyAlgorithm: 'RSA'
+          }
+        ]
+      })
+    });
+  });
 
   const consoleErrors = [];
   page.on('console', msg => {
@@ -77,7 +129,7 @@ async function runTest() {
 
   // Chụp ảnh bằng chứng chặn khi chưa nhập CCCD
   await page.screenshot({
-    path: path.resolve('C:/Users/HPZBook/.gemini/antigravity/brain/def6f1ba-143d-482d-8668-df8d3eff8a68/evidence_fig3_require_cccd_alert.png'),
+    path: path.join(artifactDir, 'evidence_fig3_require_cccd_alert.png'),
     fullPage: true
   });
 
@@ -129,7 +181,7 @@ async function runTest() {
 
   // Chụp ảnh bằng chứng
   await page.screenshot({
-    path: path.resolve('C:/Users/HPZBook/.gemini/antigravity/brain/def6f1ba-143d-482d-8668-df8d3eff8a68/evidence_fig3_strict_hien_detected.png'),
+    path: path.join(artifactDir, 'evidence_fig3_strict_hien_detected.png'),
     fullPage: true
   });
 
@@ -159,7 +211,7 @@ async function runTest() {
 
   // Chụp ảnh bằng chứng thành công
   await page.screenshot({
-    path: path.resolve('C:/Users/HPZBook/.gemini/antigravity/brain/def6f1ba-143d-482d-8668-df8d3eff8a68/evidence_fig3_success_hien_matched.png'),
+    path: path.join(artifactDir, 'evidence_fig3_success_hien_matched.png'),
     fullPage: true
   });
 

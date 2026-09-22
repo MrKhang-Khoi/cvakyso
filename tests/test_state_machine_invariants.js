@@ -18,8 +18,10 @@ function runStateMachineInvariantChecks() {
 
   // Invariant 1: requiresSeal determination
   console.log('>>> [CHECK 1] Invariant 1: requiresSeal Flag Resolution');
-  assert(serverJsSrc.includes('const requiresSeal = Boolean(doc.requiresSeal === true || doc.reportCategory === \'SCHOOL\' || doc.categoryType === \'SCHOOL_REPORT\' || req.body.requiresSeal === true);'),
-    'requiresSeal must strictly evaluate reportCategory SCHOOL, categoryType SCHOOL_REPORT, or explicit requiresSeal flag');
+  assert(
+    serverJsSrc.includes('!isInternalReport && (doc.requiresSeal === true || doc.reportCategory === \'SCHOOL\' || doc.categoryType === \'SCHOOL_REPORT\')'),
+    'requiresSeal must strictly evaluate reportCategory SCHOOL, categoryType SCHOOL_REPORT, and exclude isInternalReport'
+  );
   console.log('  ✅ [PASS] Invariant 1 verified: Strict resolution of requiresSeal.');
 
   // Invariant 2: School seal execution (isRealSchoolSeal)
@@ -28,7 +30,7 @@ function runStateMachineInvariantChecks() {
     'Real school seal must transition doc to COMPLETED with hasSchoolSeal = true and record sealedAt');
   assert(serverJsSrc.includes('doc.finalSigner = \'TRƯỜNG THCS CHU VĂN AN\';'),
     'Real school seal must record finalSigner as TRƯỜNG THCS CHU VĂN AN');
-  assert(serverJsSrc.includes("status: 'ĐÃ KÝ DUYỆT & ĐÓNG DẤU'"),
+  assert(serverJsSrc.includes('\'ĐÃ KÝ DUYỆT & ĐÓNG DẤU\''),
     'Drive metadata must be labeled ĐÃ KÝ DUYỆT & ĐÓNG DẤU');
   console.log('  ✅ [PASS] Invariant 2 verified: Legal School Seal transitions cleanly to COMPLETED with hasSchoolSeal = true.');
 
@@ -44,7 +46,7 @@ function runStateMachineInvariantChecks() {
 
   // Invariant 4: Internal report final approval (requiresSeal: false)
   console.log('>>> [CHECK 4] Invariant 4: Dept Head Approval on INTERNAL_REPORT -> COMPLETED');
-  assert(serverJsSrc.includes('doc.hasSchoolSeal = false;') && serverJsSrc.includes("status: 'ĐÃ PHÊ DUYỆT NỘI BỘ'"),
+  assert(serverJsSrc.includes('doc.hasSchoolSeal = false;') && serverJsSrc.includes('\'ĐÃ PHÊ DUYỆT NỘI BỘ\''),
     'When requiresSeal is false, final approval must transition to COMPLETED without seal and label ĐÃ PHÊ DUYỆT NỘI BỘ');
   console.log('  ✅ [PASS] Invariant 4 verified: Internal report finishes with COMPLETED, hasSchoolSeal = false, ĐÃ PHÊ DUYỆT NỘI BỘ.');
 

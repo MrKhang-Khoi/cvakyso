@@ -55,3 +55,7 @@ test-results/
 
 # Agent binaries
 _AgentPublish/
+
+# Runtime locks & transaction journals
+data/locks/
+data/transactions/

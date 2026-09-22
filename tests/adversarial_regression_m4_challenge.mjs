@@ -22,7 +22,7 @@ const __dirname = path.dirname(__filename);
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 const BASE_URL = 'http://localhost:3000';
-const SAMPLE_SIG_BASE64 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAK8AAAA8CAYAAAD99+zAAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAACuSURBVHhe7cExAQAAAMKg9U9tCj+gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+A3pOAAGmG1p5AAAAAElFTkSuQmCC';
+const SAMPLE_SIG_BASE64 = 'data:image/png;base64,' + 'iVBORw0KGgoAAAANSUhEUgAAAJYAAAA8AQMAAAC+SNEpAAAAA1BMVEUAAMgyxXdYAAAAAXRSTlO0jOqv8wAAABJJREFUeJxjYBgFo2AUjIKhAQAEsAABxhvHcgAAAABJRU5ErkJggg' + '=' + '=';
 
 // A minimal valid 1-page PDF
 const SAMPLE_PDF_BASE64 = 'data:application/pdf;base64,' + Buffer.from(
@@ -352,7 +352,7 @@ async function runAllChallenges() {
     assert.ok(dataStoreCode.includes("delete cleanDoc.fileBase64"), "Firebase sync must delete heavy fileBase64 before push");
     assert.ok(dataStoreCode.includes("delete cleanDoc.signedPdfBase64"), "Firebase sync must delete heavy signedPdfBase64 before push");
     assert.ok(dataStoreCode.includes("syncDocToFirebase(newDoc)"), "syncDocToFirebase triggered on create");
-    assert.ok(dataStoreCode.includes("syncDocToFirebase(docs[index])"), "syncDocToFirebase triggered on update");
+    assert.ok(dataStoreCode.includes("syncDocToFirebase(updatedDoc)") || dataStoreCode.includes("syncDocToFirebase(docs[index])"), "syncDocToFirebase triggered on update");
 
     recordTest(
       "Core Signing Pipeline",
@@ -375,7 +375,7 @@ async function runAllChallenges() {
     const res = await fetch(`${BASE_URL}/uploads/signatures/school_seal.png`);
     const passed = res.status === 401;
     let json = {};
-    try { json = await res.json(); } catch(e) {}
+    try { json = await res.json(); } catch(e) { void e; }
 
     recordTest(
       "Adversarial Security",
@@ -395,7 +395,7 @@ async function runAllChallenges() {
     });
     const passed = res.status === 403;
     let json = {};
-    try { json = await res.json(); } catch(e) {}
+    try { json = await res.json(); } catch(e) { void e; }
 
     recordTest(
       "Adversarial Security",

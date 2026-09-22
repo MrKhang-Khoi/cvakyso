@@ -72,7 +72,10 @@ async function uploadToGoogleDrive(doc, pdfFilePathOrBase64) {
   }
 
   // Nếu nhà trường đã cấu hình Google Apps Script Webhook URL thật
-  if (config.gasWebhookUrl && config.gasWebhookUrl.startsWith('http')) {
+  // Trong môi trường kiểm thử (NODE_ENV=test), bắt buộc chạy simulation mode
+  // để tránh ECONNRESET do fetch() chờ 60s tới GAS webhook ngoại mạng
+  const isTestEnv = process.env.NODE_ENV === 'test';
+  if (!isTestEnv && config.gasWebhookUrl && config.gasWebhookUrl.startsWith('http')) {
     console.log(`[Google Drive] Đang đẩy file lên Google Apps Script: ${config.gasWebhookUrl}`);
     const payload = JSON.stringify({
       action: 'UPLOAD_SIGNED_DOC',
