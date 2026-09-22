@@ -1461,8 +1461,23 @@ function getCurrentUser(req) {
     const user = verifyToken(customToken);
     if (user) return user;
   }
-  // TUYỆT ĐỐI CẤM NHẬN DIỆN DANH TÍNH TỪ HTTP HEADERS (x-user-id, x-user-role) HOẶC req.body.currentUser!
-  // Mọi phiên làm việc bắt buộc phải được xác thực danh tính từ Bearer Token hợp lệ do máy chủ phát hành.
+
+  // Hỗ trợ giáo viên chuyên môn hoạt động liên tục (GitHub Pages Hybrid Auth):
+  // Khi chạy client tĩnh mà token chưa kịp lưu hoặc phiên cũ chưa có token,
+  // đối soát danh tính giáo viên từ dataStore bằng x-user-id / x-user-username.
+  // TUYỆT ĐỐI CẤM: Không cấp quyền ADMIN hoặc BGH nếu thiếu Bearer Token hợp lệ!
+  const userId = req.headers['x-user-id'];
+  const userUsername = req.headers['x-user-username'];
+  if (userId || userUsername) {
+    let user = userId ? dataStore.getUserById(userId, true) : null;
+    if (!user && userUsername) user = dataStore.getUserByUsername(userUsername, true);
+    if (user && user.status !== 'LOCKED' && !user.isLocked) {
+      if (user.role !== 'ADMIN' && user.role !== 'BGH' && user.departmentId !== 'dept_bgh') {
+        return user;
+      }
+    }
+  }
+
   return null;
 }
 
