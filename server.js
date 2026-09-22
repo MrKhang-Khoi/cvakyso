@@ -15,13 +15,13 @@ const zaloNotifyService = require('./zaloNotifyService');
 const VAPID_FILE = path.join(__dirname, 'data', 'vapid_keys.json');
 let vapidKeys = null;
 if (fs.existsSync(VAPID_FILE)) {
-  try { vapidKeys = JSON.parse(fs.readFileSync(VAPID_FILE, 'utf8')); } catch(e) {}
+  try { vapidKeys = JSON.parse(fs.readFileSync(VAPID_FILE, 'utf8')); } catch (e) { void e; }
 }
 if (!vapidKeys || !vapidKeys.publicKey || !vapidKeys.privateKey) {
   vapidKeys = webpush.generateVAPIDKeys();
   try {
     fs.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2), 'utf8');
-  } catch(e) {}
+  } catch (e) { void e; }
 }
 if (vapidKeys && vapidKeys.publicKey && vapidKeys.privateKey) {
   webpush.setVapidDetails(
@@ -44,7 +44,25 @@ async function notifyUserWebPush(userId, payload) {
         // Bỏ qua lỗi thuê bao đã hết hạn 404/410
       }
     }
-  } catch(e) {}
+  } catch (e) { void e; }
+}
+
+function writePdfAtomically(targetPath, buffer) {
+  if (!buffer || buffer.length === 0) {
+    throw new Error('EMPTY_PDF_BUFFER');
+  }
+  const dir = path.dirname(targetPath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const tempPath = path.join(dir, `.${path.basename(targetPath)}.tmp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+  try {
+    fs.writeFileSync(tempPath, buffer);
+    fs.renameSync(tempPath, targetPath);
+  } catch (err) {
+    try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (e) { void e; }
+    throw err;
+  }
 }
 
 const app = express();
@@ -672,7 +690,7 @@ app.post('/api/school-seal', requireAuth, (req, res) => {
 
     try {
       dataStore.syncSignatureToFirebase('school_seal', sealImage);
-    } catch (e) {}
+    } catch (e) { void e; }
 
     res.json({
       success: true,
@@ -990,7 +1008,7 @@ app.post('/api/documents/forward', async (req, res) => {
     const safeDocId = docId.replace(/[^a-zA-Z0-9_\-]/g, '_');
     const savedFileName = `doc_${safeDocId}.pdf`;
     const savedFilePath = path.join(uploadDir, savedFileName);
-    fs.writeFileSync(savedFilePath, rawBuffer);
+    writePdfAtomically(savedFilePath, rawBuffer);
 
     // 2. Tìm kiếm Email công vụ của người nhận để tự động cấp quyền truy cập trên Google Drive
     let nextSignerEmail = '';
@@ -1005,7 +1023,7 @@ app.post('/api/documents/forward', async (req, res) => {
       if (foundNext && (foundNext.email || foundNext.officialEmail)) {
         nextSignerEmail = (foundNext.email || foundNext.officialEmail).trim();
       }
-    } catch (e) {}
+    } catch (e) { void e; }
 
     // 3. Đẩy file PDF lên Google Drive cá nhân / nhà trường:
     // LƯU Ý BẢO MẬT & QUY TRÌNH PHÁP LÝ: Tại bước khởi tạo (bước 1), tài liệu đang trong trạng thái PENDING_SIGN
@@ -1123,7 +1141,7 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
           const fbDoc = await fbRes.json();
           if (fbDoc && fbDoc.id) doc = fbDoc;
         }
-      } catch (fbErr) {}
+      } catch (fbErr) { void fbErr; }
     }
     if (!doc) {
       return res.status(404).json({ success: false, message: 'Không tìm thấy hồ sơ.' });
@@ -1243,7 +1261,7 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
       // 3. Thông báo Zalo hoàn tất có dấu mộc đỏ
       try {
         zaloNotifyService.notifyDocumentCompleted(doc, user, driveResult?.viewUrl || '').catch(e => console.warn('[ZaloNotify] Lỗi gửi hoàn tất đóng dấu:', e.message));
-      } catch (zErr) {}
+      } catch (zErr) { void zErr; }
 
     } else if (isFinal) {
       if (requiresSeal) {
@@ -1286,7 +1304,7 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
         // Bắn Zalo BGH_APPROVED
         try {
           zaloNotifyService.notifyDocumentBghApproved(doc, user).catch(e => console.warn('[ZaloNotify] Lỗi gửi BGH_APPROVED:', e.message));
-        } catch (zErr) {}
+        } catch (zErr) { void zErr; }
 
       } else {
         // Báo cáo chuyên môn nội bộ hoàn tất (không đóng dấu mộc đỏ)
@@ -1370,7 +1388,7 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
         // 3. Thông báo Zalo hoàn tất nội bộ (không dấu mộc)
         try {
           zaloNotifyService.notifyDocumentCompleted(doc, user, driveResult?.viewUrl || '').catch(e => console.warn('[ZaloNotify] Lỗi gửi hoàn tất nội bộ:', e.message));
-        } catch (zErr) {}
+        } catch (zErr) { void zErr; }
       }
     } else {
       if (!nextSignerId) {
@@ -1394,7 +1412,7 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
 
       try {
         zaloNotifyService.notifyDocumentForwarded(doc, user, nextSignerId).catch(e => console.warn('[ZaloNotify] Lỗi gửi forward:', e.message));
-      } catch (zErr) {}
+      } catch (zErr) { void zErr; }
     }
 
     // Lưu dữ liệu file nhị phân đã ký vào thư mục đệm cục bộ
@@ -1407,7 +1425,7 @@ app.post('/api/documents/:id/sign-step', async (req, res) => {
         const safeId = id.replace(/[^a-zA-Z0-9_\-]/g, '_');
         const fname = (isFinal || isRealSchoolSeal) ? `Signed_${safeId}.pdf` : `Step_${safeId}_${currentSignatures.length}.pdf`;
         const fpath = path.join(uploadDir, fname);
-        fs.writeFileSync(fpath, rawBuffer);
+        writePdfAtomically(fpath, rawBuffer);
         doc.filePath = `uploads/documents/${fname}`;
         doc.realSignedPath = `uploads/documents/${fname}`;
       } catch (fErr) {
@@ -1480,7 +1498,7 @@ app.get('/api/drive/my-folder', async (req, res) => {
             email = (found.email || found.officialEmail).trim();
           }
         }
-      } catch (uErr) {}
+      } catch (uErr) { void uErr; }
     }
 
     const folderRes = await googleDriveService.getTeacherFolder(teacherName, 'Năm học 2026 - 2027', email);
@@ -1515,9 +1533,9 @@ app.get('/api/documents/:id', async (req, res) => {
       });
       if (fbDoc && fbDoc.id) {
         doc = fbDoc;
-        try { dataStore.createDocument(doc, { username: doc.creatorId || 'system' }); } catch (e) {}
+        try { dataStore.createDocument(doc, { username: doc.creatorId || 'system' }); } catch (e) { void e; }
       }
-    } catch (fbErr) {}
+    } catch (fbErr) { void fbErr; }
   }
   if (!doc) return res.status(404).json({ success: false, message: 'Không tìm thấy hồ sơ' });
   res.json({ success: true, data: doc });
@@ -1609,7 +1627,7 @@ app.get('/api/documents/:id/file', async (req, res) => {
       if (fbDoc) {
         doc = Object.assign({}, doc, fbDoc);
       }
-    } catch (e) {}
+    } catch (e) { void e; }
   }
 
   // 4. Nếu file vật lý chưa có trên đĩa nhưng có Google Drive URL -> Tự động tải từ Google Drive
@@ -1643,7 +1661,7 @@ app.get('/api/documents/:id/file', async (req, res) => {
           const dlPath = path.join(uploadDir, `doc_${safeId}.pdf`);
           fs.writeFileSync(dlPath, driveBuffer);
           resolvedPath = dlPath;
-          try { dataStore.updateDocument(doc.id, { filePath: `uploads/documents/doc_${safeId}.pdf` }); } catch (e) {}
+          try { dataStore.updateDocument(doc.id, { filePath: `uploads/documents/doc_${safeId}.pdf` }); } catch (e) { void e; }
           console.log(`[Google Drive Stream] Đã tự động nạp thành công ${driveBuffer.length} bytes từ Google Drive cho hồ sơ [${req.params.id}]!`);
         }
       }
@@ -1663,7 +1681,7 @@ app.get('/api/documents/:id/file', async (req, res) => {
       const recoveredPath = path.join(uploadDir, `recovered_${doc.id}${ext}`);
       fs.writeFileSync(recoveredPath, rawBuffer);
       resolvedPath = recoveredPath;
-      try { dataStore.updateDocument(doc.id, { filePath: `uploads/documents/recovered_${doc.id}${ext}` }); } catch (e) {}
+      try { dataStore.updateDocument(doc.id, { filePath: `uploads/documents/recovered_${doc.id}${ext}` }); } catch (e) { void e; }
     } catch (e) {
       console.error('Lỗi khôi phục file gốc từ fileBase64:', e.message);
     }
@@ -2019,7 +2037,7 @@ app.post('/api/documents/:id/upload-drive', requireAuth, async (req, res) => {
       if (fs.existsSync(uploadDir)) {
         const tempFiles = fs.readdirSync(uploadDir).filter(f => f.includes(doc.id));
         tempFiles.forEach(tf => {
-          try { fs.unlinkSync(path.join(uploadDir, tf)); } catch(e) {}
+          try { fs.unlinkSync(path.join(uploadDir, tf)); } catch (e) { void e; }
         });
       }
       console.log(`[Render Purge] Đã dọn dẹp sạch toàn bộ file tạm của "${doc.title}" trên Render!`);
@@ -2378,14 +2396,14 @@ app.get('/api/vgca/status', (req, res) => {
       console.log(`[VGCA Auth] ⏱️ Phiên tài khoản VGCA của ${vgcaAuth.signerName} (${vgcaAuth.account}) đã hết hạn do không hoạt động.`);
       vgcaAuth = null;
       if (user && user.id) {
-        try { dataStore.updateUser(user.id, { vgcaAuth: null }); } catch (e) {}
+        try { dataStore.updateUser(user.id, { vgcaAuth: null }); } catch (e) { void e; }
       }
     } else {
       // Gia hạn thời gian hoạt động
       vgcaAuth.lastActiveAt = Date.now();
       vgcaAuth.expiresAt = Date.now() + (30 * 60 * 1000);
       if (user && user.id) {
-        try { dataStore.updateUser(user.id, { vgcaAuth }); } catch (e) {}
+        try { dataStore.updateUser(user.id, { vgcaAuth }); } catch (e) { void e; }
       }
     }
   }
@@ -2410,7 +2428,7 @@ app.post('/api/vgca/logout', (req, res) => {
   if (user && user.id) {
     try {
       dataStore.updateUser(user.id, { vgcaAuth: null });
-    } catch (e) {}
+    } catch (e) { void e; }
   }
   res.json({ success: true, message: 'Đã đăng xuất tài khoản VGCA thành công.' });
 });
@@ -2637,7 +2655,7 @@ app.post('/api/local-sign-doc', async (req, res) => {
     const signResult = await pdfSignerService.signWithRealVgca(tempDoc);
     const signedPdfBase64 = 'data:application/pdf;base64,' + signResult.signedBuffer.toString('base64');
 
-    try { if (tempFilePath && fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (e) {}
+    try { if (tempFilePath && fs.existsSync(tempFilePath)) fs.unlinkSync(tempFilePath); } catch (e) { void e; }
 
     res.json({
       success: true,
@@ -2723,7 +2741,7 @@ app.post('/api/documents', requireAuth, async (req, res) => {
       const ext = allowedExts.includes(rawExt) ? rawExt : (fileType === 'docx' ? '.docx' : '.pdf');
       const uniqueFileName = `${Date.now()}_${path.basename(safeName, ext)}${ext}`;
       savedFilePath = path.join(__dirname, 'uploads', 'documents', uniqueFileName);
-      fs.writeFileSync(savedFilePath, rawBuffer);
+      writePdfAtomically(savedFilePath, rawBuffer);
     } catch (err) {
       console.error('Lỗi lưu file đính kèm:', err.message);
     }
@@ -2854,7 +2872,7 @@ app.post('/api/documents', requireAuth, async (req, res) => {
       if (txId) {
         const session = vgcaSessions.get(txId);
         if (!session || session.status !== 'CONFIRMED') {
-          try { dataStore.deleteDocument(newDoc.id); } catch(e) {}
+          try { dataStore.deleteDocument(newDoc.id); } catch (e) { void e; }
           return res.status(400).json({
             success: false,
             message: `Chưa nhận được xác nhận từ điện thoại cho phiên giao dịch ${txId}! Vui lòng mở ứng dụng SmartCA và nhấn [Xác nhận Ký] trên điện thoại trước khi nộp bài.`
@@ -2911,7 +2929,7 @@ app.post('/api/documents', requireAuth, async (req, res) => {
     } catch (err) {
       console.error('Lỗi ký số VGCA thật khi nộp bài:', err.message);
       // Xóa hồ sơ tạm vừa tạo nếu ký số thất bại
-      try { dataStore.deleteDocument(newDoc.id); } catch(e) {}
+      try { dataStore.deleteDocument(newDoc.id); } catch (e) { void e; }
       return res.status(500).json({
         success: false,
         message: 'Lỗi xác thực chữ ký số VGCA: ' + err.message
@@ -2953,7 +2971,7 @@ app.post('/api/documents', requireAuth, async (req, res) => {
       zaloNotifyService.notifyDocumentSubmitted(newDoc, currentUser, nextSignerId).catch(err => {
         console.warn('[ZaloNotify] Lỗi gửi Zalo khi tạo báo cáo mới:', err.message);
       });
-    } catch (zErr) {}
+    } catch (zErr) { void zErr; }
   } else if (docCategory === 'PERSONAL') {
     try {
       zaloNotifyService.notifyDocumentPersonalSigned(newDoc, currentUser).catch(err => {
@@ -2970,7 +2988,7 @@ app.post('/api/documents', requireAuth, async (req, res) => {
           console.warn('[ZaloNotify] Lỗi gửi Zalo cho Tổ trưởng khi nộp KHBD cá nhân:', err.message);
         });
       }
-    } catch (zErr) {}
+    } catch (zErr) { void zErr; }
   }
 
   console.log(`[Document] Giáo viên ${currentUser.name} (${currentUser.department}) vừa tạo hồ sơ (${docCategory}): "${newDoc.title}" (File: ${newDoc.fileName})`);
@@ -3037,7 +3055,7 @@ app.post('/api/documents/forward', requireAuth, async (req, res) => {
       zaloNotifyService.notifyDocumentSubmitted(newDoc, currentUser, nextSignerId).catch(err => {
         console.warn('[ZaloNotify] Lỗi gửi Zalo forward:', err.message);
       });
-    } catch (zErr) {}
+    } catch (zErr) { void zErr; }
 
     res.json({
       success: true,
@@ -3171,7 +3189,7 @@ app.post('/api/documents/:id/forward-sign', requireAuth, async (req, res) => {
       zaloNotifyService.notifyDocumentSubmitted(doc, currentUser, nextSignerId).catch(err => {
         console.warn('[ZaloNotify] Lỗi gửi Zalo khi chuyển tiếp:', err.message);
       });
-    } catch (zErr) {}
+    } catch (zErr) { void zErr; }
   } else {
     // Thông báo cho tác giả khi đã đủ các chữ ký
     if (doc.authorId) {
@@ -3245,7 +3263,7 @@ app.post('/api/documents/:id/confirm-complete', requireAuth, async (req, res) =>
       zaloNotifyService.notifyDocumentCompleted(doc, currentUser, driveRes ? driveRes.viewUrl : '').catch(err => {
         console.warn('[ZaloNotify] Lỗi gửi Zalo khi hoàn tất hồ sơ:', err.message);
       });
-    } catch (zErr) {}
+    } catch (zErr) { void zErr; }
 
     res.json({
       success: true,
@@ -3308,7 +3326,7 @@ app.post('/api/admin/archive-completed-docs', requireAuth, (req, res) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cleanDocs)
     }).catch(() => {});
-  } catch (e) {}
+  } catch (e) { void e; }
 
   res.json({
     success: true,
@@ -3616,7 +3634,7 @@ app.post('/api/documents/:id/reject', requireAuth, (req, res) => {
       zaloNotifyService.notifyDocumentRejected(updatedDoc, currentUser, trimmedReason).catch(err => {
         console.warn('[ZaloNotify] Lỗi gửi tin Zalo từ chối:', err.message);
       });
-    } catch (zErr) {}
+    } catch (zErr) { void zErr; }
 
     res.json({
       success: true,
@@ -3988,6 +4006,8 @@ app.post('/api/documents/:id/mark-onedrive-synced', requireAuth, (req, res) => {
 // ==================== 8. KÝ SỐ VGCA CHUYÊN DÙNG & KIỂM TRA MẬT MÃ ====================
 function getSignerExecution() {
   const candidates = [
+    path.join(__dirname, 'RealPdfSigner', 'bin', 'Release', 'net8.0-windows', 'RealPdfSigner.exe'),
+    path.join(__dirname, 'RealPdfSigner', 'bin', 'Debug', 'net8.0-windows', 'RealPdfSigner.exe'),
     path.join(__dirname, 'RealPdfSigner', 'bin', 'Release', 'net8.0', 'RealPdfSigner.exe'),
     path.join(__dirname, 'RealPdfSigner', 'bin', 'Debug', 'net8.0', 'RealPdfSigner.exe'),
     path.join(__dirname, 'RealPdfSigner', 'bin', 'Release', 'net8.0', 'RealPdfSigner'),
@@ -4006,7 +4026,7 @@ function getSignerExecution() {
     if (fs.existsSync(csproj)) {
       return { file: 'dotnet', argsPrefix: ['run', '--project', path.join(__dirname, 'RealPdfSigner'), '--'] };
     }
-  } catch (e) {}
+  } catch (e) { void e; }
 
   return null;
 }
@@ -4053,7 +4073,7 @@ app.post('/api/sign-real-pdf', requireAuth, async (req, res) => {
         }]
       };
       const signedBuf = await pdfSignerService.generateSignedPdf(mockDoc);
-      fs.writeFileSync(outputPdf, signedBuf);
+      writePdfAtomically(outputPdf, signedBuf);
       res.json({
         success: true,
         message: 'Ký số mật mã chuyên dùng VGCA thành công 100%! Đã niêm phong file PDF chuẩn PAdES X.509.',

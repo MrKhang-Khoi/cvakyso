@@ -27,7 +27,7 @@ async function sendWebhookPost(payloadObj) {
 
     const payloadWithSecret = {
       ...payloadObj,
-      secret_token: 'UnifiedZaloBotTHCSCVA2026Secret'
+      secret_token: process.env.ZALO_WEBHOOK_SECRET || 'UnifiedZaloBotTHCSCVA2026Secret'
     };
 
     const res = await fetch(url, {
