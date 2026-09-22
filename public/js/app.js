@@ -2028,32 +2028,72 @@ function togglePasswordVisibility(inputId, _btnId) {
   input.type = input.type === 'password' ? 'text' : 'password';
 }
 
-function showToast(message, type = 'info') {
+const _recentToastsMap = new Map();
+
+function showToast(message, type = 'info', customDuration = 2500) {
+  if (!message || typeof message !== 'string') return;
+  const cleanMsg = message.trim();
+  if (!cleanMsg) return;
+
+  // Chống lặp nội dung giống nhau trong vòng 2.5 giây
+  const now = Date.now();
+  if (_recentToastsMap.has(cleanMsg)) {
+    const lastTime = _recentToastsMap.get(cleanMsg);
+    if (now - lastTime < 2500) return;
+  }
+  _recentToastsMap.set(cleanMsg, now);
+  if (_recentToastsMap.size > 30) {
+    const oldestKey = _recentToastsMap.keys().next().value;
+    _recentToastsMap.delete(oldestKey);
+  }
+
   const container = document.getElementById('toastContainer');
   if (!container) return;
 
-  const bgColors = {
-    success: 'bg-emerald-600 text-white shadow-emerald-500/25',
-    error: 'bg-red-600 text-white shadow-red-500/25',
-    info: 'bg-slate-800 text-white shadow-slate-900/25'
+  // Giới hạn tối đa 2 Toast cùng lúc trên màn hình (đóng cái cũ nhất)
+  while (container.children.length >= 2) {
+    const oldest = container.firstElementChild;
+    oldest.remove();
+  }
+
+  const bgStyles = {
+    success: 'bg-emerald-600/95 text-white border-emerald-500/40 shadow-emerald-900/20',
+    error: 'bg-rose-600/95 text-white border-rose-500/40 shadow-rose-900/20',
+    warning: 'bg-amber-600/95 text-white border-amber-500/40 shadow-amber-900/20',
+    info: 'bg-slate-800/95 text-white border-slate-700/40 shadow-slate-950/20'
+  };
+
+  const icons = {
+    success: '<svg class="w-4 h-4 shrink-0 text-emerald-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>',
+    error: '<svg class="w-4 h-4 shrink-0 text-rose-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/></svg>',
+    warning: '<svg class="w-4 h-4 shrink-0 text-amber-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>',
+    info: '<svg class="w-4 h-4 shrink-0 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'
   };
 
   const toast = document.createElement('div');
-  toast.className = `pointer-events-auto p-3.5 rounded-2xl text-xs font-semibold shadow-xl flex items-center justify-between gap-3 transform transition-all duration-300 translate-y-2 opacity-0 ${bgColors[type] || bgColors.info}`;
+  toast.className = `pointer-events-auto px-3.5 py-2.5 rounded-xl text-xs font-medium shadow-lg backdrop-blur-md border flex items-center justify-between gap-2.5 transform transition-all duration-250 translate-y-1 opacity-0 ${bgStyles[type] || bgStyles.info}`;
   toast.innerHTML /* sanitize */ = `
-    <span>${escapeHtml(message)}</span>
-    <button onclick="this.parentElement.remove()" class="opacity-70 hover:opacity-100 p-0.5">✕</button>
+    <div class="flex items-center gap-2 min-w-0">
+      ${icons[type] || icons.info}
+      <span class="leading-snug truncate">${escapeHtml(cleanMsg)}</span>
+    </div>
+    <button onclick="this.closest('div').remove()" class="opacity-60 hover:opacity-100 p-0.5 rounded transition shrink-0 ml-1" title="Đóng">✕</button>
   `;
 
   container.appendChild(toast);
   requestAnimationFrame(() => {
-    toast.classList.remove('translate-y-2', 'opacity-0');
+    toast.classList.remove('translate-y-1', 'opacity-0');
   });
 
+  const duration = typeof customDuration === 'number' ? customDuration : 2500;
   setTimeout(() => {
-    toast.classList.add('opacity-0', 'translate-y-2');
-    setTimeout(() => toast.remove(), 300);
-  }, 4000);
+    if (toast.isConnected) {
+      toast.classList.add('opacity-0', 'translate-y-1');
+      setTimeout(() => {
+        if (toast.isConnected) toast.remove();
+      }, 250);
+    }
+  }, duration);
 }
 
 function formatFileSize(bytes) {
@@ -2080,12 +2120,11 @@ let _isSmartRefreshing = false;
 async function handleSmartRefresh() {
   const now = Date.now();
   if (_isSmartRefreshing) {
-    showToast('Đang cập nhật dữ liệu, vui lòng đợi trong giây lát...', 'info');
+    showToast('Đang cập nhật dữ liệu...', 'info');
     return;
   }
   if (now - _lastSmartRefreshTime < 3000) {
-    const waitSec = Math.ceil((3000 - (now - _lastSmartRefreshTime)) / 1000);
-    showToast(`Dữ liệu vừa được cập nhật, vui lòng đợi ${waitSec} giây trước khi làm mới tiếp.`, 'info');
+    showToast('Vui lòng đợi vài giây trước khi làm mới tiếp.', 'info');
     return;
   }
 
@@ -2131,10 +2170,9 @@ async function handleSmartRefresh() {
     }
 
     await Promise.allSettled(promises);
-    showToast('Đã làm mới dữ liệu mới nhất thành công!', 'success');
+    showToast('Dữ liệu đã được cập nhật.', 'success');
   } catch (err) {
     console.warn('[SmartRefresh] Cảnh báo khi làm mới dữ liệu:', err.message);
-    showToast('Đã đồng bộ dữ liệu hoàn tất!', 'info');
   } finally {
     setTimeout(() => {
       spinIcons.forEach((icon) => icon.classList.remove('animate-spin'));
@@ -3194,8 +3232,8 @@ function switchTeacherTab(tabName) {
   const contentReturned = document.getElementById('tabContentTeacherReturned');
   const contentReports = document.getElementById('tabContentTeacherReports');
 
-  const activeBtnClass = 'px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all bg-brand-600 text-white shadow-sm shadow-brand-500/20 flex items-center gap-2 shrink-0 cursor-pointer';
-  const inactiveBtnClass = 'px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center gap-2 shrink-0 cursor-pointer';
+  const activeBtnClass = 'px-3 sm:px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all bg-white text-brand-700 shadow-xs border border-slate-200/80 flex items-center gap-1.5 shrink-0 cursor-pointer';
+  const inactiveBtnClass = 'px-3 sm:px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-all text-slate-600 hover:text-slate-900 hover:bg-white/60 flex items-center gap-1.5 shrink-0 cursor-pointer';
 
   // Ẩn tất cả nội dung
   if (contentWorkspace) contentWorkspace.classList.add('hidden');
@@ -4861,7 +4899,6 @@ async function handleSaveReportToLocalFolder(docId, event) {
 
   if (!pdfBlob) {
     try {
-      showToast('Đang tải dữ liệu tệp PDF...', 'info');
       const fileEndpoint = API_BASE ? `${API_BASE}/api/documents/${docId}/file?_t=${Date.now()}` : `/api/documents/${docId}/file?_t=${Date.now()}`;
       const fileHeaders = {
         'x-user-id': user?.id || '',
@@ -4883,7 +4920,6 @@ async function handleSaveReportToLocalFolder(docId, event) {
     try {
       const gId = (doc.googleDriveUrl || '').match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1] || doc.driveInfo?.fileId;
       if (gId) {
-        showToast('Đang nạp tệp từ Google Drive...', 'info');
         const gUrl = `https://drive.usercontent.google.com/download?id=${gId}&export=download`;
         const gRes = await fetch(gUrl).catch(() => null);
         if (gRes && gRes.ok) {
@@ -4899,7 +4935,7 @@ async function handleSaveReportToLocalFolder(docId, event) {
   }
 
   if (!pdfBlob) {
-    showToast('⚠️ Không tìm thấy nội dung tệp PDF để lưu về máy tính!', 'error');
+    showToast('Không tìm thấy nội dung tệp PDF.', 'error');
     return;
   }
 
@@ -4938,7 +4974,7 @@ async function handleSaveReportToLocalFolder(docId, event) {
 
       // Nếu chưa có hoặc chưa cấp quyền hoặc người dùng giữ Shift để đổi thư mục:
       if (!dirHandle) {
-        showToast('📂 Vui lòng chọn thư mục trên máy tính của Thầy/Cô để lưu báo cáo...', 'info', 4000);
+        showToast('Vui lòng chọn thư mục lưu trên máy tính.', 'info');
         dirHandle = await window.showDirectoryPicker({
           mode: 'readwrite',
           startIn: 'documents'
@@ -4950,18 +4986,16 @@ async function handleSaveReportToLocalFolder(docId, event) {
       }
 
       if (dirHandle) {
-        showToast(`Đang lưu vào thư mục "${dirHandle.name}"...`, 'info', 2000);
         const fileHandle = await dirHandle.getFileHandle(cleanFilename, { create: true });
         const writable = await fileHandle.createWritable();
         await writable.write(pdfBlob);
         await writable.close();
 
-        showToast(`💾 Đã lưu thành công tệp [${cleanFilename}] vào thư mục "${dirHandle.name}"! (Hệ thống đã ghi nhớ thư mục này, giữ Shift khi bấm để đổi thư mục khác)`, 'success', 6000);
+        showToast(`Đã lưu tệp vào thư mục "${dirHandle.name}".`, 'success');
         return;
       }
     } catch (pickerErr) {
       if (pickerErr.name === 'AbortError') {
-        showToast('Đã hủy chọn thư mục lưu.', 'info');
         return;
       }
       console.warn('Lỗi File System Access API, chuyển sang chế độ tải về thông thường:', pickerErr);
@@ -5541,8 +5575,6 @@ async function handleConfirmRejectDocument() {
   const currentFullName = user?.fullName || currentUsername;
   const currentRole = user?.roleTitle || user?.role || 'Người duyệt';
 
-  showToast('Đang tiến hành trả về hồ sơ...', 'info');
-
   try {
     // 1. Gọi backend API
     try {
@@ -5653,8 +5685,6 @@ function handleViewerRejectCurrentDoc() {
 async function handleRecallSentDoc(docId, docTitle) {
   const confirmMsg = `Thầy/Cô có chắc chắn muốn THU HỒI hồ sơ:\n"${docTitle || docId}"?\n\nSau khi thu hồi, văn bản sẽ lập tức được rút khỏi hộp chờ ký của đồng nghiệp và chuyển về trạng thái "Đã thu hồi" của Thầy/Cô.`;
   showModalConfirm('Xác nhận thu hồi hồ sơ', confirmMsg, async () => {
-    showToast('Đang tiến hành thu hồi hồ sơ...', 'info');
-
     try {
       const user = appState.currentUser;
       const headers = {
@@ -5713,7 +5743,7 @@ async function handleRecallSentDoc(docId, docTitle) {
         console.warn('[Recall Doc] Lỗi cập nhật Firebase:', fbErr.message);
       }
 
-      showToast(`🎉 Đã thu hồi thành công hồ sơ "${docTitle || docId}"!`, 'success');
+      showToast(`Đã thu hồi hồ sơ "${docTitle || docId}".`, 'success');
       loadTeacherSentDocuments(true);
       loadTeacherPendingDocuments(true);
 
@@ -5728,8 +5758,6 @@ async function handleRecallSentDoc(docId, docTitle) {
 async function handleDeleteSentDoc(docId, docTitle) {
   const confirmMsg = `Thầy/Cô có chắc chắn muốn XÓA VĨNH VIỄN hồ sơ:\n"${docTitle || docId}"?\n\nSau khi xóa, hồ sơ sẽ được gỡ hoàn toàn khỏi cơ sở dữ liệu và không thể phục hồi.`;
   showModalConfirm('Xác nhận xóa vĩnh viễn', confirmMsg, async () => {
-    showToast('Đang tiến hành xóa hồ sơ...', 'info');
-
     try {
       let success = false;
 
@@ -5799,9 +5827,7 @@ async function handleDeleteSentDoc(docId, docTitle) {
 
     // Cập nhật lại state cục bộ nếu có
     teacherSentDocs = teacherSentDocs.filter(d => d.id !== docId);
-    teacherPendingDocs = teacherPendingDocs.filter(d => d.id !== docId);
-
-    showToast(`🎉 Đã xóa hoàn toàn hồ sơ "${docTitle || docId}"!`, 'success');
+    showToast(`Đã xóa hồ sơ "${docTitle || docId}".`, 'success');
     loadTeacherSentDocuments(true);
     loadTeacherPendingDocuments(true);
 
@@ -6382,14 +6408,14 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
         }
 
         if (isSelfApproved) {
-          showToast(`🎉 Đã vừa ký vừa duyệt hoàn tất báo cáo [${trackingId}] thành công!`, 'success');
+          showToast('Đã duyệt hoàn tất báo cáo.', 'success');
           showModalAlert(
             'Phê duyệt hoàn tất thành công',
             `🎉 Thầy/Cô đã vừa ký và phê duyệt hoàn tất báo cáo <strong>[${escapeHtml(trackingId)}]</strong>!<br><br>Văn bản đã được lưu trữ chính thức vào <strong>Kho Báo cáo &amp; Biên bản số</strong> của nhà trường.`,
             'success'
           );
         } else {
-          showToast(`🎉 Đã ký và gửi báo cáo [${trackingId}] thành công tới ${nextSignerName}!`, 'success');
+          showToast(`Đã ký và chuyển tiếp tới ${nextSignerName}.`, 'success');
           showModalAlert(
             'Chuyển tiếp thành công',
             `🎉 Thầy/Cô đã ký số và chuyển tiếp báo cáo thành công tới <strong>${escapeHtml(nextSignerName)}</strong>!<br><br>Hồ sơ đã được đưa vào danh sách chờ ký của đồng nghiệp.`,
