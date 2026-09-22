@@ -6550,7 +6550,7 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
     const authorObj = appState.users?.find(x => x.id === authorId || x.username === authorId);
     const authorPhone = authorObj?.phone || ((authorId === 'user_cvaty' || authorId === 'cva.ty') ? '0818810007' : '');
     const docTitle = docSnapshot.title || session.docTitle || 'Báo cáo chuyên môn';
-    const viewUrl = docSnapshot.driveInfo?.viewUrl || 'https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html';
+    const viewUrl = docSnapshot.driveInfo?.viewUrl || 'https://mrkhang-khoi.github.io/kyso/portal-baocao.html';
     const approverName = isRealSchoolSeal ? 'TRƯỜNG THCS CHU VĂN AN' : (user?.fullName || currentUsername);
 
     if (isRealSchoolSeal) {
@@ -9409,7 +9409,7 @@ function downloadEduSignAgent(type = 'zip', event = null) {
   let targetUrl = '';
   if (isGithubPages) {
     // Official GitHub Raw CDN & Pages URL (100% reliable)
-    targetUrl = `https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/${fileName}`;
+    targetUrl = `https://github.com/MrKhang-Khoi/kyso/raw/main/docs/downloads/${fileName}`;
   } else if (isFileProto) {
     targetUrl = `./docs/downloads/${fileName}`;
   } else {

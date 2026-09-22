@@ -16,7 +16,20 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  
+  <!-- Tự động chuyển hướng toàn bộ truy cập từ GitHub Pages cũ (cvakyso) sang repo mới (kyso) -->
+  <script>
+    (function() {
+      try {
+        if (typeof window !== 'undefined' && window.location && typeof window.location.hostname === 'string') {
+          if (window.location.hostname.endsWith('github.io') && window.location.pathname.startsWith('/cvakyso')) {
+            const target = 'https://' + window.location.hostname + window.location.pathname.replace(/^\/cvakyso/, '/kyso') + window.location.search + window.location.hash;
+            window.location.replace(target);
+          }
+        }
+      } catch (e) { void e; }
+    })();
+  </script>
+
   <!-- Suppress browser file:// security origin notice and Tailwind CDN notice -->
   <script>
     (function() {

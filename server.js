@@ -1310,7 +1310,7 @@ app.get([
     return res.download(targetFile, reqName);
   }
   // Nếu máy chủ đám mây chưa có sẵn tệp: Chuyển hướng siêu tốc 302 sang GitHub CDN chính thức
-  return res.redirect(302, `https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/${reqName}`);
+  return res.redirect(302, `https://github.com/MrKhang-Khoi/kyso/raw/main/docs/downloads/${reqName}`);
 });
 
 app.get(['/downloads/EduSign_Agent.exe', '/docs/downloads/EduSign_Agent.exe'], (req, res) => {
@@ -1321,7 +1321,7 @@ app.get(['/downloads/EduSign_Agent.exe', '/docs/downloads/EduSign_Agent.exe'], (
     res.setHeader('Content-Type', 'application/vnd.microsoft.portable-executable');
     return res.download(targetFile, 'EduSign_Agent.exe');
   }
-  return res.redirect(302, 'https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/EduSign_Agent.exe');
+  return res.redirect(302, 'https://github.com/MrKhang-Khoi/kyso/raw/main/docs/downloads/EduSign_Agent.exe');
 });
 
 app.get(['/downloads/app.ico', '/docs/downloads/app.ico'], (req, res) => {
@@ -1332,7 +1332,7 @@ app.get(['/downloads/app.ico', '/docs/downloads/app.ico'], (req, res) => {
     res.setHeader('Content-Type', 'image/x-icon');
     return res.download(targetFile, 'app.ico');
   }
-  return res.redirect(302, 'https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/app.ico');
+  return res.redirect(302, 'https://github.com/MrKhang-Khoi/kyso/raw/main/docs/downloads/app.ico');
 });
 
 app.get(['/downloads/version.json', '/docs/downloads/version.json'], (req, res) => {
@@ -1343,7 +1343,7 @@ app.get(['/downloads/version.json', '/docs/downloads/version.json'], (req, res) 
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     return res.sendFile(targetFile);
   }
-  return res.redirect(302, 'https://github.com/MrKhang-Khoi/cvakyso/raw/main/docs/downloads/version.json');
+  return res.redirect(302, 'https://github.com/MrKhang-Khoi/kyso/raw/main/docs/downloads/version.json');
 });
 
 // ==================== 1. QUÉT CHỨNG THƯ SỐ VGCA ====================
@@ -5363,7 +5363,7 @@ app.post('/api/documents/:id/approve-principal', requireAuth, (req, res) => {
   // Khắc phục DEFECT-ZALO-06: Tự động gửi Zalo thông báo Hoàn tất Ký số & Đóng dấu cho Giáo viên
   try {
     const viewUrl = updatedDoc.driveInfo ? updatedDoc.driveInfo.viewUrl : 
-                    `https://mrkhang-khoi.github.io/cvakyso/portal-baocao.html?search=${encodeURIComponent(updatedDoc.id)}`;
+                    `https://mrkhang-khoi.github.io/kyso/portal-baocao.html?search=${encodeURIComponent(updatedDoc.id)}`;
     zaloNotifyService.notifyDocumentCompleted(
       updatedDoc,
       currentUser,
