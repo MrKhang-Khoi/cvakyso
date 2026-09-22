@@ -471,35 +471,30 @@ async function handleLogin(e) {
       console.warn('[Direct Auth Note]', fbErr.message);
     }
 
-    // 2. Nếu chưa xong hoặc chưa có Token máy chủ, gọi API Backend nếu có
-    if (!isStaticOrGitHub) {
-      if (!authenticatedUser) {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: usernameInput, password: passwordInput })
-        });
+    // 2. Luôn gọi API Backend (cả khi chạy trên GitHub Pages kết nối Render) để lấy Bearer Token máy chủ
+    const loginEndpoint = (API_BASE ? API_BASE : '') + '/api/auth/login';
+    try {
+      const res = await fetch(loginEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: usernameInput, password: passwordInput })
+      });
+      if (res.ok) {
         const data = await res.json();
-        if (!res.ok) throw new Error(data.message || 'Tên đăng nhập hoặc mật khẩu không đúng.');
-        authenticatedUser = data.user;
-        appState.token = data.token;
-        localStorage.setItem('edusign_token', data.token);
-      } else if (!appState.token) {
-        try {
-          const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: usernameInput, password: passwordInput })
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data.token) {
-              appState.token = data.token;
-              localStorage.setItem('edusign_token', data.token);
-            }
-          }
-        } catch (tokenErr) { console.warn('[Client Handled] tokenErr:', tokenErr && tokenErr.message ? tokenErr.message : tokenErr); }
+        if (data && data.token) {
+          appState.token = data.token;
+          try { localStorage.setItem('edusign_token', data.token); } catch (e) { void e; }
+        }
+        if (!authenticatedUser && data && data.user) {
+          authenticatedUser = data.user;
+        }
+      } else if (!authenticatedUser) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || 'Tên đăng nhập hoặc mật khẩu không đúng.');
       }
+    } catch (backendAuthErr) {
+      console.warn('[Backend Auth Note]', backendAuthErr.message);
+      if (!authenticatedUser) throw backendAuthErr;
     }
 
     if (!authenticatedUser) {
@@ -6274,14 +6269,52 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
         'x-user-dept': encodeURIComponent(user?.departmentName || user?.department || 'Tổ chuyên môn'),
         'x-user-role': user?.role || ''
       };
+      if (!appState.token) {
+        try {
+          appState.token = localStorage.getItem('edusign_token') || null;
+        } catch (e) { void e; }
+      }
       if (appState.token) headers['Authorization'] = `Bearer ${appState.token}`;
 
       const endpoint = API_BASE ? `${API_BASE}/api/documents/forward` : '/api/documents/forward';
-      const res = await fetch(endpoint, {
+      let res = await fetch(endpoint, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload)
       });
+
+      // Nếu máy chủ từ chối 401 (chưa có token hoặc token cũ hết hạn): Hỗ trợ người dùng xác thực nhanh
+      if (res.status === 401) {
+        const retryPass = window.prompt(`⚠️ Phiên làm việc trên máy chủ cần cấp mã bảo mật.\nVui lòng nhập mật khẩu tài khoản (${currentUsername}) để ký chuyển hồ sơ:`);
+        if (retryPass) {
+          const authUrl = (API_BASE ? API_BASE : '') + '/api/auth/login';
+          const authRes = await fetch(authUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: currentUsername, password: retryPass })
+          });
+          const authData = await authRes.json().catch(() => ({}));
+          if (authRes.ok && authData.token) {
+            appState.token = authData.token;
+            try { localStorage.setItem('edusign_token', authData.token); } catch (e) { void e; }
+            headers['Authorization'] = `Bearer ${appState.token}`;
+            res = await fetch(endpoint, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify(payload)
+            });
+          } else {
+            await resetForwardUIOnError();
+            showModalAlert('Xác thực thất bại', authData.message || 'Mật khẩu không chính xác. Máy chủ từ chối cấp quyền.', 'error');
+            return false;
+          }
+        } else {
+          await resetForwardUIOnError();
+          showToast('Đã hủy chuyển tiếp do chưa cấp mã xác thực.', 'warning');
+          return false;
+        }
+      }
+
       const json = await res.json().catch(() => ({}));
       if (res.ok && json.success) {
         sendSuccess = true;
