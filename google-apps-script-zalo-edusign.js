@@ -1849,19 +1849,19 @@ function handleLookupTeacherReports(chatId) {
 // 🔔 14. XỬ LÝ SỰ KIỆN TỪ SERVER KÝ SỐ EDUSIGN
 // ====================================================================================================
 function handleEduSignNotification(data) {
-  var eventType = data.eventType;
-  var docTitle = data.docTitle || "Báo cáo chuyên môn";
-  var docId = data.docId || "";
-  var authorPhone = normalizePhone(data.authorPhone || "");
-  var recipientPhone = normalizePhone(data.recipientPhone || "");
-  var recipientName = data.recipientName || "Người duyệt";
-  var senderName = data.senderName || "Giáo viên";
-  var approverName = data.approverName || "Ban Giám hiệu";
-  var reason = data.reason || "";
-  var viewUrl = data.viewUrl || CONFIG.PORTAL_URL;
+  const eventType = data.eventType;
+  const docTitle = data.docTitle || "Báo cáo chuyên môn";
+  const docId = data.docId || "";
+  const authorPhone = normalizePhone(data.authorPhone || "");
+  const recipientPhone = normalizePhone(data.recipientPhone || "");
+  const recipientName = data.recipientName || "Người duyệt";
+  const senderName = data.senderName || "Giáo viên";
+  const approverName = data.approverName || "Ban Giám hiệu";
+  const reason = data.reason || "";
+  const viewUrl = data.viewUrl || CONFIG.PORTAL_URL;
 
-  var messageText = "";
-  var targetPhone = "";
+  let messageText = "";
+  let targetPhone = "";
 
   if (eventType === "REJECTED") {
     targetPhone = authorPhone;
@@ -1876,7 +1876,7 @@ function handleEduSignNotification(data) {
                   "📌 Thầy/Cô vui lòng truy cập phần mềm EduSign để chỉnh sửa và nộp lại.";
   } else if (eventType === "COMPLETED") {
     targetPhone = authorPhone;
-    var hasSchoolSeal = Boolean(data.hasSchoolSeal === true || data.isSchoolSeal === true);
+    const hasSchoolSeal = Boolean(data.hasSchoolSeal === true || data.isSchoolSeal === true);
 
     if (hasSchoolSeal) {
       // Trường hợp 3: Báo cáo cấp trường đã đóng dấu mộc đỏ pháp nhân hoàn tất
@@ -1916,15 +1916,15 @@ function handleEduSignNotification(data) {
                   "⏰ Thời gian: " + new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + "\n\n" +
                   "📌 Hồ sơ sẽ chính thức hoàn tất sau khi Văn thư / BGH đóng dấu mộc số pháp nhân.";
   } else if (eventType === "SUBMITTED") {
-    var nowStr = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+    const nowStr = new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
 
     // Branch 1: Author Confirmation (authorPhone)
-    var authorDelivered = false;
-    var authorChatId = authorPhone ? getChatIdByPhone(authorPhone) : null;
-    var authorNote = "";
-    var replyAuthor = null;
+    let authorDelivered = false;
+    const authorChatId = authorPhone ? getChatIdByPhone(authorPhone) : null;
+    let authorNote = "";
+    let replyAuthor = null;
     if (authorChatId) {
-      var authorMsg = "╔════════════════════════════════════════╗\n" +
+      const authorMsg = "╔════════════════════════════════════════╗\n" +
                       "  📤 XÁC NHẬN: KHỞI TẠO BÁO CÁO & TRÌNH KÝ THÀNH CÔNG\n" +
                       "╚════════════════════════════════════════╝\n\n" +
                       "📋 Tên hồ sơ: " + docTitle + "\n" +

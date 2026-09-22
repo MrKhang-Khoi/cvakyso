@@ -29,7 +29,7 @@ window.appState = appState;
 if (appState.currentUser && (appState.currentUser.username === 'cva.ty' || appState.currentUser.id === 'user_cvaty')) {
   if (!appState.currentUser.phone) {
     appState.currentUser.phone = '0818810007';
-    try { localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser)); } catch (e) {}
+    try { localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser)); } catch (e) { void e; }
   }
 }
 
@@ -469,7 +469,7 @@ async function handleLogin(e) {
               localStorage.setItem('edusign_token', data.token);
             }
           }
-        } catch (tokenErr) {}
+        } catch (tokenErr) { void tokenErr; }
       }
     }
 
@@ -1586,7 +1586,7 @@ async function handleSaveUser(e) {
           appState.currentUser.roleTitle = users[idx].roleTitle;
           try {
             localStorage.setItem('edusign_user', JSON.stringify(appState.currentUser));
-          } catch (e) {}
+          } catch (e) { void e; }
           checkUserAccountIntegrity(appState.currentUser);
 
           // Cập nhật ngay huy hiệu header loại chữ ký
@@ -1691,7 +1691,7 @@ async function handleSaveUser(e) {
               },
               body: JSON.stringify(updatedUser)
             });
-          } catch (apiErr) {}
+          } catch (apiErr) { void apiErr; }
         }
         if (firebaseDb) {
           firebaseDb.ref(`users/${updatedUser.id}`).update({
@@ -1771,7 +1771,7 @@ async function handleSaveUser(e) {
     appState.users = users;
     try {
       localStorage.setItem('edusign_users', JSON.stringify(users));
-    } catch (e) {}
+    } catch (e) { void e; }
 
     closeModal('modalUser');
     renderTeachersTable();
@@ -3497,7 +3497,7 @@ async function loadTeacherReturnedDocuments(force = false) {
             returnedList = json.data;
           }
         }
-      } catch (e) {}
+      } catch (e) { void e; }
     }
 
     // 2. Query Firebase trực tiếp nếu API không có dữ liệu
@@ -4538,7 +4538,7 @@ async function clearSavedFolderHandle() {
     const tx = db.transaction('handles', 'readwrite');
     tx.objectStore('handles').delete('saved_directory_handle');
     localStorage.removeItem('edusign_saved_folder_name');
-  } catch (e) {}
+  } catch (e) { void e; }
 }
 
 async function handleSaveReportToLocalFolder(docId, event) {
@@ -4724,7 +4724,7 @@ function displayPdfInViewer(fileOrBase64, title = 'Báo cáo', unused = null, en
         byteNumbers[i] = byteCharacters.charCodeAt(i);
       }
       pdfBlob = new Blob([byteNumbers], { type: 'application/pdf' });
-    } catch (e) {}
+    } catch (e) { void e; }
   }
   if (pdfBlob) {
     openDocumentViewer(title || 'Báo cáo', pdfBlob, enableSigning);
@@ -5276,7 +5276,7 @@ async function handleConfirmRejectDocument() {
         headers,
         body: JSON.stringify({ reason })
       });
-    } catch (e) {}
+    } catch (e) { void e; }
 
     // 2. Đồng bộ Firebase RTDB
     const nowStr = new Date().toISOString();
@@ -5569,7 +5569,7 @@ async function openPendingDocumentToSign(docId) {
           const json = await res.json();
           if (json.success && json.data) doc = json.data;
         }
-      } catch (e) {}
+      } catch (e) { void e; }
 
       if (!doc || !doc.fileBase64) {
         if (firebaseDb) {
@@ -5592,7 +5592,7 @@ async function openPendingDocumentToSign(docId) {
           byteNumbers[i] = byteCharacters.charCodeAt(i);
         }
         pdfBlob = new Blob([new Uint8Array(byteNumbers)], { type: 'application/pdf' });
-      } catch (bErr) {}
+      } catch (bErr) { void bErr; }
     }
 
     if (!pdfBlob) {
@@ -5772,7 +5772,7 @@ async function handleSaveLessonPlanToFile() {
 
     // Làm sạch RAM & Thu hồi Blob URL
     if (currentPdfBlobUrl) {
-      try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) {}
+      try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { void e; }
       currentPdfBlobUrl = null;
     }
     currentSignedPdfBase64 = null;
@@ -5894,7 +5894,19 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
     .slice(0, 8) || 'CVA';
   const trackingId = `BC-${new Date().getFullYear()}-${deptClean}-${Math.floor(100000 + Math.random() * 900000)}`;
 
-  const reportCatChoice = getSelectedReportCategory() || 'INTERNAL_REPORT';
+  const reportCatChoice = getSelectedReportCategory();
+  if (!reportCatChoice) {
+    hideViewerSigningLoader();
+    if (typeof highlightReportCategoryRequirement === 'function') {
+      highlightReportCategoryRequirement();
+    }
+    showModalAlert(
+      'Chưa phân loại báo cáo',
+      'Vui lòng chọn <strong>Báo cáo Chuyên môn Nội bộ</strong> (Tổ/Khối) hoặc <strong>Báo cáo Trình Ban Giám Hiệu</strong> trước khi chuyển tiếp hồ sơ.',
+      'warning'
+    );
+    return false;
+  }
   const reportCategory = (reportCatChoice === 'SCHOOL_REPORT') ? 'SCHOOL' : 'INTERNAL';
   const requiresSeal = (reportCategory === 'SCHOOL');
 
@@ -6023,7 +6035,7 @@ async function handleForwardNewReportDocument(signedPdfBase64, session) {
       closeModal('modalDocViewer');
       showToast(`🎉 Đã ký và gửi báo cáo [${trackingId}] thành công tới ${nextSignerName}!`, 'success');
       if (currentPdfBlobUrl) {
-        try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) {}
+        try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { void e; }
         currentPdfBlobUrl = null;
       }
       currentActiveSignSession = null;
@@ -6200,7 +6212,7 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
     // Đóng viewer và dọn sạch session
     closeModal('modalDocViewer');
     if (currentPdfBlobUrl) {
-      try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) {}
+      try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { void e; }
       currentPdfBlobUrl = null;
     }
     currentChainedPendingDoc = null;
@@ -6249,7 +6261,7 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
           document.body.removeChild(a);
           URL.revokeObjectURL(dlUrl);
         }, 1000);
-      } catch (e) {}
+      } catch (e) { void e; }
 
       showModalAlert(
         'Hoàn tất đóng dấu pháp nhân & Lưu 2 nơi',
@@ -6320,7 +6332,7 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
           document.body.removeChild(a);
           URL.revokeObjectURL(dlUrl);
         }, 1000);
-      } catch (e) {}
+      } catch (e) { void e; }
 
       showModalAlert(
         'Hoàn tất phê duyệt báo cáo nội bộ',
@@ -6347,7 +6359,7 @@ async function handleChainedPendingDocumentSignStep(signedPdfBase64, session) {
             requiresSeal: requiresSeal,
             reportCategory: docSnapshot.reportCategory || (requiresSeal ? 'SCHOOL' : 'INTERNAL')
           });
-        } catch (zErr) {}
+        } catch (zErr) { void zErr; }
       }
       showToast(`🎉 Đã ký và chuyển tiếp thành công đến ${nextSignerName}!`, 'success');
       showModalAlert(
@@ -6396,7 +6408,7 @@ async function detectPdfTotalPages(fileObject) {
       const counts = countMatches.map(m => parseInt(m[1], 10)).filter(n => !isNaN(n) && n > 0);
       if (counts.length > 0) return Math.max(...counts);
     }
-  } catch (e) {}
+  } catch (e) { void e; }
   return 1;
 }
 
@@ -6586,7 +6598,7 @@ function openDocumentViewer(fileName, fileObject, enableSigning = false) {
 
   // Giải phóng Blob URL cũ tránh rò rỉ RAM
   if (currentPdfBlobUrl) {
-    try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) {}
+    try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { void e; }
     currentPdfBlobUrl = null;
   }
 
@@ -7441,7 +7453,7 @@ function getStoredVgcaCredentials() {
     if (creds && creds.cccd && validateCccd12Digits(creds.cccd)) {
       return creds;
     }
-  } catch (e) {}
+  } catch (e) { void e; }
   return null;
 }
 
@@ -7453,13 +7465,13 @@ function saveStoredVgcaCredentials(cccd, password, signType = 'VGCA') {
       signType: signType || 'VGCA',
       savedAt: new Date().toISOString()
     }));
-  } catch (e) {}
+  } catch (e) { void e; }
 }
 
 function clearStoredVgcaCredentials() {
   try {
     localStorage.removeItem('edusign_vgca_credentials');
-  } catch (e) {}
+  } catch (e) { void e; }
 }
 
 function switchVgcaLoginMode(mode) {
@@ -7569,7 +7581,7 @@ async function autoDetectCertFromAgent(modeArg = null) {
         <div class="text-amber-800 font-medium">⚠️ ${data.cspErrorMessage || 'Chứng thư số trên máy không khớp với tài khoản giáo viên.'}</div>
       `;
     }
-  } catch (e) {}
+  } catch (e) { void e; }
 }
 
 async function pingLocalSigner(timeoutMs = 2500) {
@@ -8226,7 +8238,7 @@ async function executeLocalAgentSigning() {
             });
           }
         }
-      } catch (e) {}
+      } catch (e) { void e; }
     } else {
       const sigImg = getTeacherSignatureImage();
       if (sigImg) payload.signatureImage = sigImg;
@@ -8403,7 +8415,7 @@ function executeImmediateCleanupAndClose() {
 
   // 2. Thu hồi Blob URL tránh rò rỉ RAM
   if (currentPdfBlobUrl) {
-    try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) {}
+    try { URL.revokeObjectURL(currentPdfBlobUrl); } catch (e) { void e; }
     currentPdfBlobUrl = null;
   }
 
@@ -8518,7 +8530,7 @@ function switchUploadSignatureTarget(target) {
       fetch(`${rtdbUrl}/signatures/school_seal.json`).then(r => r.ok ? r.json() : null).then(data => {
         if (data && data.signatureImage && data.signatureImage.length > 50) {
           currentProcessedSignatureBase64 = data.signatureImage;
-          try { localStorage.setItem('edusign_school_seal', data.signatureImage); } catch(e){}
+          try { localStorage.setItem('edusign_school_seal', data.signatureImage); } catch (e) { void e; }
           if (previewImg) {
             previewImg.src = data.signatureImage;
             previewImg.classList.remove('hidden');
@@ -8702,7 +8714,7 @@ function saveUserSignature() {
     // 1. Lưu con dấu đỏ nhà trường vào cache client
     try {
       localStorage.setItem('edusign_school_seal', currentProcessedSignatureBase64);
-    } catch (e) {}
+    } catch (e) { void e; }
 
     // 2. Tự động đồng bộ lên Firebase Realtime Database
     try {
@@ -8715,7 +8727,7 @@ function saveUserSignature() {
           updatedAt: new Date().toISOString()
         })
       }).catch(e => console.warn('[Seal Sync] Lưu Firebase nền:', e.message));
-    } catch (e) {}
+    } catch (e) { void e; }
 
     // 3. Gửi lên backend server nếu chạy máy chủ cục bộ
     if (!isStaticOrGitHub) {
@@ -8767,7 +8779,7 @@ function saveUserSignature() {
           updatedAt: new Date().toISOString()
         })
       }).catch(e => console.warn('[Signature Sync] Lưu Firebase nền:', e.message));
-    } catch (e) {}
+    } catch (e) { void e; }
 
     // 2. Gửi lưu lên Backend Server nếu chạy máy chủ cục bộ
     if (!isStaticOrGitHub) {
@@ -8811,7 +8823,7 @@ function handleDeleteCurrentSignature() {
         try {
           const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
           fetch(`${rtdbUrl}/signatures/school_seal.json`, { method: 'DELETE' }).catch(() => {});
-        } catch(e) {}
+        } catch (e) { void e; }
         rawLoadedSignatureImage = null;
         currentProcessedSignatureBase64 = null;
         const previewImg = document.getElementById('userSigPreviewImg');
@@ -8844,7 +8856,7 @@ function handleDeleteCurrentSignature() {
         try {
           const rtdbUrl = (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.databaseURL) || 'https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app';
           fetch(`${rtdbUrl}/signatures/${uid}.json`, { method: 'DELETE' }).catch(() => {});
-        } catch(e) {}
+        } catch (e) { void e; }
       }
 
       rawLoadedSignatureImage = null;
@@ -9073,7 +9085,7 @@ function downloadEduSignAgent(type = 'zip', event = null) {
     setTimeout(() => {
       if (document.body.contains(a)) document.body.removeChild(a);
     }, 1000);
-  } catch (e) {}
+  } catch (e) { void e; }
 
   if (typeof showToast === 'function') {
     showToast(`📥 Đang tải xuống ${fileName}... Thầy/Cô vui lòng kiểm tra thư mục Tải về (Downloads)!`, 'success');
@@ -9132,7 +9144,7 @@ async function openModalBghConfig() {
         const data = await res.json();
         if (data.success && data.config) configData = data.config;
       }
-    } catch (fetchErr) {}
+    } catch (fetchErr) { void fetchErr; }
 
     if (!configData && firebaseDb) {
       const snap = await firebaseDb.ref('configs/school_signing_config').once('value');
@@ -9483,7 +9495,7 @@ function openModalUserProfile() {
     appState.currentUser = user;
     try {
       localStorage.setItem('edusign_user', JSON.stringify(user));
-    } catch (e) {}
+    } catch (e) { void e; }
   }
 
   const displayName = user.fullName || user.name || user.username;
@@ -9517,7 +9529,7 @@ function copyZaloLinkSyntax() {
   if (!user) return;
   let freshList = (appState.users && appState.users.length) ? appState.users : [];
   if (!freshList.length) {
-    try { freshList = JSON.parse(localStorage.getItem('edusign_users') || '[]'); } catch (e) {}
+    try { freshList = JSON.parse(localStorage.getItem('edusign_users') || '[]'); } catch (e) { void e; }
   }
   const matchedUser = freshList.find(u => (u.id && u.id === user.id) || (u.username && u.username.toLowerCase() === (user.username || '').toLowerCase()));
   if (matchedUser) {
@@ -9556,7 +9568,7 @@ async function cleanGarbageDocuments() {
     try {
       localStorage.removeItem('edusign_documents');
       localStorage.removeItem('edusign_documents_cache');
-    } catch (e) {}
+    } catch (e) { void e; }
 
     if (firebaseDb) {
       await firebaseDb.ref('documents').remove();
@@ -9886,7 +9898,7 @@ async function handleConfirmImportTeachers() {
 
     try {
       localStorage.setItem('edusign_users', JSON.stringify(updatedUsers));
-    } catch (e) {}
+    } catch (e) { void e; }
 
     await syncUsersToFirebase(updatedUsers);
 
