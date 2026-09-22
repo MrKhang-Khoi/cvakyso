@@ -2032,6 +2032,81 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+// ==================== SMART REFRESH (LÀM MỚI DỮ LIỆU CHỐNG SPAM) ====================
+let _lastSmartRefreshTime = 0;
+let _isSmartRefreshing = false;
+
+async function handleSmartRefresh() {
+  const now = Date.now();
+  if (_isSmartRefreshing) {
+    showToast('Đang cập nhật dữ liệu, vui lòng đợi trong giây lát...', 'info');
+    return;
+  }
+  if (now - _lastSmartRefreshTime < 3000) {
+    const waitSec = Math.ceil((3000 - (now - _lastSmartRefreshTime)) / 1000);
+    showToast(`Dữ liệu vừa được cập nhật, vui lòng đợi ${waitSec} giây trước khi làm mới tiếp.`, 'info');
+    return;
+  }
+
+  _isSmartRefreshing = true;
+  _lastSmartRefreshTime = now;
+
+  const spinIcons = document.querySelectorAll('.icon-refresh-spin');
+  const labels = document.querySelectorAll('.label-smart-refresh');
+  const refreshBtns = document.querySelectorAll('.btn-smart-refresh');
+
+  spinIcons.forEach((icon) => icon.classList.add('animate-spin'));
+  labels.forEach((lbl) => {
+    if (!lbl.dataset.origText) lbl.dataset.origText = lbl.textContent;
+    lbl.textContent = 'Đang tải...';
+  });
+  refreshBtns.forEach((btn) => btn.setAttribute('disabled', 'true'));
+
+  try {
+    const user = appState.currentUser;
+    const promises = [];
+
+    // Nếu là Admin hoặc BGH
+    if (user && (user.role === 'ADMIN' || user.role === 'BGH')) {
+      if (typeof fetchInitialData === 'function') {
+        promises.push(fetchInitialData());
+      }
+      if (typeof loadAdminReportManagement === 'function') {
+        promises.push(loadAdminReportManagement(true));
+      }
+    }
+
+    // Nếu là Giáo viên hoặc có tài khoản
+    if (user) {
+      if (typeof loadTeacherPendingDocuments === 'function') {
+        promises.push(loadTeacherPendingDocuments(true));
+      }
+      if (typeof loadTeacherSentDocuments === 'function') {
+        promises.push(loadTeacherSentDocuments(true));
+      }
+      if (typeof loadSchoolReports === 'function') {
+        promises.push(loadSchoolReports(true));
+      }
+    }
+
+    await Promise.allSettled(promises);
+    showToast('Đã làm mới dữ liệu mới nhất thành công!', 'success');
+  } catch (err) {
+    console.warn('[SmartRefresh] Cảnh báo khi làm mới dữ liệu:', err.message);
+    showToast('Đã đồng bộ dữ liệu hoàn tất!', 'info');
+  } finally {
+    setTimeout(() => {
+      spinIcons.forEach((icon) => icon.classList.remove('animate-spin'));
+      labels.forEach((lbl) => {
+        if (lbl.dataset.origText) lbl.textContent = lbl.dataset.origText;
+      });
+      refreshBtns.forEach((btn) => btn.removeAttribute('disabled'));
+      _isSmartRefreshing = false;
+    }, 600);
+  }
+}
+window.handleSmartRefresh = handleSmartRefresh;
+
 // ==================== HỆ THỐNG HỘP THOẠI MODAL ĐỒNG NHẤT (ZERO BROWSER ALERTS) ====================
 let pendingConfirmCallback = null;
 

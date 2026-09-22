@@ -195,6 +195,12 @@
 
       <!-- User Menu & Settings -->
       <div class="flex items-center gap-2 sm:gap-3">
+        <!-- Nút Làm Mới Dữ Liệu Admin -->
+        <button onclick="handleSmartRefresh()" id="btnAdminRefresh" title="Làm mới dữ liệu tức thì (không tải lại trang)" class="btn-smart-refresh px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-200/90 transition-all flex items-center gap-1.5 shadow-2xs hover:shadow-xs active:scale-[0.98] cursor-pointer">
+          <svg class="icon-refresh-spin w-4 h-4 text-brand-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <span class="hidden sm:inline label-smart-refresh">Làm mới</span>
+        </button>
+
         <!-- Nút Tải phần mềm Ký số Agent -->
         <button onclick="openModalDownloadAgent()" title="Tải ứng dụng Ký số EduSign Agent" class="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-brand-700 text-xs font-semibold border border-blue-200 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer">
           <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -537,6 +543,12 @@
 
       <!-- User Menu & Settings Dropdown -->
       <div class="flex items-center gap-2 sm:gap-3">
+        <!-- Nút Làm Mới Dữ Liệu Giáo Viên Header -->
+        <button onclick="handleSmartRefresh()" id="btnTeacherRefresh" title="Làm mới dữ liệu tức thì (không tải lại trang)" class="btn-smart-refresh px-3 py-1.5 rounded-xl bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold border border-slate-200/90 transition-all flex items-center gap-1.5 shadow-2xs hover:shadow-xs active:scale-[0.98] cursor-pointer">
+          <svg class="icon-refresh-spin w-4 h-4 text-brand-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <span class="hidden sm:inline label-smart-refresh">Làm mới</span>
+        </button>
+
         <!-- Nút Tải phần mềm Ký số Agent cho Giáo viên -->
         <button onclick="openModalDownloadAgent()" title="Tải ứng dụng Ký số EduSign Agent" class="px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-brand-700 text-xs font-semibold border border-blue-200 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer">
           <svg class="w-4 h-4 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -613,7 +625,7 @@
     <!-- Main Workspace Giáo viên (2 Tabs) -->
     <main class="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-8 space-y-6">
       <!-- Tabs Navigation Giáo viên (4 Tabs chuẩn luồng, không rớt dòng) -->
-      <div class="border-b border-slate-200 pb-3">
+      <div class="border-b border-slate-200 pb-3 flex items-center justify-between gap-2">
         <div class="flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar py-0.5">
           <button id="tabBtnTeacherWorkspace" onclick="switchTeacherTab('workspace')" 
             class="px-3.5 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all bg-brand-600 text-white shadow-sm shadow-brand-500/20 flex items-center gap-2 shrink-0 cursor-pointer">
@@ -635,6 +647,10 @@
             <span id="badgeTeacherReportsCount" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700">0</span>
           </button>
         </div>
+        <button onclick="handleSmartRefresh()" title="Cập nhật nhanh tiến độ hồ sơ & danh sách mới nhất" class="btn-smart-refresh shrink-0 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-brand-50 text-slate-700 hover:text-brand-700 text-xs font-semibold border border-slate-200 transition-all flex items-center gap-1.5 shadow-2xs active:scale-[0.98] cursor-pointer">
+          <svg class="icon-refresh-spin w-4 h-4 text-brand-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <span class="hidden md:inline label-smart-refresh">Làm mới dữ liệu</span>
+        </button>
       </div>
 
       <!-- TAB 1: SOẠN & KÝ VĂN BẢN (KHU VỰC TẢI & KÝ CÁ NHÂN / BÁO CÁO) -->
