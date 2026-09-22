@@ -1538,13 +1538,16 @@ function requireAdmin(req, res, next) {
 // ==================== 3. AUTHENTICATION ENDPOINTS ====================
 
 // Đăng nhập hệ thống (Chỉ cần Tên đăng nhập và Mật khẩu)
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ success: false, message: 'Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!' });
   }
 
-  const user = dataStore.getUserByUsername(username, true);
+  let user = (typeof dataStore.getUserByUsername === 'function') ? dataStore.getUserByUsername(username, true) : null;
+  if (!user) {
+    user = await resolveTargetUser(username);
+  }
   if (!user || user.password !== password) {
     return res.status(401).json({ success: false, message: 'Tên đăng nhập hoặc mật khẩu không chính xác!' });
   }
@@ -2236,6 +2239,9 @@ app.post('/api/documents/forward', requireAuth, async (req, res) => {
     if (!freshUser && typeof dataStore.getUserByUsername === 'function') {
       freshUser = dataStore.getUserByUsername(requestedUserId, true);
     }
+    if (!freshUser) {
+      freshUser = await resolveTargetUser(requestedUserId);
+    }
     if (!freshUser || (freshUser.id !== requestedUserId && freshUser.username !== requestedUserId)) {
       return res.status(401).json({ success: false, message: 'Tài khoản người dùng không tồn tại hoặc đã bị thu hồi quyền.' });
     }
@@ -2739,6 +2745,9 @@ app.post('/api/documents/:id/sign-step', requireAuth, async (req, res) => {
     let freshUser = (typeof dataStore.getUserById === 'function' ? dataStore.getUserById(requestedUserId, true) : null);
     if (!freshUser && typeof dataStore.getUserByUsername === 'function') {
       freshUser = dataStore.getUserByUsername(requestedUserId, true);
+    }
+    if (!freshUser) {
+      freshUser = await resolveTargetUser(requestedUserId);
     }
     if (!freshUser || (freshUser.id !== requestedUserId && freshUser.username !== requestedUserId)) {
       return res.status(401).json({ success: false, message: 'Tài khoản người dùng không tồn tại hoặc đã bị thu hồi quyền.' });
@@ -4928,7 +4937,7 @@ app.post('/api/documents/:id/forward-sign', requireAuth, async (req, res) => {
   let nextSignerRole = req.body.nextSignerRole;
 
   if (nextSignerId && (!nextSignerName || !nextSignerRole)) {
-    const targetUser = dataStore.getUserById(nextSignerId, true);
+    const targetUser = await resolveTargetUser(nextSignerId);
     if (targetUser) {
       nextSignerName = nextSignerName || targetUser.name;
       nextSignerRole = nextSignerRole || targetUser.roleTitle || (targetUser.role === 'BGH' ? 'Ban Giám hiệu' : (targetUser.role === 'HEAD_DEPT' ? 'Tổ trưởng' : 'Giáo viên'));
