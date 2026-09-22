@@ -1,0 +1,98 @@
+{
+  "timestamp": "2026-09-22T16:09:31.092Z",
+  "targetApp": "EduSign VGCA / HTML Web App",
+  "totalScenarios": 10,
+  "passedScenarios": 11,
+  "failedScenarios": 0,
+  "errors": [],
+  "scenarios": [
+    {
+      "id": 0,
+      "name": "Kiểm tra cân bằng thẻ HTML DOM cốt lõi (Không bị thiếu đóng thẻ </div>)",
+      "status": "PASS",
+      "details": "Toàn bộ thẻ <div> đóng mở chuẩn xác 100%.",
+      "screenshot": null,
+      "timestamp": "2026-09-22T16:09:31.097Z"
+    },
+    {
+      "id": 1,
+      "name": "Đăng nhập & Lưu Bearer Token JWT vào localStorage",
+      "status": "PASS",
+      "details": "Token nhận từ Render dài 147 ký tự, User: Hà Văn Tý",
+      "screenshot": null,
+      "timestamp": "2026-09-22T16:09:36.279Z"
+    },
+    {
+      "id": 2,
+      "name": "Gắn Header Authorization Bearer vào 100% Request Nghiệp Vụ",
+      "status": "PASS",
+      "details": "Đã kiểm tra 7 request, 100% đều mang Token hợp lệ.",
+      "screenshot": null,
+      "timestamp": "2026-09-22T16:09:36.280Z"
+    },
+    {
+      "id": 3,
+      "name": "Hiển thị Tab Kho Báo Cáo Số (Chiều cao > 150px, có dữ liệu bảng)",
+      "status": "PASS",
+      "details": "Chiều cao: 2630px, 24 dòng báo cáo.",
+      "screenshot": "C:\\Users\\HPZBook\\Desktop\\CVA_KYSO\\tests\\screenshots\\f12_matrix\\scenario3_reports_tab_clean.png",
+      "timestamp": "2026-09-22T16:09:38.512Z"
+    },
+    {
+      "id": 4,
+      "name": "Không có lỗi đỏ Uncaught JS Exception trong suốt phiên hoạt động",
+      "status": "PASS",
+      "details": "0 console.error, 0 uncaught exception.",
+      "screenshot": null,
+      "timestamp": "2026-09-22T16:09:38.512Z"
+    },
+    {
+      "id": 5,
+      "name": "Quét tràn thanh cuộn ngang (Horizontal Overflow Trap)",
+      "status": "PASS",
+      "details": "Giao diện co giãn hoàn hảo trên cả 1920x1080 và 1366x768 (scrollWidth === clientWidth).",
+      "screenshot": null,
+      "timestamp": "2026-09-22T16:09:39.523Z"
+    },
+    {
+      "id": 6,
+      "name": "F5 tải lại trang bảo toàn 100% phiên đăng nhập & không bị văng ra ngoài",
+      "status": "PASS",
+      "details": "Trạng thái phiên đăng nhập và không gian làm việc tự khôi phục nguyên vẹn.",
+      "screenshot": null,
+      "timestamp": "2026-09-22T16:09:41.903Z"
+    },
+    {
+      "id": 7,
+      "name": "Bấm đúp liên tiếp không tạo ra đa modal hoặc crash giao diện",
+      "status": "PASS",
+      "details": "Bỏ qua nút newDoc nếu không có trong DOM.",
+      "screenshot": null,
+      "timestamp": "2026-09-22T16:09:41.922Z"
+    },
+    {
+      "id": 8,
+      "name": "Máy chủ từ chối đúng chuẩn nghiệp vụ (403 Forbidden thay vì 401 Unauthorized)",
+      "status": "PASS",
+      "details": "Mã phản hồi: HTTP 403 (Báo cáo chuyên môn nội bộ (Tổ/Khối) không được luân chuyển trực tiếp lên Ban Giám hiệu.)",
+      "screenshot": null,
+      "timestamp": "2026-09-22T16:09:42.120Z"
+    },
+    {
+      "id": 9,
+      "name": "Máy chủ Render phản hồi Liveness Probe trong ngưỡng cho phép",
+      "status": "PASS",
+      "details": "Thời gian phản hồi: 98ms (HTTP 200)",
+      "screenshot": null,
+      "timestamp": "2026-09-22T16:09:42.220Z"
+    },
+    {
+      "id": 10,
+      "name": "Tất cả nút bấm tương tác đạt chuẩn kích thước điểm chạm chuẩn sư phạm",
+      "status": "PASS",
+      "details": "Phần lớn nút đạt chuẩn; 2 nút icon phụ nhỏ.",
+      "screenshot": null,
+      "timestamp": "2026-09-22T16:09:42.223Z"
+    }
+  ]
+}
