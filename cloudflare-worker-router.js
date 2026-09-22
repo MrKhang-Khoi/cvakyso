@@ -24,7 +24,7 @@ const BACKEND_NODES = [
   {
     id: "node-secondary",
     name: "Render Node 2 (Tài khoản 2)",
-    url: "https://edusign-node2.onrender.com",
+    url: "https://kyso.onrender.com",
     weight: 1
   }
 ];

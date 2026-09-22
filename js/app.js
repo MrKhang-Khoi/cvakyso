@@ -15,7 +15,7 @@ const isStaticOrGitHub = window.location.hostname.includes('github.io') ||
 
 // Cụm máy chủ Render song song (Multi-Node Active-Failover Cluster)
 const DEFAULT_PRIMARY_NODE = 'https://edusign-vgca.onrender.com';
-const DEFAULT_SECONDARY_NODE = 'https://edusign-node2.onrender.com';
+const DEFAULT_SECONDARY_NODE = 'https://kyso.onrender.com';
 
 let BACKEND_RENDER_URL = (typeof localStorage !== 'undefined' && localStorage.getItem('edusign_active_backend')) || DEFAULT_PRIMARY_NODE;
 let API_BASE = isStaticOrGitHub ? BACKEND_RENDER_URL : '';
