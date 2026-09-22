@@ -1,0 +1,62 @@
+{
+  "version": 2,
+  "files": {
+    "tests/f12_comprehensive_matrix.mjs": {
+      "sha256": "a4a00bccf677390cccf1d40365624d3d7d40629d40c99e01fbe8befbe05cb56f",
+      "status": "APPROVED",
+      "module": "Module 4: Kiểm Thử & Tiện Ích (Utilities & Tests)",
+      "timestamp": "2026-09-22T17:15:36.777Z"
+    },
+    "tests/f12_diagnostic_report.json": {
+      "sha256": "bba75a2f3ccf5670d0e3e276f04376d72397de95acd1057f9bd821b534f96176",
+      "status": "APPROVED",
+      "module": "Module 4: Kiểm Thử & Tiện Ích (Utilities & Tests)",
+      "timestamp": "2026-09-22T17:15:36.778Z"
+    },
+    "tests/screenshots/evidence_kho_bao_cao_fixed.png": {
+      "sha256": "71c37ab0d9e823a13bbbc44b2d14818138c8daee30105e166d61aed5e2314a88",
+      "status": "APPROVED",
+      "module": "Module 4: Kiểm Thử & Tiện Ích (Utilities & Tests)",
+      "timestamp": "2026-09-22T17:15:36.778Z"
+    },
+    "tests/screenshots/evidence_kho_bao_cao_fixed_verified.png": {
+      "sha256": "9070b7ccba67602ebcf80dbcd5464787ad488a7d0ac01a7d391239cb6dc5d643",
+      "status": "APPROVED",
+      "module": "Module 4: Kiểm Thử & Tiện Ích (Utilities & Tests)",
+      "timestamp": "2026-09-22T17:15:36.778Z"
+    },
+    "tests/screenshots/f12_matrix/scenario3_reports_tab_clean.png": {
+      "sha256": "a368163b44b634d1b436df690358e6d9aea60d4b90acbc4fa4d7a7976127a26e",
+      "status": "APPROVED",
+      "module": "Module 4: Kiểm Thử & Tiện Ích (Utilities & Tests)",
+      "timestamp": "2026-09-22T17:15:36.778Z"
+    },
+    "tests/screenshots/full_page_new_tab_and_toast.png": {
+      "sha256": "2959efd288d4b2b5d51a5b372d0db3e11815a244e68fb724c855a2dac2c83f78",
+      "status": "APPROVED",
+      "module": "Module 4: Kiểm Thử & Tiện Ích (Utilities & Tests)",
+      "timestamp": "2026-09-22T17:15:36.778Z"
+    },
+    "tests/screenshots/tab_bar_new_1366.png": {
+      "sha256": "a85c636900e558f96849a6c2943c1936418f8c1993312a0a61f741bbe88e2cec",
+      "status": "APPROVED",
+      "module": "Module 4: Kiểm Thử & Tiện Ích (Utilities & Tests)",
+      "timestamp": "2026-09-22T17:15:36.778Z"
+    },
+    "tests/screenshots/tab_bar_reports_active_1366.png": {
+      "sha256": "6a41c5570d87bf0dcaeb293bcece28361be00854b49b3a920c000311aac88c8d",
+      "status": "APPROVED",
+      "module": "Module 4: Kiểm Thử & Tiện Ích (Utilities & Tests)",
+      "timestamp": "2026-09-22T17:15:36.778Z"
+    }
+  },
+  "contracts": {
+    "Module 4: Kiểm Thử & Tiện Ích (Utilities & Tests)": [
+      "`recordScenario()` | Chuẩn hóa đường dẫn screenshot thành đường dẫn tương đối, dùng dấu `/`, đồng thời ghi nhận scenario và cập nhật bộ đếm PASS.",
+      "`runF12MatrixAudit()` | Đồng bộ lại `totalScenarios`, `passedScenarios`, `failedScenarios` theo dữ liệu scenario thực tế trước khi xuất báo cáo.",
+      "`f12_diagnostic_report.json` | Báo cáo chẩn đoán có cấu trúc ổn định, đường dẫn artifact portable và kết thúc bằng newline hợp lệ."
+    ]
+  },
+  "lastAudit": "2026-09-22T17:15:36.779Z",
+  "lastStatus": "APPROVED"
+}

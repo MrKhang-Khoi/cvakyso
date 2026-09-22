@@ -50,7 +50,8 @@ const diagnosticReport = {
 };
 
 function recordScenario(id, name, status, details, screenshot = null) {
-  const item = { id, name, status, details, screenshot, timestamp: new Date().toISOString() };
+  const relScreenshot = screenshot ? path.relative(ROOT_DIR, screenshot).replace(/\\/g, '/') : null;
+  const item = { id, name, status, details, screenshot: relScreenshot, timestamp: new Date().toISOString() };
   diagnosticReport.scenarios.push(item);
   if (status === 'PASS') {
     diagnosticReport.passedScenarios++;
@@ -447,7 +448,10 @@ async function runF12MatrixAudit() {
     localServer.close();
 
     // Xuất báo cáo tự động ra file JSON chẩn đoán cho Self-Healing Loop
-    fs.writeFileSync(DIAGNOSTIC_FILE, JSON.stringify(diagnosticReport, null, 2), 'utf-8');
+    diagnosticReport.totalScenarios = diagnosticReport.scenarios.length;
+    diagnosticReport.passedScenarios = diagnosticReport.scenarios.filter(s => s.status === 'PASS').length;
+    diagnosticReport.failedScenarios = diagnosticReport.scenarios.filter(s => s.status !== 'PASS').length;
+    fs.writeFileSync(DIAGNOSTIC_FILE, JSON.stringify(diagnosticReport, null, 2) + '\n', 'utf-8');
     console.log(`\n${C.bold}════════════════════════════════════════════════════════════════════════════════════════${C.reset}`);
     console.log(`${C.bold}📊 BÁO CÁO TỔNG HỢP KIỂM THỬ F12 MA TRẬN 10 TÌNH HUỐNG:${C.reset}`);
     console.log(`• Tổng số tình huống:    ${diagnosticReport.scenarios.length}`);
