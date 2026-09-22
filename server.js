@@ -1481,6 +1481,42 @@ function getCurrentUser(req) {
   return null;
 }
 
+/**
+ * Tra cứu danh tính người dùng theo ID hoặc Username (kết hợp cả dataStore cục bộ và Firebase RTDB thời gian thực)
+ */
+async function resolveTargetUser(userIdOrUsername) {
+  if (!userIdOrUsername) return null;
+  const str = String(userIdOrUsername).trim();
+  const lower = str.toLowerCase();
+  let user = (typeof dataStore.getUserById === 'function' ? dataStore.getUserById(str, true) : null) ||
+             (typeof dataStore.getUserByUsername === 'function' ? dataStore.getUserByUsername(str, true) : null);
+  if (user) return user;
+
+  // Tra cứu tự động thời gian thực từ Firebase RTDB
+  try {
+    const fbRes = await fetch('https://edusign-school-default-rtdb.asia-southeast1.firebasedatabase.app/users.json');
+    if (fbRes.ok) {
+      const fbData = await fbRes.json();
+      const fbList = Array.isArray(fbData) ? fbData : Object.values(fbData || {});
+      const matched = fbList.find(u => u && (u.id === str || (u.username && u.username.toLowerCase().trim() === lower)));
+      if (matched) {
+        try {
+          const curUsers = dataStore.getUsers();
+          if (!curUsers.some(x => x.id === matched.id || x.username === matched.username)) {
+            dataStore.saveUsers([...curUsers, matched]);
+          }
+        } catch (saveErr) {
+          console.warn('[resolveTargetUser] Lỗi lưu cache dataStore:', saveErr.message);
+        }
+        return matched;
+      }
+    }
+  } catch (err) {
+    console.warn('[resolveTargetUser] Lỗi tra cứu Firebase:', err.message);
+  }
+  return null;
+}
+
 function requireAuth(req, res, next) {
   const user = getCurrentUser(req);
   if (!user) {
@@ -2306,8 +2342,7 @@ app.post('/api/documents/forward', requireAuth, async (req, res) => {
         return res.status(400).json({ success: false, message: 'Vui lòng chọn người ký tiếp theo trong quy trình.' });
       }
 
-      targetUser = (typeof dataStore.getUserById === 'function' ? dataStore.getUserById(nextSignerId, true) : null) ||
-                   (typeof dataStore.getUserByUsername === 'function' ? dataStore.getUserByUsername(nextSignerId, true) : null);
+      targetUser = await resolveTargetUser(nextSignerId);
 
       if (!targetUser) {
         return res.status(400).json({ success: false, message: 'Người nhận được chỉ định không tồn tại trên hệ thống.' });
@@ -2864,8 +2899,7 @@ app.post('/api/documents/:id/sign-step', requireAuth, async (req, res) => {
         if (!nextSignerId) {
           return res.status(400).json({ success: false, message: 'Vui lòng chọn người ký tiếp theo hoặc đánh dấu xác nhận hoàn tất.' });
         }
-        const targetUser = (typeof dataStore.getUserById === 'function' ? dataStore.getUserById(nextSignerId, true) : null) ||
-          (typeof dataStore.getUserByUsername === 'function' ? dataStore.getUserByUsername(nextSignerId, true) : null);
+        const targetUser = await resolveTargetUser(nextSignerId);
         if (!targetUser) {
           return res.status(400).json({ success: false, message: 'Người nhận được chỉ định không tồn tại trên hệ thống.' });
         }
