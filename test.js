@@ -10,6 +10,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { PDFDocument } = require('pdf-lib');
 const googleDriveService = require('./googleDriveService');
+process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 
 console.log('═══════════════════════════════════════════════════════════════');
 console.log('🧪 BẮT ĐẦU CHẠY BỘ KIỂM THỬ HỆ THỐNG EDUSIGN VGCA (MỚI)');
@@ -1769,7 +1770,15 @@ async function runTests() {
         const d = docsArr.find(x => x.id === internalDocId);
         if (d) {
           delete d.payloadHash; // Giả lập hồ sơ cũ không có payloadHash
-          fs.writeFileSync(docsPath, JSON.stringify(docsArr, null, 2), 'utf8');
+          for (let wAttempt = 0; wAttempt < 10; wAttempt++) {
+            try {
+              fs.writeFileSync(docsPath, JSON.stringify(docsArr, null, 2), 'utf8');
+              break;
+            } catch (wErr) {
+              if (wAttempt === 9) throw wErr;
+              await new Promise(r => setTimeout(r, 150));
+            }
+          }
         }
       }
     }
@@ -2040,17 +2049,25 @@ async function runTests() {
         res.on('data', d => { chunkedResBody += d.toString(); });
         res.on('end', () => resolve());
       });
-      chunkedReq.on('error', (err) => {
-        // Ghi nhận lỗi nếu socket bị đóng ngoài ý muốn
-        resolve();
+      chunkedReq.on('error', () => {
+        setTimeout(resolve, 300);
       });
     });
     // Gửi chunk lớn vượt 35MB
     const bigChunk = Buffer.alloc(1024 * 1024, 'A');
     for (let i = 0; i < 36; i++) {
-      if (chunkedReq.destroyed) break;
+      if (chunkedReq.destroyed || chunkedResStatus !== 0) break;
       try {
-        chunkedReq.write(bigChunk);
+        const canWrite = chunkedReq.write(bigChunk);
+        if (!canWrite && !chunkedReq.destroyed && chunkedResStatus === 0) {
+          await new Promise(r => {
+            const onDrain = () => { chunkedReq.off('error', onErr); r(); };
+            const onErr = () => { chunkedReq.off('drain', onDrain); r(); };
+            chunkedReq.once('drain', onDrain);
+            chunkedReq.once('error', onErr);
+            setTimeout(r, 100);
+          });
+        }
       } catch (wErr) {
         break;
       }

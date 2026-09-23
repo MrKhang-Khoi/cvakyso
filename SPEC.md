@@ -139,3 +139,19 @@ Hệ thống Quản lý Ký số Giáo án & Báo cáo Chuyên môn Điện tử
 - **Fail-Closed Bearer Token Authentication & Zero Header Identity Spoofing**: Hàm `getCurrentUser(req)` và middleware `requireAuth` triệt tiêu 100% việc nhận diện danh tính qua các HTTP header tự tạo (`x-user-id`, `x-user-username`, `x-user-role`) hoặc `req.body.currentUser`. Mọi yêu cầu tới API bắt buộc phải có Bearer Token hợp lệ do máy chủ phát hành; danh tính người dùng bắt buộc được giải mã từ token và tra cứu fresh từ cơ sở dữ liệu (`dataStore.getUserById(id, true)`). Bất kỳ request nào thiếu token hoặc dùng token giả mạo đều nhận ngay HTTP `401 Unauthorized`.
 - **BGH Legal Metadata Privilege Enforcement**: Trong `dataStore.createDocument()`, các trường dữ liệu pháp lý cấp cao `bghApprovedAt` và `bghSigner` chỉ được phép ghi nhận khi phiên làm việc được xác thực chính danh là Ban Giám hiệu (hoặc Quản trị viên) VÀ có cờ xác thực hệ thống `verifiedBghSession === true` (hoặc `verifiedSchoolSeal === true`). Mọi caller khác không đủ thẩm quyền đều bị ép buộc trả về `null` (Fail-Closed Boundary).
 - **PAdES Strict Cryptographic Structure Enforcement**: Kiểm định con dấu pháp nhân trường trong `verifySchoolSealArtifact()` bắt buộc phải có đầy đủ cấu trúc chữ ký số PAdES / Adobe.PPKLite: `/Type /Sig`, mảng `/ByteRange [ 0 l1 o2 l2 ]` thỏa mãn `o1 === 0, l1 > 0, o2 > l1, (o2 + l2) <= file.length`, `/Filter` (`/Adobe.PPKLite` hoặc `/ETSI.CAdES`), `/SubFilter` (`/adbe.pkcs7.detached` hoặc `/ETSI.CAdES.detached`), và danh tính pháp nhân trường bắt buộc phải nằm trong Signature Dictionary Context (`/Name`, `/Reason`, `/ContactInfo`) hoặc bên trong khối chứng thư số PKCS#7. Nghiêm cấm chấp nhận text keyword trôi nổi ngoài content stream của trang sách.
+
+## 5. ĐẶC TẢ TẦNG KIẾN TRÚC: cloudflare-worker-router.js [TIER 1 - STATELESS EDGE FAILOVER PROXY]
+- **Bản chất**: Bộ định tuyến biên không trạng thái (Stateless Reverse Proxy & Failover Router) triển khai trên nền tảng Cloudflare Workers.
+- **Mục tiêu**: Chuyển tiếp HTTP thông minh giữa 2 máy chủ Render dự phòng của trường THCS Chu Văn An:
+  + Primary Node: `https://edusign-vgca.onrender.com`
+  + Secondary Node: `https://kyso.onrender.com`
+- **Thời gian chờ (Timeout)**: 6.000ms (`AbortController`).
+- **Cơ chế Failover**:
+  + Ưu tiên gửi request đến Primary Node.
+  + Nếu Primary Node trả về mã lỗi 502, 503, 504 hoặc gặp ngoại lệ mạng (timeout, fetch error): Tự động chuyển tiếp yêu cầu đến Secondary Node.
+  + Nếu cả 2 node đều không phản hồi: Trả về mã lỗi HTTP 503 với JSON `{ error: "Tất cả các máy chủ backend Render đều không khả dụng", status: 503, timestamp: ... }`.
+- **Hỗ trợ CORS**: Tự động phản hồi HTTP 204 cho các yêu cầu preflight `OPTIONS` với header `Access-Control-Allow-Origin: *`.
+- **An toàn Buffer Payload**: Với các phương thức có body (`POST`, `PUT`, `PATCH`), đọc body dưới dạng `ArrayBuffer` một lần duy nhất trước khi fetch, cho phép tái sử dụng body khi failover sang Secondary Node mà không bị lỗi stream đã bị đọc.
+- **NGUYÊN TẮC YAGNI (YOU AREN'T GONNA NEED IT) BẤT BIẾN**:
+  + **CẤM TUYỆT ĐỐI** triển khai Durable Objects, cơ chế phân tán ACID, Distributed Lock, Semaphore đa isolate hay HMAC nonces trong tệp này.
+  + Mọi cơ chế giao dịch và khóa đã được quản lý ở máy chủ trung tâm (`server.js` và `dataStore.js`). Cloudflare Worker là tầng mạng biên không lưu trữ (Stateless Network Proxy).

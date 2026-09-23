@@ -1,141 +1,190 @@
 /**
- * ============================================================================
- * CLOUDFLARE WORKER: DUAL-RENDER SMART LOAD BALANCER & AUTO-FAILOVER ROUTER
- * Dự án: CVA Ký Số - Trường THCS Chu Văn An
- * ============================================================================
+ * CLOUDFLARE WORKER: DUAL-RENDER FAILOVER ROUTER | THCS CHU VĂN AN
  * 
- * Tính năng chính:
- * 1. Cân bằng tải song song (Round-Robin) giữa 2 tài khoản Render miễn phí.
- * 2. Tự động chuyển hướng ngay lập tức (Zero-Downtime Failover < 100ms) nếu 1 Node
- *    bị quá tải, lỗi 502/503 hoặc đang ngủ đông.
- * 3. Chống ngủ đông 100% (Anti-Sleep Cron): Tự động phát nhịp tim ping cả 2 Node
- *    mỗi 5 phút để giữ cả 2 máy chủ luôn "nóng" (0ms Cold Start).
- * 4. Miễn phí 100% trên Cloudflare Workers (cho phép tới 100,000 requests/ngày).
+ * @tier: 1
+ * @architecture: LITE_EDGE_PROXY
+ * 
+ * Chức năng: Bộ định tuyến biên không trạng thái (Stateless Edge Proxy)
+ * - Tự động cân bằng và chuyển tiếp failover giữa 2 máy chủ Render.
+ * - Primary: https://edusign-vgca.onrender.com
+ * - Secondary: https://kyso.onrender.com
+ * - Timeout: 6000ms mỗi node
+ * - Tuân thủ triệt để nguyên tắc YAGNI (Stateless Network Proxy, 0 Durable Objects)
  */
 
-// Cấu hình 2 địa chỉ Render của 2 tài khoản khác nhau
-const BACKEND_NODES = [
-  {
-    id: "node-primary",
-    name: "Render Node 1 (Tài khoản 1)",
-    url: "https://edusign-vgca.onrender.com",
-    weight: 1
-  },
-  {
-    id: "node-secondary",
-    name: "Render Node 2 (Tài khoản 2)",
-    url: "https://kyso.onrender.com",
-    weight: 1
-  }
-];
-
-// Thời gian chờ tối đa cho 1 node trước khi tự động chuyển hướng sang node còn lại (ms)
+const PRIMARY_URL = 'https://edusign-vgca.onrender.com';
+const SECONDARY_URL = 'https://kyso.onrender.com';
 const FAILOVER_TIMEOUT_MS = 6000;
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With, Cache-Control, Accept, Range',
+  'Access-Control-Max-Age': '86400'
+};
+
+function handleOptions() {
+  return new Response(null, {
+    status: 204,
+    headers: CORS_HEADERS
+  });
+}
+
+function buildProxyHeaders(incomingHeaders, targetHost) {
+  const headers = new Headers(incomingHeaders);
+  headers.set('host', targetHost);
+  headers.delete('cf-connecting-ip');
+  headers.delete('cf-ray');
+  headers.delete('cf-visitor');
+  headers.delete('connection');
+  headers.delete('keep-alive');
+  headers.delete('transfer-encoding');
+  return headers;
+}
+
+async function forwardRequest(targetBaseUrl, pathnameWithSearch, method, headers, bodyBytes) {
+  const targetUrl = new URL(pathnameWithSearch, targetBaseUrl).toString();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FAILOVER_TIMEOUT_MS);
+
+  try {
+    const fetchOptions = {
+      method: method,
+      headers: buildProxyHeaders(headers, new URL(targetBaseUrl).host),
+      signal: controller.signal,
+      redirect: 'manual'
+    };
+
+    if (bodyBytes && !['GET', 'HEAD'].includes(method.toUpperCase())) {
+      fetchOptions.body = bodyBytes;
+    }
+
+    const response = await fetch(targetUrl, fetchOptions);
+    return { ok: true, response: response, status: response.status };
+  } catch (err) {
+    const isTimeout = err?.name === 'AbortError';
+    console.warn(`[FailoverRouter] Forward tới ${targetBaseUrl} thất bại (${isTimeout ? 'Timeout 6s' : err?.message})`);
+    return { ok: false, error: isTimeout ? 'Gateway Timeout' : (err?.message || 'Network error'), isTimeout: isTimeout };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export default {
-  /**
-   * Bộ xử lý HTTP Request (Reverse Proxy & Load Balancer)
-   */
-  async fetch(request, env, ctx) {
+  async fetch(request, _env, _ctx) {
+    if (request.method === 'OPTIONS') {
+      return handleOptions();
+    }
+
     const url = new URL(request.url);
 
-    // 1. Cho phép truy vấn trạng thái Cluster trực tiếp qua /cluster-status
+    // Endpoint giám sát tình trạng cụm Dual-Render
     if (url.pathname === '/cluster-status') {
       return new Response(JSON.stringify({
-        cluster: "CVA-KySo-Dual-Render",
-        nodes: BACKEND_NODES,
+        cluster: 'CVA-KySo-Dual-Render',
+        nodes: [
+          { id: 'node-primary', name: 'Render Node 1', url: PRIMARY_URL },
+          { id: 'node-secondary', name: 'Render Node 2', url: SECONDARY_URL }
+        ],
         timestamp: new Date().toISOString()
       }, null, 2), {
-        headers: { "Content-Type": "application/json; charset=utf-8" }
+        headers: { 'Content-Type': 'application/json; charset=utf-8', ...CORS_HEADERS }
       });
     }
 
-    // 2. Chọn Node khởi đầu theo phương pháp Round-Robin ngẫu nhiên
-    const primaryIndex = Math.random() < 0.5 ? 0 : 1;
-    const secondaryIndex = 1 - primaryIndex;
+    const pathnameWithSearch = `${url.pathname}${url.search}`;
 
-    const firstNode = BACKEND_NODES[primaryIndex];
-    const fallbackNode = BACKEND_NODES[secondaryIndex];
-
-    // 3. Thử gửi request đến Node thứ nhất
-    try {
-      const targetUrl1 = new URL(url.pathname + url.search, firstNode.url).toString();
-      const controller1 = new AbortController();
-      const timeout1 = setTimeout(() => controller1.abort(), FAILOVER_TIMEOUT_MS);
-
-      const response1 = await fetch(targetUrl1, {
-        method: request.method,
-        headers: request.headers,
-        body: (request.method === 'GET' || request.method === 'HEAD') ? null : request.body,
-        redirect: 'follow',
-        signal: controller1.signal
-      });
-
-      clearTimeout(timeout1);
-
-      // Nếu Node 1 phản hồi tốt (< 500), trả về cho người dùng
-      if (response1.status < 500) {
-        const newHeaders = new Headers(response1.headers);
-        newHeaders.set('X-Served-By-Node', firstNode.id);
-        return new Response(response1.body, {
-          status: response1.status,
-          statusText: response1.statusText,
-          headers: newHeaders
+    let bodyBytes = null;
+    const method = request.method.toUpperCase();
+    if (!['GET', 'HEAD'].includes(method)) {
+      try {
+        bodyBytes = await request.arrayBuffer();
+      } catch (err) {
+        console.error('[FailoverRouter] Lỗi khi đọc body request:', err?.message);
+        return new Response(JSON.stringify({ error: 'Bad Request - Không thể đọc nội dung request', status: 400 }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', ...CORS_HEADERS }
         });
       }
-
-      console.warn(`[Failover Triggered] ${firstNode.name} phản hồi HTTP ${response1.status}. Chuyển sang ${fallbackNode.name}...`);
-    } catch (err) {
-      console.warn(`[Failover Triggered] ${firstNode.name} lỗi hoặc timeout: ${err.message}. Chuyển sang ${fallbackNode.name}...`);
     }
 
-    // 4. TỰ ĐỘNG CHUYỂN HƯỚNG SANG NODE THỨ HAI (Zero-Downtime Failover)
-    try {
-      const targetUrl2 = new URL(url.pathname + url.search, fallbackNode.url).toString();
-      const response2 = await fetch(targetUrl2, {
-        method: request.method,
-        headers: request.headers,
-        body: (request.method === 'GET' || request.method === 'HEAD') ? null : request.body,
-        redirect: 'follow'
-      });
-
-      const newHeaders2 = new Headers(response2.headers);
-      newHeaders2.set('X-Served-By-Node', fallbackNode.id);
-      newHeaders2.set('X-Failover-Active', 'true');
-
-      return new Response(response2.body, {
-        status: response2.status,
-        statusText: response2.statusText,
-        headers: newHeaders2
-      });
-    } catch (fallbackErr) {
-      return new Response(JSON.stringify({
-        success: false,
-        error: "Cả 2 máy chủ Render đều không phản hồi. Vui lòng kiểm tra lại kết nối mạng!",
-        details: fallbackErr.message
-      }), {
-        status: 503,
-        headers: { "Content-Type": "application/json; charset=utf-8" }
+    // 1. Thử gửi đến Primary Node
+    const primaryResult = await forwardRequest(PRIMARY_URL, pathnameWithSearch, method, request.headers, bodyBytes);
+    
+    // Nếu Primary phản hồi thành công và không phải lỗi server sập (502, 503, 504)
+    if (primaryResult.ok && ![502, 503, 504].includes(primaryResult.status)) {
+      const respHeaders = new Headers(primaryResult.response.headers);
+      respHeaders.set('x-router-node', 'primary');
+      respHeaders.set('Access-Control-Allow-Origin', '*');
+      return new Response(primaryResult.response.body, {
+        status: primaryResult.response.status,
+        statusText: primaryResult.response.statusText,
+        headers: respHeaders
       });
     }
+
+    // Hủy body của Primary nếu trả về 502/503/504 để giải phóng tài nguyên
+    if (primaryResult.response?.body) {
+      try { await primaryResult.response.body.cancel(); } catch {}
+    }
+
+    console.warn(`[FailoverRouter] Primary Node không khả dụng (Status: ${primaryResult.status || primaryResult.error}). Chuyển tiếp sang Secondary Node...`);
+
+    // 2. Chuyển tiếp sang Secondary Node (Failover)
+    const secondaryResult = await forwardRequest(SECONDARY_URL, pathnameWithSearch, method, request.headers, bodyBytes);
+
+    if (secondaryResult.ok && ![502, 503, 504].includes(secondaryResult.status)) {
+      const respHeaders = new Headers(secondaryResult.response.headers);
+      respHeaders.set('x-router-node', 'secondary-failover');
+      respHeaders.set('Access-Control-Allow-Origin', '*');
+      return new Response(secondaryResult.response.body, {
+        status: secondaryResult.response.status,
+        statusText: secondaryResult.response.statusText,
+        headers: respHeaders
+      });
+    }
+
+    // Hủy body của Secondary nếu trả về 502/503/504
+    if (secondaryResult.response?.body) {
+      try { await secondaryResult.response.body.cancel(); } catch {}
+    }
+
+    // 3. Cả 2 Node đều không khả dụng
+    console.error('[FailoverRouter] Toàn bộ các node Render đều không khả dụng. Trả về 503.');
+    return new Response(JSON.stringify({
+      error: 'Tất cả các máy chủ backend Render đều không khả dụng hoặc quá thời gian chờ (6s)',
+      status: 503,
+      primaryError: primaryResult.error || `HTTP ${primaryResult.status}`,
+      secondaryError: secondaryResult.error || `HTTP ${secondaryResult.status}`,
+      timestamp: new Date().toISOString()
+    }), {
+      status: 503,
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Retry-After': '10',
+        ...CORS_HEADERS
+      }
+    });
   },
 
   /**
-   * Bộ phát nhịp tim định kỳ (Cron Trigger mỗi 5 phút)
-   * Giữ ấm cả 2 máy chủ Render, triệt tiêu 100% hiện tượng ngủ đông Scale-to-Zero!
+   * Bộ phát nhịp tim định kỳ (Cron Trigger)
+   * Giữ ấm cả 2 máy chủ Render, triệt tiêu 100% hiện tượng ngủ đông Scale-to-Zero
    */
-  async scheduled(event, env, ctx) {
-    console.log('[Anti-Sleep Cron] Đang ping giữ ấm cả 2 máy chủ Render...');
-    const pingPromises = BACKEND_NODES.map(async (node) => {
+  async scheduled(_event, _env, ctx) {
+    const pingPromises = [PRIMARY_URL, SECONDARY_URL].map(async (baseUrl) => {
       try {
-        const pingUrl = `${node.url}/api/health`;
-        const res = await fetch(pingUrl, { method: 'GET', headers: { 'User-Agent': 'Cloudflare-AntiSleep-Ping/1.0' } });
-        console.log(`[Anti-Sleep Cron] ${node.name}: HTTP ${res.status}`);
+        const res = await fetch(`${baseUrl}/api/health`, { method: 'GET', headers: { 'User-Agent': 'Cloudflare-AntiSleep-Ping/1.0' } });
+        console.log(`[Anti-Sleep Cron] ${baseUrl}: HTTP ${res.status}`);
       } catch (e) {
-        console.warn(`[Anti-Sleep Cron] Lỗi ping ${node.name}:`, e.message);
+        console.warn(`[Anti-Sleep Cron] Lỗi ping ${baseUrl}:`, e?.message || e);
       }
     });
 
-    ctx.waitUntil(Promise.allSettled(pingPromises));
+    if (ctx?.waitUntil) {
+      ctx.waitUntil(Promise.allSettled(pingPromises));
+    } else {
+      await Promise.allSettled(pingPromises);
+    }
   }
 };

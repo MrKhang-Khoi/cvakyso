@@ -48,6 +48,11 @@
       "status": "APPROVED",
       "module": "Module 4: Kiểm Thử & Tiện Ích (Utilities & Tests)",
       "timestamp": "2026-09-22T17:15:36.778Z"
+    },
+    "cloudflare-worker-router.js": {
+      "sha256": "f3273b70a7ca1ef0b31f9439460929a15b815cb053573e3e0c4cd1297c372b89",
+      "status": "APPROVED",
+      "timestamp": "2026-09-23T02:16:24.472Z"
     }
   },
   "contracts": {
@@ -55,8 +60,15 @@
       "`recordScenario()` | Chuẩn hóa đường dẫn screenshot thành đường dẫn tương đối, dùng dấu `/`, đồng thời ghi nhận scenario và cập nhật bộ đếm PASS.",
       "`runF12MatrixAudit()` | Đồng bộ lại `totalScenarios`, `passedScenarios`, `failedScenarios` theo dữ liệu scenario thực tế trước khi xuất báo cáo.",
       "`f12_diagnostic_report.json` | Báo cáo chẩn đoán có cấu trúc ổn định, đường dẫn artifact portable và kết thúc bằng newline hợp lệ."
+    ],
+    "cloudflare-worker-router.js (Toàn bộ dòng 1 - 141)": [
+      "`forwardRequest()` và `fetch()` handler | Chuyển tiếp stateless HTTP đến Primary, tự động failover sang Secondary khi gặp timeout, lỗi mạng hoặc HTTP 502/503/504; tái sử dụng body qua `ArrayBuffer`, hỗ trợ CORS preflight và trả JSON HTTP 503 khi cả hai backend không khả dụng."
+    ],
+    "cloudflare-worker-router.js (Toàn bộ dòng 1 - 191)": [
+      "`forwardRequest()` và `fetch()` handler | Chuyển tiếp HTTP stateless đến Primary, tự động failover sang Secondary khi timeout, lỗi mạng hoặc HTTP 502/503/504; tái sử dụng body qua `ArrayBuffer`, hỗ trợ CORS preflight và trả JSON HTTP 503 khi cả hai backend không khả dụng.",
+      "`scheduled()` | Ping định kỳ hai Render node để giảm hiện tượng cold start, không bổ sung trạng thái hoặc cơ chế phân tán ngoài phạm vi Tier 1."
     ]
   },
-  "lastAudit": "2026-09-22T17:15:36.779Z",
+  "lastAudit": "2026-09-23T02:16:24.473Z",
   "lastStatus": "APPROVED"
 }

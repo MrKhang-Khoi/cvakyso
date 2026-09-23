@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-09-22T17:15:58.780Z",
+  "timestamp": "2026-09-23T02:18:07.968Z",
   "targetApp": "EduSign VGCA / HTML Web App",
   "totalScenarios": 11,
   "passedScenarios": 11,
@@ -12,7 +12,7 @@
       "status": "PASS",
       "details": "Toàn bộ thẻ <div> đóng mở chuẩn xác 100%.",
       "screenshot": null,
-      "timestamp": "2026-09-22T17:15:58.784Z"
+      "timestamp": "2026-09-23T02:18:07.972Z"
     },
     {
       "id": 1,
@@ -20,7 +20,7 @@
       "status": "PASS",
       "details": "Token nhận từ Render dài 158 ký tự, User: Hà Văn Tý",
       "screenshot": null,
-      "timestamp": "2026-09-22T17:16:06.694Z"
+      "timestamp": "2026-09-23T02:18:15.945Z"
     },
     {
       "id": 2,
@@ -28,15 +28,15 @@
       "status": "PASS",
       "details": "Đã kiểm tra 7 request, 100% đều mang Token hợp lệ.",
       "screenshot": null,
-      "timestamp": "2026-09-22T17:16:06.694Z"
+      "timestamp": "2026-09-23T02:18:15.945Z"
     },
     {
       "id": 3,
       "name": "Hiển thị Tab Kho Báo Cáo Số (Chiều cao > 150px, có dữ liệu bảng)",
       "status": "PASS",
-      "details": "Chiều cao: 4754px, 44 dòng báo cáo.",
+      "details": "Chiều cao: 61940px, 596 dòng báo cáo.",
       "screenshot": "tests/screenshots/f12_matrix/scenario3_reports_tab_clean.png",
-      "timestamp": "2026-09-22T17:16:08.934Z"
+      "timestamp": "2026-09-23T02:18:18.583Z"
     },
     {
       "id": 4,
@@ -44,7 +44,7 @@
       "status": "PASS",
       "details": "0 console.error, 0 uncaught exception.",
       "screenshot": null,
-      "timestamp": "2026-09-22T17:16:08.934Z"
+      "timestamp": "2026-09-23T02:18:18.583Z"
     },
     {
       "id": 5,
@@ -52,7 +52,7 @@
       "status": "PASS",
       "details": "Giao diện co giãn hoàn hảo trên cả 1920x1080 và 1366x768 (scrollWidth === clientWidth).",
       "screenshot": null,
-      "timestamp": "2026-09-22T17:16:09.961Z"
+      "timestamp": "2026-09-23T02:18:19.640Z"
     },
     {
       "id": 6,
@@ -60,7 +60,7 @@
       "status": "PASS",
       "details": "Trạng thái phiên đăng nhập và không gian làm việc tự khôi phục nguyên vẹn.",
       "screenshot": null,
-      "timestamp": "2026-09-22T17:16:12.329Z"
+      "timestamp": "2026-09-23T02:18:21.993Z"
     },
     {
       "id": 7,
@@ -68,7 +68,7 @@
       "status": "PASS",
       "details": "Bỏ qua nút newDoc nếu không có trong DOM.",
       "screenshot": null,
-      "timestamp": "2026-09-22T17:16:12.348Z"
+      "timestamp": "2026-09-23T02:18:22.022Z"
     },
     {
       "id": 8,
@@ -76,15 +76,15 @@
       "status": "PASS",
       "details": "Mã phản hồi: HTTP 403 (Báo cáo chuyên môn nội bộ (Tổ/Khối) không được luân chuyển trực tiếp lên Ban Giám hiệu.)",
       "screenshot": null,
-      "timestamp": "2026-09-22T17:16:12.530Z"
+      "timestamp": "2026-09-23T02:18:22.221Z"
     },
     {
       "id": 9,
       "name": "Máy chủ Render phản hồi Liveness Probe trong ngưỡng cho phép",
       "status": "PASS",
-      "details": "Thời gian phản hồi: 188ms (HTTP 200)",
+      "details": "Thời gian phản hồi: 145ms (HTTP 200)",
       "screenshot": null,
-      "timestamp": "2026-09-22T17:16:12.720Z"
+      "timestamp": "2026-09-23T02:18:22.367Z"
     },
     {
       "id": 10,
@@ -92,7 +92,7 @@
       "status": "PASS",
       "details": "Phần lớn nút đạt chuẩn; 2 nút icon phụ nhỏ.",
       "screenshot": null,
-      "timestamp": "2026-09-22T17:16:12.723Z"
+      "timestamp": "2026-09-23T02:18:22.372Z"
     }
   ]
 }
