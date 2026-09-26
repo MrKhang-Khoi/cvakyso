@@ -9863,6 +9863,12 @@ async function handleViewerConfirmSignClick() {
           'Vui lòng chọn đồng nghiệp hoặc lãnh đạo ký tiếp theo, hoặc đánh dấu <strong>☑️ Tôi là người ký cuối cùng</strong> nếu Thầy/Cô là người hoàn tất văn bản.',
           'warning'
         );
+        const selViewer = document.getElementById('selectViewerNextSigner');
+        if (selViewer) {
+          selViewer.focus();
+          selViewer.classList.add('ring-2', 'ring-rose-500');
+          setTimeout(() => selViewer.classList.remove('ring-2', 'ring-rose-500'), 3000);
+        }
         return;
       }
     }
