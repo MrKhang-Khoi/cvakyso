@@ -158,6 +158,34 @@ async function runF12MatrixAudit() {
     });
   });
 
+  // Intercept xác thực auth login độc lập phục vụ kiểm thử F12
+  await page.route('**/api/auth/login', (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json; charset=utf-8',
+      headers: { 'access-control-allow-origin': '*' },
+      body: JSON.stringify({
+        token: 'mock_jwt_matrix_token_cva_' + Date.now(),
+        user: {
+          id: 'cvaty',
+          username: 'cva.ty',
+          fullName: 'Hà Văn Tý',
+          name: 'Hà Văn Tý',
+          role: 'TEACHER',
+          roleTitle: 'Giáo viên bộ môn',
+          department: 'Tổ Toán - Tin học',
+          departmentName: 'Tổ Toán - Tin học',
+          phone: '0818810007',
+          email: 'hvty-dakha@quangngai.gov.vn',
+          cccd: '051088001234',
+          canUploadWord: true,
+          canStampSeal: false
+        }
+      })
+    });
+  });
+
+
   const capturedLogs = {
     errors: [],
     warnings: [],

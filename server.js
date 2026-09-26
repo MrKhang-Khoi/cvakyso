@@ -6009,7 +6009,12 @@ app.get('/api/verify-real-pdf', verifyAccessGuard, (req, res) => {
   });
 });
 
+// Phục vụ giao diện kiểm thử Ký số từ xa VGCA Web-Direct (Thử nghiệm thực tế)
+app.use('/vgca-test', express.static(path.join(__dirname, 'vgca-web-signer', 'public')));
+
 let server = null;
+
+
 if (require.main === module) {
   server = app.listen(PORT, () => {
     console.log(`===========================================================`);

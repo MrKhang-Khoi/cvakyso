@@ -1,0 +1,23 @@
+{
+  "name": "vgca-web-signer",
+  "version": "1.0.0",
+  "description": "Module Ký Số Chuyên Dùng VGCA Chạy Trực Tiếp Trên Web - Chuẩn Nghị Định 30/2020/NĐ-CP & ETSI TS 119 432",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/test-phase2-tsa-pdf.js"
+  },
+  "keywords": [
+    "vgca",
+    "remote-signing",
+    "pades",
+    "tsa",
+    "pdf-signature"
+  ],
+  "dependencies": {
+    "@noble/curves": "^2.4.0",
+    "pdf-lib": "^1.17.1"
+  },
+  "author": "CVA_KYSO",
+  "license": "ISC"
+}
